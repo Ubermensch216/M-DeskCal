@@ -34,8 +34,16 @@ public partial class App : System.Windows.Application
     private CountdownRepository? _countdowns;
     private CountdownCardsWindow? _cards;
     private SearchService? _searchService;
+    private ExchangeService? _exchange;
+    private DeskCalDb? _db;
     private ItemRepository? _itemRepo;
     private HistoryRepository? _historyRepo;
+    private EventRepository? _eventRepo;
+    private NoteRepository? _noteRepo;
+    private TimetableRepository? _timetableRepo;
+    private SettingsStore? _settingsStore;
+    private ContentLockStore? _lock;
+    private TimetableWidgetWindow? _ttWidget;
     private static string ExePath => Environment.ProcessPath ?? System.Reflection.Assembly.GetExecutingAssembly().Location;
 
     /// <summary>Tell the instance that is already running to bring its calendar forward (waits briefly while it is still starting).</summary>
@@ -87,6 +95,13 @@ public partial class App : System.Windows.Application
         _countdowns = new CountdownRepository(db, clock);
         _itemRepo = items; _historyRepo = history;
         _searchService = new SearchService(items, events, isDayOff);
+        _exchange = new ExchangeService(db, clock, isDayOff);
+        _db = db;
+        _eventRepo = events;
+        _noteRepo = new NoteRepository(db, clock);
+        _timetableRepo = new TimetableRepository(db, clock);
+        _settingsStore = settings;
+        _lock = new ContentLockStore(settings);
 
         _board = new MainWindow();
         _board.SetItems(items);
@@ -100,6 +115,8 @@ public partial class App : System.Windows.Application
             System.Windows.MessageBox.Show("holidays.json 에 문제가 있어 해당 항목을 건너뛰었습니다.\n\n" + string.Join("\n", loaded.Errors),
                 "M-DeskCal 휴일 데이터");
         _board.ApplySettings(_boardStore.Load());
+        _board.EnsureUnlocked = EnsureUnlocked;
+        if (_lock.Hidden) _board.SetContentHidden(true);      // a restart must not undo the lock
 
         // Restore the saved board rectangle (physical pixels), ignoring implausible values.
         int w = settings.GetInt("board.w", 640), h = settings.GetInt("board.h", 480);
@@ -108,6 +125,9 @@ public partial class App : System.Windows.Application
         _cards = new CountdownCardsWindow();
         _cards.SetPosition(settings.GetInt("cards.x", 880), settings.GetInt("cards.y", 150));
         _cards.Moved += (cx, cy) => { settings.SetInt("cards.x", cx); settings.SetInt("cards.y", cy); };
+        _ttWidget = new TimetableWidgetWindow();
+        _ttWidget.SetPosition(settings.GetInt("timetable.x", 880), settings.GetInt("timetable.y", 420));
+        _ttWidget.Moved += (tx, ty) => { settings.SetInt("timetable.x", tx); settings.SetInt("timetable.y", ty); };
         _board.RectCommitted += r =>
         {
             settings.SetInt("board.x", r.X); settings.SetInt("board.y", r.Y);
@@ -123,7 +143,7 @@ public partial class App : System.Windows.Application
         {
             // Dev aid: render the UI offscreen and run editor self-tests, then exit.
             var dir = e.Args.First(a => a.StartsWith("--snapshot="))["--snapshot=".Length..];
-            DevHarness.Run(_board, items, series, events, reminders, _days, dir, e.Args.Contains("--seed"), _countdowns!, _searchService!, history);
+            DevHarness.Run(_board, items, series, events, reminders, _days, dir, e.Args.Contains("--seed"), _countdowns!, _searchService!, history, _exchange!, _noteRepo!, _timetableRepo!, settings);
             Shutdown();
             return;
         }
@@ -146,7 +166,7 @@ public partial class App : System.Windows.Application
         {
             var presenter = new ReminderPresenter();
             _reminderService = new ReminderService(new ReminderProcessor(db, clock, isDayOff),
-                msgs => presenter.Show(msgs, _board.Settings.ReminderSound), missedWindow: TimeSpan.FromHours(24));
+                msgs => presenter.Show(_board.ContentHidden ? msgs.Select(m => m with { Title = "🔒 잠긴 알림" }).ToList() : msgs, _board.Settings.ReminderSound), missedWindow: TimeSpan.FromHours(24));
             _board.RemindersChanged += _reminderService.Reschedule;
             _reminderService.Start();
         }
@@ -203,20 +223,66 @@ public partial class App : System.Windows.Application
         UpdateCards();   // the cards come and go with the calendar
     }
 
-    /// <summary>Redraw the desktop D-day cards (and the strip under the calendar).</summary>
+    /// <summary>Redraw the desktop widgets: the D-day cards and the timetable. They follow the calendar's visibility and the content lock.</summary>
     private void UpdateCards()
     {
         if (_cards is null || _countdowns is null || _board is null) return;
         var today = DateOnly.FromDateTime(DateTime.Today);
-        _cards.Update(CountdownCalc.Ordered(_countdowns.List().Where(c => c.ShowCard), today), _board.Settings, _board.BoardVisible);
+        bool show = _board.BoardVisible && !_board.ContentHidden;
+        _cards.Update(CountdownCalc.Ordered(_countdowns.List().Where(c => c.ShowCard), today), _board.Settings, show);
+        if (_ttWidget is not null && _timetableRepo is not null && _settingsStore is not null)
+            _ttWidget.Update(_timetableRepo.LoadConfig(_settingsStore), _timetableRepo.GetCells(), _board.Settings,
+                show && _settingsStore.GetBool("timetable.widget", false));
+    }
+
+    // ---- content lock ---------------------------------------------------------------
+
+    /// <summary>Called whenever something wants to show or change the user's content: true when it may (asks for the password if needed).</summary>
+    private bool EnsureUnlocked()
+    {
+        if (!_board!.ContentHidden) return true;
+        if (_lock!.HasPassword && !LockUi.Unlock(_lock)) return false;
+        SetLocked(false);
+        return true;
+    }
+
+    private void SetLocked(bool locked)
+    {
+        _board!.SetContentHidden(locked);
+        _lock!.Hidden = locked;
+        if (locked)
+            foreach (var w in Windows.OfType<Window>().Where(w => w is SearchWindow or NotesWindow or TimetableWindow or CountdownWindow).ToList()) w.Close();
+        UpdateCards();
+    }
+
+    private void OpenNotes() { if (EnsureUnlocked()) NotesWindow.ShowOrActivate(_noteRepo!, _historyRepo!); }
+
+    private void OpenTimetable() { if (EnsureUnlocked()) TimetableWindow.ShowOrActivate(_timetableRepo!, _settingsStore!, UpdateCards); }
+
+    private void PrintMonth()
+    {
+        if (!EnsureUnlocked()) return;
+        var a = _board!.Anchor;
+        PrintUi.Print(PrintableMonth.Gather(new DateOnly(a.Year, a.Month, 1), _board.Settings.FirstDayOfWeek, _itemRepo!, _eventRepo!, d => _days.Holidays.IsDayOff(d), _days));
+    }
+
+    /// <summary>Redraw everything an import can touch and re-arm the reminder timer for the new reminders.</summary>
+    private void AfterImport()
+    {
+        _board?.Refresh();
+        UpdateCards();
+        _reminderService?.Reschedule();
     }
 
     private void CountdownsChanged() { UpdateCards(); _board?.Refresh(); }
 
-    private void OpenSearch() =>
+    private void OpenSearch()
+    {
+        if (!EnsureUnlocked()) return;
         SearchWindow.ShowOrActivate(_searchService!, _itemRepo!, _historyRepo!,
             day => { _board!.GoTo(day); _board.BringToFront(); RememberVisibility(); },
             () => _board!.Refresh());
+    }
 
     private void OnHotkey(HotkeyAction action)
     {
@@ -234,6 +300,9 @@ public partial class App : System.Windows.Application
                 break;
             case HotkeyAction.Search:
                 OpenSearch();
+                break;
+            case HotkeyAction.ToggleContent:
+                if (_board!.ContentHidden) EnsureUnlocked(); else SetLocked(true);
                 break;
         }
     }
@@ -278,9 +347,43 @@ public partial class App : System.Windows.Application
         refresh.Add(() => showItem.Text = board.BoardVisible ? "달력 숨기기" : "달력 보이기");
         menu.Items.Add("새 일정 (오늘)…", null, (_, _) => OnHotkey(HotkeyAction.NewEvent));
         menu.Items.Add("검색…", null, (_, _) => OpenSearch());
-        menu.Items.Add("디데이 관리…", null, (_, _) => CountdownWindow.ShowOrActivate(_countdowns!, CountdownsChanged));
+        var exchangeMenu = new Forms.ToolStripMenuItem("가져오기 / 내보내기");
+        exchangeMenu.DropDownItems.Add("내보내기… (JSON·CSV·ICS·Excel)", null, (_, _) =>
+        {
+            if (EnsureUnlocked()) ExchangeUi.Export(_exchange!, d => _days.Holidays.IsDayOff(d), d => _days.Get(d).HolidayName, board.Settings.FirstDayOfWeek);
+        });
+        exchangeMenu.DropDownItems.Add("가져오기…", null, (_, _) =>
+        {
+            if (EnsureUnlocked()) ExchangeUi.Import(_exchange!, _db!, Path.Combine(DataDir, "backup"), AfterImport);
+        });
+        menu.Items.Add(exchangeMenu);
+        menu.Items.Add("디데이 관리…", null, (_, _) => { if (EnsureUnlocked()) CountdownWindow.ShowOrActivate(_countdowns!, CountdownsChanged); });
+        menu.Items.Add("메모…", null, (_, _) => OpenNotes());
+        menu.Items.Add("시간표…", null, (_, _) => OpenTimetable());
+        var ttWidget = new Forms.ToolStripMenuItem("바탕화면에 시간표 표시");
+        ttWidget.Click += (_, _) => { _settingsStore!.SetBool("timetable.widget", !_settingsStore.GetBool("timetable.widget", false)); UpdateCards(); };
+        menu.Items.Add(ttWidget);
+        refresh.Add(() => ttWidget.Checked = _settingsStore!.GetBool("timetable.widget", false));
+        menu.Items.Add("인쇄… (현재 달)", null, (_, _) => PrintMonth());
+
+        // content lock
+        var lockMenu = new Forms.ToolStripMenuItem("콘텐츠 잠금");
+        var lockToggle = new Forms.ToolStripMenuItem();
+        lockToggle.Click += (_, _) => { if (board.ContentHidden) EnsureUnlocked(); else SetLocked(true); };
+        var lockSet = new Forms.ToolStripMenuItem();
+        lockSet.Click += (_, _) => { if (EnsureUnlocked()) LockUi.SetPassword(_lock!); };
+        var lockClear = new Forms.ToolStripMenuItem("비밀번호 해제…");
+        lockClear.Click += (_, _) => { if (EnsureUnlocked()) LockUi.RemovePassword(_lock!); };
+        lockMenu.DropDownItems.AddRange([lockToggle, lockSet, lockClear]);
+        menu.Items.Add(lockMenu);
+        refresh.Add(() =>
+        {
+            lockToggle.Text = board.ContentHidden ? "잠금 해제…" : "지금 잠그기 (내용 숨김)";
+            lockSet.Text = _lock!.HasPassword ? "비밀번호 변경…" : "비밀번호 설정…";
+            lockClear.Enabled = _lock.HasPassword;
+        });
         EditItem = new Forms.ToolStripMenuItem("편집 모드 (위치/크기 조정)") { CheckOnClick = true };
-        EditItem.CheckedChanged += (_, _) => { board.SetEditMode(EditItem.Checked); _cards?.SetEditMode(EditItem.Checked); };
+        EditItem.CheckedChanged += (_, _) => { board.SetEditMode(EditItem.Checked); _cards?.SetEditMode(EditItem.Checked); _ttWidget?.SetEditMode(EditItem.Checked); };
         menu.Items.Add(EditItem);
         menu.Items.Add("오늘로 이동", null, (_, _) => board.GoToday());
         menu.Items.Add(new Forms.ToolStripSeparator());
@@ -368,6 +471,54 @@ public partial class App : System.Windows.Application
             refresh.Add(() => item.Checked = Math.Abs(board.Settings.BackgroundOpacity - pct / 100.0) < 0.001);
         }
         menu.Items.Add(opMenu);
+
+        // background photo ("skin"): a folder of pictures, how to fit them, how often to change
+        var skinMenu = new Forms.ToolStripMenuItem("배경 사진");
+        skinMenu.DropDownItems.Add("사진 폴더 선택…", null, (_, _) =>
+        {
+            using var dlg = new Forms.FolderBrowserDialog
+            {
+                Description = "배경으로 쓸 사진이 들어 있는 폴더를 고르세요 (png, jpg, bmp, gif, tif).", UseDescriptionForTitle = true,
+                SelectedPath = board.Settings.SkinFolder,
+            };
+            if (dlg.ShowDialog() != Forms.DialogResult.OK) return;
+            if (SkinPicker.List(dlg.SelectedPath).Count == 0)
+            {
+                System.Windows.MessageBox.Show("이 폴더에는 사용할 수 있는 사진이 없습니다.", "배경 사진");
+                return;
+            }
+            Update(s => s with { SkinFolder = dlg.SelectedPath });
+        });
+        skinMenu.DropDownItems.Add("사진 끄기", null, (_, _) => Update(s => s with { SkinFolder = "" }));
+        skinMenu.DropDownItems.Add(new Forms.ToolStripSeparator());
+
+        var fitMenu = new Forms.ToolStripMenuItem("맞춤 방식");
+        foreach (var (fit, name) in new[]
+                 {
+                     (SkinFit.Fill, "채우기 (비율 유지, 넘치는 부분 잘림)"), (SkinFit.Fit, "맞추기 (전체가 보이게)"),
+                     (SkinFit.Stretch, "늘이기 (비율 무시)"), (SkinFit.Tile, "바둑판"), (SkinFit.Center, "가운데 (원래 크기)"),
+                 })
+        {
+            var item = new Forms.ToolStripMenuItem(name);
+            item.Click += (_, _) => Update(s => s with { SkinFit = fit });
+            fitMenu.DropDownItems.Add(item);
+            refresh.Add(() => item.Checked = board.Settings.SkinFit == fit);
+        }
+        skinMenu.DropDownItems.Add(fitMenu);
+
+        var rotateMenu = new Forms.ToolStripMenuItem("사진 바꾸는 주기");
+        foreach (var (minutes, name) in new[]
+                 {
+                     (0, "바꾸지 않음 (첫 번째 사진)"), (5, "5분"), (15, "15분"), (30, "30분"), (60, "1시간"), (180, "3시간"), (720, "12시간"), (1440, "하루"),
+                 })
+        {
+            var item = new Forms.ToolStripMenuItem(name);
+            item.Click += (_, _) => Update(s => s with { SkinRotateMinutes = minutes });
+            rotateMenu.DropDownItems.Add(item);
+            refresh.Add(() => item.Checked = board.Settings.SkinRotateMinutes == minutes);
+        }
+        skinMenu.DropDownItems.Add(rotateMenu);
+        menu.Items.Add(skinMenu);
 
         menu.Items.Add("표시 설정 기본값으로", null, (_, _) =>
         {

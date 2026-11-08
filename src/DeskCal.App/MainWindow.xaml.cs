@@ -89,6 +89,112 @@ public partial class MainWindow : Window
     /// <summary>Redraw after items were restored/undeleted or countdowns changed elsewhere (search window, countdown manager).</summary>
     internal void Refresh() => Render();
 
+    // ---- content lock --------------------------------------------------------------
+
+    private bool _contentHidden;
+
+    /// <summary>True while the content lock hides everything the user wrote (day numbers and holidays stay).</summary>
+    internal bool ContentHidden => _contentHidden;
+
+    /// <summary>Set by the app: asks for the password if there is one, unhides on success, and says whether the content is now visible.</summary>
+    internal Func<bool>? EnsureUnlocked { get; set; }
+
+    internal void SetContentHidden(bool hidden)
+    {
+        if (_contentHidden == hidden) return;
+        if (hidden && _editingDay is not null) CommitEditor();
+        _contentHidden = hidden;
+        Render();
+    }
+
+    /// <summary>False when the content is locked and the user did not unlock it: the caller must not show or change content.</summary>
+    private bool Guard() => !_contentHidden || (EnsureUnlocked?.Invoke() ?? false);
+
+    // ---- background photo ("skin") ----------------------------------------------------
+
+    private List<string> _skinFiles = [];
+    private string _skinListedFolder = "";
+    private DateTime _skinListedAt;
+    private string? _skinShown;
+    private SkinFit _skinShownFit;
+    private double _skinShownOpacity = -1;
+
+    /// <summary>Show the current background photo (or none). Re-lists the folder every ten minutes; skips work when nothing changed.</summary>
+    private void ApplySkin()
+    {
+        var s = _settings;
+        if (string.IsNullOrEmpty(s.SkinFolder)) { ClearSkin(); return; }
+
+        if (s.SkinFolder != _skinListedFolder || DateTime.UtcNow - _skinListedAt > TimeSpan.FromMinutes(10))
+        {
+            _skinFiles = SkinPicker.List(s.SkinFolder);
+            _skinListedFolder = s.SkinFolder; _skinListedAt = DateTime.UtcNow;
+        }
+
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            int index = SkinPicker.Pick(_skinFiles.Count, DateTimeOffset.Now, s.SkinRotateMinutes);
+            if (index < 0) { ClearSkin(); return; }
+            string path = _skinFiles[index];
+            if (path == _skinShown && s.SkinFit == _skinShownFit && SkinLayer.Background is not null)
+            {
+                if (Math.Abs(_skinShownOpacity - s.BackgroundOpacity) > 0.001) { SkinLayer.Opacity = s.BackgroundOpacity; _skinShownOpacity = s.BackgroundOpacity; }
+                return;
+            }
+            var bmp = LoadPicture(path);
+            if (bmp is null) { _skinFiles.RemoveAt(index); continue; }     // unreadable picture: drop it and try the next
+
+            var brush = new ImageBrush(bmp);
+            switch (s.SkinFit)
+            {
+                case SkinFit.Fill: brush.Stretch = Stretch.UniformToFill; break;
+                case SkinFit.Fit: brush.Stretch = Stretch.Uniform; break;
+                case SkinFit.Stretch: brush.Stretch = Stretch.Fill; break;
+                case SkinFit.Center: brush.Stretch = Stretch.None; break;
+                case SkinFit.Tile:
+                    brush.TileMode = TileMode.Tile; brush.ViewportUnits = BrushMappingMode.Absolute;
+                    brush.Viewport = new Rect(0, 0, bmp.Width, bmp.Height); brush.Stretch = Stretch.Fill;
+                    break;
+            }
+            brush.Freeze();
+            SkinLayer.Background = brush;
+            SkinLayer.Opacity = s.BackgroundOpacity;
+            SkinLayer.Visibility = Visibility.Visible;
+            (_skinShown, _skinShownFit, _skinShownOpacity) = (path, s.SkinFit, s.BackgroundOpacity);
+            return;
+        }
+        ClearSkin();
+    }
+
+    private void ClearSkin()
+    {
+        if (SkinLayer.Background is null && SkinLayer.Visibility == Visibility.Collapsed) return;
+        SkinLayer.Background = null; SkinLayer.Visibility = Visibility.Collapsed; _skinShown = null;
+    }
+
+    /// <summary>Decodes a picture at no more than 1920 px wide (a camera photo would otherwise take ~100 MB). Null when it cannot be read.</summary>
+    internal static System.Windows.Media.Imaging.BitmapSource? LoadPicture(string path)
+    {
+        try
+        {
+            var uri = new Uri(path);
+            int width = System.Windows.Media.Imaging.BitmapDecoder.Create(uri, System.Windows.Media.Imaging.BitmapCreateOptions.DelayCreation | System.Windows.Media.Imaging.BitmapCreateOptions.IgnoreColorProfile,
+                System.Windows.Media.Imaging.BitmapCacheOption.None).Frames[0].PixelWidth;
+            var bmp = new System.Windows.Media.Imaging.BitmapImage();
+            bmp.BeginInit();
+            bmp.UriSource = uri;
+            bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            if (width > 1920) bmp.DecodePixelWidth = 1920;
+            bmp.EndInit();
+            bmp.Freeze();
+            return bmp;
+        }
+        catch (Exception ex) when (ex is IOException or NotSupportedException or InvalidOperationException or UnauthorizedAccessException or ArgumentException or System.Runtime.InteropServices.COMException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Apply new settings. Switching display mode re-centres on today.</summary>
     internal void ApplySettings(BoardSettings settings)
     {
@@ -97,6 +203,9 @@ public partial class MainWindow : Window
         _settings = s;
         Render();
     }
+
+    /// <summary>The date the board is currently centred on (its month is what "print" prints).</summary>
+    internal DateOnly Anchor => _anchor;
 
     internal void GoToday() { _anchor = Today(); Render(); }
     internal void GoTo(DateOnly date) { _anchor = date; Render(); }
@@ -185,6 +294,7 @@ public partial class MainWindow : Window
         {
             if (!_editMode && IsVisible && !IsActive) DesktopHost.Repin(this);
             if (Today() != _renderedToday && _editingDay is null) Render();
+            else ApplySkin();     // cheap unless the rotation moved on to the next picture
         };
         t.Start();
         return t;
@@ -256,7 +366,7 @@ public partial class MainWindow : Window
     /// <summary>Open the one-line-per-item editor over the given day's cell.</summary>
     internal void OpenEditor(DateOnly date)
     {
-        if (_items is null || _editMode) return;
+        if (_items is null || _editMode || !Guard()) return;
         if (_editingDay is not null) CommitEditor();
         _editingDay = date;
 
@@ -333,10 +443,11 @@ public partial class MainWindow : Window
         var culture = CultureInfo.CurrentCulture;
         _renderedToday = Today();
         var grid = BoardLayout.Build(_anchor, _renderedToday, s);
-        var byDay = LoadItems(grid);
-        var eventsByDay = LoadEvents(grid);
-        _itemsWithReminder = LoadItemReminderIds();
+        var byDay = _contentHidden ? [] : LoadItems(grid);
+        var eventsByDay = _contentHidden ? [] : LoadEvents(grid);
+        _itemsWithReminder = _contentHidden ? [] : LoadItemReminderIds();
         _cells.Clear();
+        ApplySkin();
 
         // frame: background, opacity, shadow
         var bg = ParseColor(s.BackgroundColor, Color.FromRgb(0x10, 0x18, 0x20));
@@ -351,7 +462,7 @@ public partial class MainWindow : Window
 
         foreach (var tb in new[] { MonthTitle, PrevText, TodayText, NextText }) { tb.Foreground = text; tb.FontFamily = font; }
         MonthTitle.FontSize = s.FontSize + 7;
-        MonthTitle.Text = FormatTitle(grid, culture);
+        MonthTitle.Text = FormatTitle(grid, culture) + (_contentHidden ? "  🔒" : "");
 
         // grid
         GridHost.Children.Clear();
@@ -406,7 +517,7 @@ public partial class MainWindow : Window
     private void RenderCountdownBar(WpfBrush text, FontFamily font, double size)
     {
         CountdownBar.Children.Clear();
-        var shown = _countdowns is null ? []
+        var shown = _countdowns is null || _contentHidden ? []
             : CountdownCalc.Ordered(_countdowns.List().Where(c => c.ShowBottom), _renderedToday);
         CountdownBar.Visibility = shown.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
         foreach (var (cd, status) in shown)
@@ -602,7 +713,7 @@ public partial class MainWindow : Window
 
     private void RunEventEditor(string? eventId, DateOnly date)
     {
-        if (_series is null || _editMode) return;
+        if (_series is null || _editMode || !Guard()) return;
         if (_editingDay is not null) CommitEditor();
         var win = new EventEditorWindow(_series, eventId, date);
         win.ShowDialog();
@@ -742,7 +853,7 @@ public partial class MainWindow : Window
 
     private void ShowItemHistory(Item item)
     {
-        if (_items is null || _history is null || _editMode) return;
+        if (_items is null || _history is null || _editMode || !Guard()) return;
         if (_editingDay is not null) CommitEditor();
         if (HistoryWindow.Show(this, _items, _history, item)) Render();
         SendBack();

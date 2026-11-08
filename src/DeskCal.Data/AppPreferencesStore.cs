@@ -12,7 +12,8 @@ public sealed class AppPreferencesStore(SettingsStore store)
         HotkeyAction.BringToFront => "hotkey_front",
         HotkeyAction.ToggleVisible => "hotkey_toggle",
         HotkeyAction.NewEvent => "hotkey_new_event",
-        _ => "hotkey_search",
+        HotkeyAction.Search => "hotkey_search",
+        _ => "hotkey_content",
     };
 
     public AppPreferences Load()

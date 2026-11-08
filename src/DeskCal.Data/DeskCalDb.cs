@@ -135,5 +135,12 @@ internal static class Migrations
             event_id TEXT NOT NULL, day TEXT NOT NULL,
             PRIMARY KEY(event_id, day));
         """,
+        // v4: timetable squares (the period layout lives in settings as "timetable.*")
+        """
+        CREATE TABLE timetable_cells(
+            dow INTEGER NOT NULL, period INTEGER NOT NULL,
+            subject TEXT NOT NULL, room TEXT NOT NULL DEFAULT '', color TEXT,
+            PRIMARY KEY(dow, period));
+        """,
     ];
 }

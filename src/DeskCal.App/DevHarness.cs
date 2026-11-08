@@ -16,7 +16,8 @@ internal static class DevHarness
 {
     public static void Run(MainWindow board, ItemRepository items, EventSeriesService series, EventRepository events,
                            ReminderRepository reminders, KoreanDays days, string dir, bool seed,
-                           CountdownRepository countdowns, SearchService search, HistoryRepository history)
+                           CountdownRepository countdowns, SearchService search, HistoryRepository history, ExchangeService exchange,
+                           NoteRepository notes, TimetableRepository timetable, SettingsStore settings)
     {
         Directory.CreateDirectory(dir);
         var report = new StringBuilder();
@@ -95,6 +96,8 @@ internal static class DevHarness
 
             EventEditorSelfTests(series, events, reminders, today, dir, report);
             SearchHistoryCountdownChecks(board, items, search, history, countdowns, today, dir, report);
+            ExchangeChecks(exchange, dir, report);
+            Milestone9Checks(board, items, events, days, notes, history, timetable, settings, exchange, dir, report);
         }
 
         File.WriteAllText(Path.Combine(dir, "selftest.txt"), report.ToString());
@@ -163,6 +166,103 @@ internal static class DevHarness
 
         SearchWindow.Snapshot(search, items, history, "회의", Path.Combine(dir, "m7-search.png"));
         Check("snapshots written", File.Exists(Path.Combine(dir, "m7-search.png")) && File.Exists(Path.Combine(dir, "m7-cards.png")));
+    }
+
+    /// <summary>Write the seeded data as JSON / CSV / ICS next to the snapshots (so the files can be inspected) and read each back.</summary>
+    private static void ExchangeChecks(ExchangeService exchange, string dir, StringBuilder report)
+    {
+        var bundle = exchange.Collect();
+        foreach (var format in Enum.GetValues<ExchangeFormat>().Where(f => f != ExchangeFormat.Xlsx))
+        {
+            string path = Path.Combine(dir, "m8-export" + ExchangeFiles.Extension(format));
+            ExchangeFiles.WriteFile(path, format, bundle, DateTimeOffset.Now);
+            var read = ExchangeFiles.ReadFile(path);
+            bool ok = read.Bundle.Items.Count == bundle.Items.Count && read.Bundle.Events.Count == bundle.Events.Count && read.Warnings.Count == 0;
+            report.AppendLine($"{(ok ? "PASS" : "FAIL")}: export {format} -> {new FileInfo(path).Length} bytes, read back items={read.Bundle.Items.Count}/{bundle.Items.Count} events={read.Bundle.Events.Count}/{bundle.Events.Count} warnings={read.Warnings.Count}");
+        }
+    }
+
+    /// <summary>M9: notes, timetable (editor + widget), background photos, content lock, print page, Excel file.</summary>
+    private static void Milestone9Checks(MainWindow board, ItemRepository items, EventRepository events, KoreanDays days, NoteRepository notes,
+                                         HistoryRepository history, TimetableRepository timetable, SettingsStore settings, ExchangeService exchange,
+                                         string dir, StringBuilder report)
+    {
+        void Check(string name, bool ok, string detail = "") => report.AppendLine($"{(ok ? "PASS" : "FAIL")}: {name}{(detail.Length > 0 ? " -> " + detail : "")}");
+        var today = DateOnly.FromDateTime(DateTime.Today);
+
+        // --- notes
+        var n1 = notes.Add("장보기", "우유\n빵\n달걀"); notes.SetColor(n1.Id, "#FFE066");
+        notes.Update(n1.Id, "장보기", "우유\n빵\n달걀\n치즈");
+        var n2 = notes.Add("회의 메모", "안건 1. 일정 점검\n안건 2. 예산");
+        NotesWindow.Snapshot(notes, history, Path.Combine(dir, "m9-notes.png"));
+        Check("notes written and rendered", File.Exists(Path.Combine(dir, "m9-notes.png")) && notes.List().Count == 2 && history.List(EntityNames.Note, n1.Id).Count == 1);
+
+        // --- timetable: a week, widget + editor
+        timetable.SetCell(DayOfWeek.Monday, 1, "수학", "301호", "#74C0FC");
+        timetable.SetCell(DayOfWeek.Monday, 2, "영어", "", "#FFE066");
+        timetable.SetCell(DayOfWeek.Tuesday, 1, "국어", "201호", "#69DB7C");
+        timetable.SetCell(DayOfWeek.Wednesday, 3, "체육", "운동장", "#FFA94D");
+        timetable.SetCell(DayOfWeek.Thursday, 5, "과학", "실험실", "#B197FC");
+        timetable.SetCell(DayOfWeek.Friday, 7, "동아리");
+        var widget = new TimetableWidgetWindow();
+        widget.Rebuild(timetable.LoadConfig(settings), timetable.GetCells(), new BoardSettings());
+        widget.SaveSnapshot(Path.Combine(dir, "m9-timetable-widget.png"));
+        TimetableWindow.Snapshot(timetable, settings, Path.Combine(dir, "m9-timetable-editor.png"));
+        Check("timetable cells stored", timetable.GetCells().Count == 6);
+
+        // --- background photos: three generated pictures, each fit mode
+        string skinDir = Path.Combine(dir, "skin-photos");
+        Directory.CreateDirectory(skinDir);
+        for (int i = 0; i < 3; i++) MakePicture(Path.Combine(skinDir, $"photo{i + 1}.png"), 900, 600, i);
+        File.WriteAllText(Path.Combine(skinDir, "broken.png"), "not a picture");        // must be skipped, not crash
+        foreach (var fit in new[] { SkinFit.Fill, SkinFit.Fit, SkinFit.Tile })
+        {
+            board.ApplySettings(new BoardSettings { Mode = DisplayMode.FixedMonth, SkinFolder = skinDir, SkinFit = fit, BackgroundOpacity = 0.8 });
+            board.SaveSnapshot(Path.Combine(dir, $"m9-skin-{fit}.png"));
+        }
+        Check("skin: unreadable picture is skipped", MainWindow.LoadPicture(Path.Combine(skinDir, "broken.png")) is null && MainWindow.LoadPicture(Path.Combine(skinDir, "photo1.png")) is { PixelWidth: 900 });
+        board.ApplySettings(new BoardSettings { Mode = DisplayMode.FixedMonth });
+
+        // --- content lock
+        board.SetContentHidden(true);
+        board.SaveSnapshot(Path.Combine(dir, "m9-locked.png"));
+        board.SetContentHidden(false);
+        Check("content lock render", File.Exists(Path.Combine(dir, "m9-locked.png")) && !board.ContentHidden);
+
+        // --- print page
+        var page = PrintableMonth.Gather(new DateOnly(today.Year, today.Month, 1), DayOfWeek.Sunday, items, events, d => days.Holidays.IsDayOff(d), days);
+        RenderToPng(PrintableMonth.Build(page, 1050, 740), Path.Combine(dir, "m9-print.png"), 1050, 740, System.Windows.Media.Colors.White);
+        Check("print page rendered", File.Exists(Path.Combine(dir, "m9-print.png")));
+
+        // --- Excel
+        string xlsx = Path.Combine(dir, "m9-export.xlsx");
+        ExchangeFiles.WriteFile(xlsx, ExchangeFormat.Xlsx, exchange.Collect(), DateTimeOffset.Now, d => days.Holidays.IsDayOff(d),
+            new XlsxOptions(null, null, DayOfWeek.Sunday, d => days.Get(d).HolidayName));
+        Check("xlsx written", new FileInfo(xlsx).Length > 2000, new FileInfo(xlsx).Length + " bytes");
+    }
+
+    private static void MakePicture(string path, int w, int h, int variant)
+    {
+        var dv = new DrawingVisual();
+        using (var dc = dv.RenderOpen())
+        {
+            var colors = variant switch
+            {
+                0 => (System.Windows.Media.Color.FromRgb(0x1E, 0x3C, 0x72), System.Windows.Media.Color.FromRgb(0x2A, 0x9D, 0x8F)),
+                1 => (System.Windows.Media.Color.FromRgb(0x6A, 0x1B, 0x4D), System.Windows.Media.Color.FromRgb(0xF4, 0xA2, 0x61)),
+                _ => (System.Windows.Media.Color.FromRgb(0x26, 0x4D, 0x2E), System.Windows.Media.Color.FromRgb(0xE9, 0xC4, 0x6A)),
+            };
+            dc.DrawRectangle(new LinearGradientBrush(colors.Item1, colors.Item2, 35), null, new Rect(0, 0, w, h));
+            for (int i = 0; i < 12; i++)
+                dc.DrawEllipse(new SolidColorBrush(System.Windows.Media.Color.FromArgb(40, 255, 255, 255)), null, new Point(w * (i + 1) / 13.0, h * (0.2 + 0.6 * ((i * 7) % 5) / 5.0)), 40 + i * 6, 40 + i * 6);
+            dc.DrawText(new FormattedText($"photo {variant + 1}", System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, new Typeface("Segoe UI"), 64, Brushes.White, 1.0), new Point(30, 20));
+        }
+        var bmp = new System.Windows.Media.Imaging.RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+        bmp.Render(dv);
+        var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bmp));
+        using var fs = File.Create(path);
+        enc.Save(fs);
     }
 
     private static EventDraft Draft(string title, DateOnly date, TimeOnly start, TimeOnly? end, RecurrenceRule rule, params ReminderSpec[] r) =>

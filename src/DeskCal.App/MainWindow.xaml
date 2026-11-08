@@ -6,7 +6,11 @@
         ShowInTaskbar="False" ResizeMode="NoResize" ShowActivated="False"
         UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
     <Border x:Name="Frame" CornerRadius="14" Background="#99101820"
-            BorderBrush="Transparent" BorderThickness="2" Padding="12,10,12,12">
+            BorderBrush="Transparent" BorderThickness="2">
+      <Grid>
+        <!-- optional background photo (see ApplySkin) -->
+        <Border x:Name="SkinLayer" CornerRadius="12" IsHitTestVisible="False" Visibility="Collapsed"/>
+        <Border Padding="12,10,12,12">
         <Grid x:Name="Root">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -64,5 +68,7 @@
                 </Border>
             </Grid>
         </Grid>
+        </Border>
+      </Grid>
     </Border>
 </Window>

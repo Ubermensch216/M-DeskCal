@@ -535,6 +535,98 @@ public sealed class NoteRepository(DeskCalDb db, IClock clock) : RepoBase(db, cl
         using var cmd = Cmd(c, "UPDATE notes SET deleted=1, updated_at=$u WHERE id=$i", null, ("$u", Clock.NowMs), ("$i", id));
         return cmd.ExecuteNonQuery() > 0;
     }
+
+    public bool Undelete(string id)
+    {
+        using var c = Db.Open();
+        using var cmd = Cmd(c, "UPDATE notes SET deleted=0, updated_at=$u WHERE id=$i", null, ("$u", Clock.NowMs), ("$i", id));
+        return cmd.ExecuteNonQuery() > 0;
+    }
+
+    public bool SetColor(string id, string? color)
+    {
+        using var c = Db.Open();
+        using var cmd = Cmd(c, "UPDATE notes SET color=$col WHERE id=$i AND deleted=0", null, ("$col", color), ("$i", id));
+        return cmd.ExecuteNonQuery() > 0;
+    }
+
+    /// <summary>Put an earlier text of the note back (the text being replaced becomes a new history record).</summary>
+    public Note? RestoreFromHistory(long historyId)
+    {
+        var h = new HistoryRepository(Db, Clock).Get(historyId) is { Entity: EntityNames.Note } e ? e : null;
+        if (h is null) return null;
+        var current = Get(h.EntityId);
+        return current is null || current.Deleted ? null : Update(h.EntityId, current.Title, h.Content);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+/// <summary>The class timetable: the period layout is stored as "timetable.*" settings, the filled squares in their own table.</summary>
+public sealed class TimetableRepository(DeskCalDb db, IClock clock) : RepoBase(db, clock)
+{
+    private const string P = "timetable.";
+
+    public TimetableConfig LoadConfig(SettingsStore s)
+    {
+        var d = new TimetableConfig();
+        return new TimetableConfig
+        {
+            Periods = s.GetInt(P + "periods", d.Periods),
+            FirstStart = TimeOnly.TryParseExact(s.GetString(P + "first_start"), ["HH:mm", "H:mm"], null, System.Globalization.DateTimeStyles.None, out var t) ? t : d.FirstStart,
+            ClassMinutes = s.GetInt(P + "class_min", d.ClassMinutes),
+            BreakMinutes = s.GetInt(P + "break_min", d.BreakMinutes),
+            LunchAfter = s.GetInt(P + "lunch_after", d.LunchAfter),
+            LunchMinutes = s.GetInt(P + "lunch_min", d.LunchMinutes),
+            ShowWeekend = s.GetBool(P + "weekend", d.ShowWeekend),
+        }.Sanitized();
+    }
+
+    public void SaveConfig(SettingsStore s, TimetableConfig config)
+    {
+        var c = config.Sanitized();
+        s.SetInt(P + "periods", c.Periods);
+        s.SetString(P + "first_start", c.FirstStart.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture));
+        s.SetInt(P + "class_min", c.ClassMinutes);
+        s.SetInt(P + "break_min", c.BreakMinutes);
+        s.SetInt(P + "lunch_after", c.LunchAfter);
+        s.SetInt(P + "lunch_min", c.LunchMinutes);
+        s.SetBool(P + "weekend", c.ShowWeekend);
+    }
+
+    public IReadOnlyList<TimetableCell> GetCells()
+    {
+        using var c = Db.Open();
+        using var cmd = Cmd(c, "SELECT dow, period, subject, room, color FROM timetable_cells ORDER BY period, dow");
+        using var r = cmd.ExecuteReader();
+        var list = new List<TimetableCell>();
+        while (r.Read()) list.Add(new TimetableCell((DayOfWeek)r.GetInt32(0), r.GetInt32(1), r.GetString(2), r.GetString(3), Str(r, 4)));
+        return list;
+    }
+
+    /// <summary>Fill or change one square; an empty subject and room empties it.</summary>
+    public void SetCell(DayOfWeek day, int period, string subject, string room = "", string? color = null)
+    {
+        subject = subject.Trim(); room = room.Trim();
+        using var c = Db.Open();
+        if (subject.Length == 0 && room.Length == 0)
+        {
+            using var del = Cmd(c, "DELETE FROM timetable_cells WHERE dow=$d AND period=$p", null, ("$d", (int)day), ("$p", period));
+            del.ExecuteNonQuery();
+            return;
+        }
+        using var cmd = Cmd(c,
+            "INSERT INTO timetable_cells(dow, period, subject, room, color) VALUES($d,$p,$s,$r,$c) " +
+            "ON CONFLICT(dow, period) DO UPDATE SET subject=$s, room=$r, color=$c", null,
+            ("$d", (int)day), ("$p", period), ("$s", subject), ("$r", room), ("$c", color));
+        cmd.ExecuteNonQuery();
+    }
+
+    public void Clear()
+    {
+        using var c = Db.Open();
+        using var cmd = Cmd(c, "DELETE FROM timetable_cells");
+        cmd.ExecuteNonQuery();
+    }
 }
 
 // ---------------------------------------------------------------------------------------------

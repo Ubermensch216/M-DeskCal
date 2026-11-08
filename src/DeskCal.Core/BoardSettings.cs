@@ -27,6 +27,20 @@ public enum WeekNumberRule
 /// <summary>Marker drawn before each item line of a day.</summary>
 public enum BulletStyle { None = 0, Dot = 1, Number = 2 }
 
+/// <summary>How a background photo is fitted to the board.</summary>
+public enum SkinFit
+{
+    /// <summary>Cover the board, cropping the overflow (keeps proportions).</summary>
+    Fill = 0,
+    /// <summary>Show the whole picture, leaving bars where it does not reach (keeps proportions).</summary>
+    Fit = 1,
+    /// <summary>Stretch to the board's shape (distorts).</summary>
+    Stretch = 2,
+    Tile = 3,
+    /// <summary>Original size, centred.</summary>
+    Center = 4,
+}
+
 public sealed record BoardSettings
 {
     // ---- calendar annotations ----
@@ -67,6 +81,13 @@ public sealed record BoardSettings
     public bool Shadow { get; init; } = true;
     public int CellGap { get; init; } = 2;
 
+    // ---- background photo ("skin") ----
+    /// <summary>Folder of pictures to use behind the calendar; empty = none (plain colour).</summary>
+    public string SkinFolder { get; init; } = "";
+    public SkinFit SkinFit { get; init; } = SkinFit.Fill;
+    /// <summary>Change picture every N minutes; 0 = always the first picture.</summary>
+    public int SkinRotateMinutes { get; init; }
+
     public bool IsOffDay(DayOfWeek d) => (OffDaysMask & (1 << (int)d)) != 0;
 
     /// <summary>Clamp values that would break layout or rendering.</summary>
@@ -82,5 +103,8 @@ public sealed record BoardSettings
         FontSize = Math.Clamp(FontSize, 8, 48),
         BackgroundOpacity = Math.Clamp(BackgroundOpacity, 0.0, 1.0),
         CellGap = Math.Clamp(CellGap, 0, 12),
+        SkinFolder = SkinFolder ?? "",
+        SkinFit = Enum.IsDefined(SkinFit) ? SkinFit : SkinFit.Fill,
+        SkinRotateMinutes = SkinRotateMinutes <= 0 ? 0 : Math.Clamp(SkinRotateMinutes, 5, 1440),
     };
 }

@@ -95,7 +95,7 @@ public readonly record struct Hotkey(HotkeyMods Mods, int VirtualKey)
     }
 }
 
-public enum HotkeyAction { BringToFront, ToggleVisible, NewEvent, Search }
+public enum HotkeyAction { BringToFront, ToggleVisible, NewEvent, Search, ToggleContent }
 
 /// <summary>Application-level (non-appearance) preferences: global shortcuts and whether the board is shown.</summary>
 public sealed record AppPreferences
@@ -105,6 +105,7 @@ public sealed record AppPreferences
     public Hotkey ToggleVisible { get; init; } = new(HotkeyMods.Ctrl | HotkeyMods.Alt, 'H');
     public Hotkey NewEvent { get; init; } = new(HotkeyMods.Ctrl | HotkeyMods.Alt, 'E');
     public Hotkey Search { get; init; } = new(HotkeyMods.Ctrl | HotkeyMods.Alt, 'F');
+    public Hotkey ToggleContent { get; init; } = new(HotkeyMods.Ctrl | HotkeyMods.Alt, 'L');
 
     /// <summary>Whether the board was visible when the app last ran (restored only for auto-start launches).</summary>
     public bool BoardVisible { get; init; } = true;
@@ -114,7 +115,8 @@ public sealed record AppPreferences
         HotkeyAction.BringToFront => BringToFront,
         HotkeyAction.ToggleVisible => ToggleVisible,
         HotkeyAction.NewEvent => NewEvent,
-        _ => Search,
+        HotkeyAction.Search => Search,
+        _ => ToggleContent,
     };
 
     public AppPreferences With(HotkeyAction a, Hotkey h) => a switch
@@ -122,7 +124,8 @@ public sealed record AppPreferences
         HotkeyAction.BringToFront => this with { BringToFront = h },
         HotkeyAction.ToggleVisible => this with { ToggleVisible = h },
         HotkeyAction.NewEvent => this with { NewEvent = h },
-        _ => this with { Search = h },
+        HotkeyAction.Search => this with { Search = h },
+        _ => this with { ToggleContent = h },
     };
 
     /// <summary>The first problem with the shortcut set (two actions on one combination), or null when it is fine.</summary>

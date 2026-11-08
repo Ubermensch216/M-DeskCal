@@ -38,6 +38,9 @@ public sealed class BoardSettingsStore(SettingsStore store)
             BackgroundOpacity = Double(store, "bg_opacity", d.BackgroundOpacity),
             Shadow = store.GetBool(Prefix + "shadow", d.Shadow),
             CellGap = store.GetInt(Prefix + "cell_gap", d.CellGap),
+            SkinFolder = store.GetString(Prefix + "skin_folder") ?? d.SkinFolder,
+            SkinFit = Enum(store, "skin_fit", d.SkinFit),
+            SkinRotateMinutes = store.GetInt(Prefix + "skin_rotate", d.SkinRotateMinutes),
         };
         return s.Sanitized();
     }
@@ -70,6 +73,9 @@ public sealed class BoardSettingsStore(SettingsStore store)
         store.SetString(Prefix + "bg_opacity", s.BackgroundOpacity.ToString("R", CultureInfo.InvariantCulture));
         store.SetBool(Prefix + "shadow", s.Shadow);
         store.SetInt(Prefix + "cell_gap", s.CellGap);
+        store.SetString(Prefix + "skin_folder", s.SkinFolder);
+        store.SetString(Prefix + "skin_fit", s.SkinFit.ToString());
+        store.SetInt(Prefix + "skin_rotate", s.SkinRotateMinutes);
     }
 
     /// <summary>"Restore defaults" for every appearance/layout key. Window geometry (board.x/y/w/h) is kept.</summary>
