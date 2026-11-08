@@ -11,6 +11,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <DockPanel Grid.Row="0" Margin="0,0,0,6">
@@ -34,6 +35,8 @@
 
             <Grid x:Name="GridHost" Grid.Row="1"/>
 
+            <WrapPanel x:Name="CountdownBar" Grid.Row="2" Margin="0,8,0,0" Visibility="Collapsed"/>
+
             <TextBlock x:Name="EditHint" Grid.Row="1" Visibility="Collapsed"
                        HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,4"
                        Foreground="#FFFFC857" FontSize="13" Background="#AA000000" Padding="8,2"
@@ -43,7 +46,7 @@
                    DragDelta="Grip_DragDelta"/>
 
             <!-- Day editor: a click-away scrim plus the panel itself. Position/size are set in code. -->
-            <Grid x:Name="EditorLayer" Grid.RowSpan="2" Visibility="Collapsed">
+            <Grid x:Name="EditorLayer" Grid.RowSpan="3" Visibility="Collapsed">
                 <Border x:Name="Scrim" Background="#01000000" MouseLeftButtonDown="Scrim_Down"/>
                 <Border x:Name="EditorPanel" HorizontalAlignment="Left" VerticalAlignment="Top"
                         Background="#F2182430" BorderBrush="#FF6EA8FF" BorderThickness="1.5"

@@ -31,6 +31,11 @@ public partial class App : System.Windows.Application
     private AppPreferences _prefs = new();
     private HotkeyManager? _hotkeys;
     private readonly StartupRegistration _startup = new();
+    private CountdownRepository? _countdowns;
+    private CountdownCardsWindow? _cards;
+    private SearchService? _searchService;
+    private ItemRepository? _itemRepo;
+    private HistoryRepository? _historyRepo;
     private static string ExePath => Environment.ProcessPath ?? System.Reflection.Assembly.GetExecutingAssembly().Location;
 
     /// <summary>Tell the instance that is already running to bring its calendar forward (waits briefly while it is still starting).</summary>
@@ -78,8 +83,15 @@ public partial class App : System.Windows.Application
         var series = new EventSeriesService(db, clock, isDayOff);
         bool snapshotMode = e.Args.Any(a => a.StartsWith("--snapshot="));
 
+        var history = new HistoryRepository(db, clock);
+        _countdowns = new CountdownRepository(db, clock);
+        _itemRepo = items; _historyRepo = history;
+        _searchService = new SearchService(items, events, isDayOff);
+
         _board = new MainWindow();
         _board.SetItems(items);
+        _board.SetHistory(history);
+        _board.SetCountdowns(_countdowns);
         _board.SetEvents(events, series, reminders);
         var loaded = HolidayOverrideFile.Load(HolidaysPath);
         _days = new KoreanDays(loaded.Overrides);
@@ -93,6 +105,9 @@ public partial class App : System.Windows.Application
         int w = settings.GetInt("board.w", 640), h = settings.GetInt("board.h", 480);
         if (w >= 320 && h >= 240)
             _board.SetRect(new(settings.GetInt("board.x", 200), settings.GetInt("board.y", 150), w, h));
+        _cards = new CountdownCardsWindow();
+        _cards.SetPosition(settings.GetInt("cards.x", 880), settings.GetInt("cards.y", 150));
+        _cards.Moved += (cx, cy) => { settings.SetInt("cards.x", cx); settings.SetInt("cards.y", cy); };
         _board.RectCommitted += r =>
         {
             settings.SetInt("board.x", r.X); settings.SetInt("board.y", r.Y);
@@ -108,7 +123,7 @@ public partial class App : System.Windows.Application
         {
             // Dev aid: render the UI offscreen and run editor self-tests, then exit.
             var dir = e.Args.First(a => a.StartsWith("--snapshot="))["--snapshot=".Length..];
-            DevHarness.Run(_board, items, series, events, reminders, _days, dir, e.Args.Contains("--seed"));
+            DevHarness.Run(_board, items, series, events, reminders, _days, dir, e.Args.Contains("--seed"), _countdowns!, _searchService!, history);
             Shutdown();
             return;
         }
@@ -136,6 +151,7 @@ public partial class App : System.Windows.Application
             _reminderService.Start();
         }
 
+        UpdateCards();
         _trayDay = DateTime.Today;
         _tray = new Forms.NotifyIcon
         {
@@ -152,6 +168,7 @@ public partial class App : System.Windows.Application
         {
             if (DateTime.Today == _trayDay) return;
             _trayDay = DateTime.Today;
+            UpdateCards();
             var old = _tray.Icon;
             _tray.Icon = TrayIcon.Create();
             old?.Dispose();
@@ -183,7 +200,23 @@ public partial class App : System.Windows.Application
     {
         _prefs = _prefs with { BoardVisible = _board!.BoardVisible };
         _prefsStore?.Save(_prefs);
+        UpdateCards();   // the cards come and go with the calendar
     }
+
+    /// <summary>Redraw the desktop D-day cards (and the strip under the calendar).</summary>
+    private void UpdateCards()
+    {
+        if (_cards is null || _countdowns is null || _board is null) return;
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        _cards.Update(CountdownCalc.Ordered(_countdowns.List().Where(c => c.ShowCard), today), _board.Settings, _board.BoardVisible);
+    }
+
+    private void CountdownsChanged() { UpdateCards(); _board?.Refresh(); }
+
+    private void OpenSearch() =>
+        SearchWindow.ShowOrActivate(_searchService!, _itemRepo!, _historyRepo!,
+            day => { _board!.GoTo(day); _board.BringToFront(); RememberVisibility(); },
+            () => _board!.Refresh());
 
     private void OnHotkey(HotkeyAction action)
     {
@@ -198,6 +231,9 @@ public partial class App : System.Windows.Application
             case HotkeyAction.NewEvent:
                 _board!.BringToFront(); RememberVisibility();
                 _board.NewEvent(DateOnly.FromDateTime(DateTime.Today));
+                break;
+            case HotkeyAction.Search:
+                OpenSearch();
                 break;
         }
     }
@@ -241,8 +277,10 @@ public partial class App : System.Windows.Application
         menu.Items.Add(showItem);
         refresh.Add(() => showItem.Text = board.BoardVisible ? "달력 숨기기" : "달력 보이기");
         menu.Items.Add("새 일정 (오늘)…", null, (_, _) => OnHotkey(HotkeyAction.NewEvent));
+        menu.Items.Add("검색…", null, (_, _) => OpenSearch());
+        menu.Items.Add("디데이 관리…", null, (_, _) => CountdownWindow.ShowOrActivate(_countdowns!, CountdownsChanged));
         EditItem = new Forms.ToolStripMenuItem("편집 모드 (위치/크기 조정)") { CheckOnClick = true };
-        EditItem.CheckedChanged += (_, _) => board.SetEditMode(EditItem.Checked);
+        EditItem.CheckedChanged += (_, _) => { board.SetEditMode(EditItem.Checked); _cards?.SetEditMode(EditItem.Checked); };
         menu.Items.Add(EditItem);
         menu.Items.Add("오늘로 이동", null, (_, _) => board.GoToday());
         menu.Items.Add(new Forms.ToolStripSeparator());
@@ -335,6 +373,7 @@ public partial class App : System.Windows.Application
         {
             _boardStore!.ResetToDefaults();
             board.ApplySettings(_boardStore.Load());
+            UpdateCards();
         });
 
         menu.Items.Add(new Forms.ToolStripSeparator());
@@ -380,6 +419,7 @@ public partial class App : System.Windows.Application
             var next = change(board.Settings);
             board.ApplySettings(next);
             _boardStore!.Save(board.Settings);
+            UpdateCards();
         }
 
         void AddToggle(string name, Func<BoardSettings, bool> get, Func<BoardSettings, bool, BoardSettings> set)

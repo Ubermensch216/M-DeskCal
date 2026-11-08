@@ -171,6 +171,19 @@ public sealed class ItemRepository(DeskCalDb db, IClock clock) : RepoBase(db, cl
         return list;
     }
 
+    /// <summary>Items for the search: optionally limited to days in [from, to], optionally including soft-deleted ones.</summary>
+    public IReadOnlyList<Item> GetForSearch(string? fromDay, string? toDay, bool includeDeleted)
+    {
+        using var c = Db.Open();
+        using var cmd = Cmd(c,
+            $"SELECT {Cols} FROM items WHERE ($a IS NULL OR day >= $a) AND ($b IS NULL OR day <= $b) AND ($d = 1 OR deleted = 0)",
+            null, ("$a", fromDay), ("$b", toDay), ("$d", includeDeleted ? 1 : 0));
+        using var r = cmd.ExecuteReader();
+        var list = new List<Item>();
+        while (r.Read()) list.Add(Map(r));
+        return list;
+    }
+
     /// <summary>Change content; the previous content is saved to history when it differs.</summary>
     public Item? UpdateContent(string id, string content)
     {

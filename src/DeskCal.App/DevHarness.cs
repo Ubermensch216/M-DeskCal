@@ -15,7 +15,8 @@ namespace DeskCal.App;
 internal static class DevHarness
 {
     public static void Run(MainWindow board, ItemRepository items, EventSeriesService series, EventRepository events,
-                           ReminderRepository reminders, KoreanDays days, string dir, bool seed)
+                           ReminderRepository reminders, KoreanDays days, string dir, bool seed,
+                           CountdownRepository countdowns, SearchService search, HistoryRepository history)
     {
         Directory.CreateDirectory(dir);
         var report = new StringBuilder();
@@ -93,9 +94,75 @@ internal static class DevHarness
             board.SaveSnapshot(Path.Combine(dir, "m3-after-edit.png"));
 
             EventEditorSelfTests(series, events, reminders, today, dir, report);
+            SearchHistoryCountdownChecks(board, items, search, history, countdowns, today, dir, report);
         }
 
         File.WriteAllText(Path.Combine(dir, "selftest.txt"), report.ToString());
+    }
+
+    /// <summary>Flat-background offscreen render of any element (the board's own snapshot has its own copy).</summary>
+    internal static void RenderToPng(FrameworkElement root, string path, double w = 0, double h = 0, System.Windows.Media.Color? bg = null)
+    {
+        root.Measure(new Size(w > 0 ? w : double.PositiveInfinity, h > 0 ? h : double.PositiveInfinity));
+        double rw = w > 0 ? w : root.DesiredSize.Width, rh = h > 0 ? h : root.DesiredSize.Height;
+        root.Arrange(new Rect(0, 0, rw, rh));
+        root.UpdateLayout();
+        var dv = new DrawingVisual();
+        using (var dc = dv.RenderOpen())
+        {
+            dc.DrawRectangle(new SolidColorBrush(bg ?? System.Windows.Media.Color.FromRgb(0x3A, 0x5F, 0x7A)), null, new Rect(0, 0, rw, rh));
+            dc.DrawRectangle(new VisualBrush(root), null, new Rect(0, 0, rw, rh));
+        }
+        var bmp = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Ceiling(rw), (int)Math.Ceiling(rh), 96, 96, PixelFormats.Pbgra32);
+        bmp.Render(dv);
+        var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bmp));
+        using var fs = File.Create(path);
+        enc.Save(fs);
+    }
+
+    private static void SearchHistoryCountdownChecks(MainWindow board, ItemRepository items, SearchService search, HistoryRepository history,
+                                                    CountdownRepository countdowns, DateOnly today, string dir, StringBuilder report)
+    {
+        void Check(string name, bool ok, string detail = "") => report.AppendLine($"{(ok ? "PASS" : "FAIL")}: {name}{(detail.Length > 0 ? " -> " + detail : "")}");
+
+        // history: edit a seeded line twice, look at the list, restore the oldest
+        var target = items.GetByDay(today.ToString("yyyy-MM-dd"))[2];            // "운동"
+        items.UpdateContent(target.Id, "운동 30분");
+        items.UpdateContent(target.Id, "운동 1시간");
+        var versions = history.List(EntityNames.Item, target.Id);
+        Check("history lists earlier versions newest first", versions.Count == 2 && versions[0].Content == "운동 30분" && versions[1].Content == "운동", string.Join(" | ", versions.Select(v => v.Content)));
+        items.RestoreFromHistory(versions[1].Id);
+        Check("restore brings the old text back and keeps the replaced one", items.Get(target.Id)!.Content == "운동" && history.List(EntityNames.Item, target.Id).Count == 3);
+
+        // search over the seeded data
+        var hits = search.Run(new SearchQuery("회의"));
+        Check("search finds 회의 in a to-do line and an event", hits.Any(h => h.Kind == SearchKind.Item) && hits.Any(h => h.Kind == SearchKind.Event), string.Join(", ", hits.Select(h => $"{h.Kind}:{h.Text}")));
+        var done = search.Run(new SearchQuery("", Done: DoneFilter.Done));
+        Check("done filter", done.Count == 2 && done.All(h => h.Done), done.Count.ToString());
+        var yellow = search.Run(new SearchQuery("", TextColor: "#FFE066"));
+        Check("colour filter", yellow.Count == 1 && yellow[0].Text == "치과 예약", yellow.Count.ToString());
+
+        // countdowns: card + strip under the calendar
+        countdowns.Add("기말시험", today.AddDays(12).ToString("yyyy-MM-dd"), CountdownType.Exam, showCard: true, showBottom: true);
+        var bday = new DateOnly(1990, today.Month, Math.Min(today.Day, 28)).AddDays(30);
+        countdowns.Add("민수 생일", bday.ToString("yyyy-MM-dd"), CountdownType.Birthday, showCard: true, showBottom: true);
+        countdowns.Add("만난 날", today.AddDays(-99).ToString("yyyy-MM-dd"), CountdownType.Memorial, showCard: true);
+        countdowns.Add("설날", "2000-01-01", CountdownType.Festival, showBottom: true, lunar: true);
+        var ordered = CountdownCalc.Ordered(countdowns.List(), today);
+        Check("countdowns computed", ordered.Count == 4 && ordered[0].Status.Label == "D-12", string.Join(", ", ordered.Select(o => CountdownCalc.Summary(o.Countdown, o.Status))));
+
+        board.ApplySettings(new BoardSettings { Mode = DisplayMode.FixedMonth });
+        board.GoToday();
+        board.Refresh();
+        board.SaveSnapshot(Path.Combine(dir, "m7-board-with-countdowns.png"));
+
+        var cards = new CountdownCardsWindow();
+        cards.Rebuild(CountdownCalc.Ordered(countdowns.List().Where(c => c.ShowCard), today), new BoardSettings());
+        cards.SaveSnapshot(Path.Combine(dir, "m7-cards.png"));
+
+        SearchWindow.Snapshot(search, items, history, "회의", Path.Combine(dir, "m7-search.png"));
+        Check("snapshots written", File.Exists(Path.Combine(dir, "m7-search.png")) && File.Exists(Path.Combine(dir, "m7-cards.png")));
     }
 
     private static EventDraft Draft(string title, DateOnly date, TimeOnly start, TimeOnly? end, RecurrenceRule rule, params ReminderSpec[] r) =>

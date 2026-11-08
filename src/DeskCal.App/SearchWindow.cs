@@ -1,0 +1,210 @@
+using System.Globalization;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Threading;
+using DeskCal.Core;
+using DeskCal.Data;
+using Button = System.Windows.Controls.Button;
+using Brushes = System.Windows.Media.Brushes;
+using CheckBox = System.Windows.Controls.CheckBox;
+using ComboBox = System.Windows.Controls.ComboBox;
+using Orientation = System.Windows.Controls.Orientation;
+using TextBox = System.Windows.Controls.TextBox;
+
+namespace DeskCal.App;
+
+/// <summary>
+/// Search over to-do lines and events: text plus period / kind / done / colour filters, soft-deleted items on request.
+/// Non-modal; stays open while the user jumps to results on the calendar.
+/// </summary>
+internal sealed class SearchWindow : Window
+{
+    private static SearchWindow? _open;
+
+    private readonly SearchService _search;
+    private readonly ItemRepository _items;
+    private readonly HistoryRepository _history;
+    private readonly Action<DateOnly> _goTo;
+    private readonly Action _changed;
+
+    private readonly TextBox _text = new() { Padding = new Thickness(5, 4, 5, 4), MinWidth = 200 };
+    private readonly ComboBox _range = new(), _kind = new(), _done = new(), _color = new();
+    private readonly DatePicker _from = new(), _to = new();
+    private readonly CheckBox _deleted = new() { Content = "삭제된 할 일 포함", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
+    private readonly ListBox _results = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch };
+    private readonly TextBlock _status = new() { Margin = new Thickness(0, 0, 0, 6), Foreground = Brushes.Gray };
+    private readonly DispatcherTimer _debounce = new() { Interval = TimeSpan.FromMilliseconds(250) };
+    private bool _ready;
+
+    public static void ShowOrActivate(SearchService search, ItemRepository items, HistoryRepository history, Action<DateOnly> goTo, Action changed)
+    {
+        if (_open is { } w) { w.Show(); w.WindowState = WindowState.Normal; w.Activate(); w._text.Focus(); w._text.SelectAll(); return; }
+        _open = new SearchWindow(search, items, history, goTo, changed);
+        _open.Closed += (_, _) => _open = null;
+        _open.Show();
+        _open.Activate();
+        _open._text.Focus();
+    }
+
+    private SearchWindow(SearchService search, ItemRepository items, HistoryRepository history, Action<DateOnly> goTo, Action changed)
+    {
+        _search = search; _items = items; _history = history; _goTo = goTo; _changed = changed;
+        Title = "M-DeskCal 검색"; Width = 640; Height = 560; MinWidth = 520; MinHeight = 380;
+        WindowStartupLocation = WindowStartupLocation.CenterScreen; ShowInTaskbar = true;
+        FontFamily = new FontFamily("Segoe UI, Malgun Gothic"); FontSize = 13;
+
+        Fill(_range, "전체 기간", "최근 1개월", "최근 3개월", "최근 1년", "기간 지정…");
+        Fill(_kind, "할 일 + 일정", "할 일만", "일정만");
+        Fill(_done, "완료 여부 무관", "완료만", "미완료만");
+        _color.Items.Add("모든 글자색"); _color.Items.Add("기본 색");
+        foreach (var (name, hex) in MainWindow.Palette.Where(p => p.Hex is not null)) _color.Items.Add(new ComboBoxItem { Content = name, Tag = hex, Foreground = (SolidColorBrush)new BrushConverter().ConvertFrom(hex!)!, Background = Brushes.Black });
+        _color.SelectedIndex = 0;
+        _from.SelectedDate = DateTime.Today.AddMonths(-1); _to.SelectedDate = DateTime.Today;
+
+        var top = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
+        var go = Dlg.Btn("검색", (_, _) => Run(), isDefault: true);
+        go.Margin = new Thickness(8, 0, 0, 0);
+        DockPanel.SetDock(go, Dock.Right);
+        top.Children.Add(go); top.Children.Add(_text);
+
+        var filters = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
+        foreach (var c in new[] { _range, _kind, _done, _color })
+        {
+            c.Margin = new Thickness(0, 0, 8, 4); c.MinWidth = 100; c.Padding = new Thickness(6, 3, 6, 3);
+            filters.Children.Add(c);
+        }
+        _from.Margin = new Thickness(0, 0, 4, 4); _to.Margin = new Thickness(0, 0, 8, 4);
+        filters.Children.Add(_from); filters.Children.Add(_to);
+        filters.Children.Add(_deleted);
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+        actions.Children.Add(Dlg.Btn("달력에서 보기", (_, _) => GoToSelected()));
+        actions.Children.Add(Dlg.Btn("이력 보기", (_, _) => ShowHistory()));
+        actions.Children.Add(Dlg.Btn("삭제된 항목 복원", (_, _) => Undelete()));
+
+        var dock = new DockPanel { Margin = new Thickness(14) };
+        DockPanel.SetDock(top, Dock.Top); DockPanel.SetDock(filters, Dock.Top); DockPanel.SetDock(_status, Dock.Top); DockPanel.SetDock(actions, Dock.Bottom);
+        dock.Children.Add(top); dock.Children.Add(filters); dock.Children.Add(_status); dock.Children.Add(actions);
+        dock.Children.Add(_results);
+        Content = dock;
+
+        _debounce.Tick += (_, _) => { _debounce.Stop(); Run(); };
+        _text.TextChanged += (_, _) => { if (_ready) { _debounce.Stop(); _debounce.Start(); } };
+        foreach (var c in new[] { _range, _kind, _done, _color }) c.SelectionChanged += (_, _) => { SyncDates(); if (_ready) Run(); };
+        _from.SelectedDateChanged += (_, _) => { if (_ready) Run(); };
+        _to.SelectedDateChanged += (_, _) => { if (_ready) Run(); };
+        _deleted.Click += (_, _) => Run();
+        _results.MouseDoubleClick += (_, _) => GoToSelected();
+        PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) Close(); };
+
+        SyncDates();
+        _ready = true;
+        Run();
+    }
+
+    /// <summary>Dev aid: build the window without showing it, run a query and render it to a PNG.</summary>
+    internal static void Snapshot(SearchService search, ItemRepository items, HistoryRepository history, string query, string path)
+    {
+        var w = new SearchWindow(search, items, history, _ => { }, () => { });
+        w._text.Text = query;
+        w.Run();
+        DevHarness.RenderToPng((FrameworkElement)w.Content, path, 640, 520, System.Windows.Media.Colors.White);
+    }
+
+    private static void Fill(ComboBox box, params string[] entries)
+    {
+        foreach (var e in entries) box.Items.Add(e);
+        box.SelectedIndex = 0;
+    }
+
+    private void SyncDates() => _from.Visibility = _to.Visibility = _range.SelectedIndex == 4 ? Visibility.Visible : Visibility.Collapsed;
+
+    private SearchQuery BuildQuery()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        (DateOnly? from, DateOnly? to) = _range.SelectedIndex switch
+        {
+            1 => ((DateOnly?)today.AddMonths(-1), (DateOnly?)today),
+            2 => (today.AddMonths(-3), today),
+            3 => (today.AddYears(-1), today),
+            4 => (_from.SelectedDate is { } a ? DateOnly.FromDateTime(a) : null, _to.SelectedDate is { } b ? DateOnly.FromDateTime(b) : null),
+            _ => ((DateOnly?)null, (DateOnly?)null),
+        };
+        string? color = _color.SelectedIndex switch { 0 => null, 1 => "", _ => (_color.SelectedItem as ComboBoxItem)?.Tag as string };
+        return new SearchQuery(
+            _text.Text, from, to,
+            _kind.SelectedIndex switch { 1 => SearchKind.Item, 2 => SearchKind.Event, _ => SearchKind.Any },
+            _done.SelectedIndex switch { 1 => DoneFilter.Done, 2 => DoneFilter.NotDone, _ => DoneFilter.Any },
+            color, _deleted.IsChecked == true);
+    }
+
+    private const int Limit = 500;
+
+    private void Run()
+    {
+        var hits = _search.Run(BuildQuery(), Limit);
+        _results.Items.Clear();
+        foreach (var h in hits) _results.Items.Add(Row(h));
+        _status.Text = hits.Count == 0 ? "결과가 없습니다."
+            : hits.Count >= Limit ? $"{Limit}건 이상 — 처음 {Limit}건만 표시합니다. 조건을 좁혀 보세요."
+            : $"{hits.Count}건 · 더블클릭하면 달력에서 해당 날짜로 이동합니다.";
+    }
+
+    private static UIElement Row(SearchHit h)
+    {
+        var line = new DockPanel { Margin = new Thickness(0, 2, 0, 2), Tag = h };
+        var date = new TextBlock
+        {
+            Text = h.Date.ToString("yyyy-MM-dd ddd", CultureInfo.CurrentCulture), Width = 120, Foreground = Brushes.Gray,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var kind = new TextBlock
+        {
+            Text = h.Kind == SearchKind.Event ? "일정" : h.Done ? "완료" : "할 일", Width = 40, Foreground = Brushes.SteelBlue,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var text = new TextBlock { Text = h.Text.ReplaceLineEndings(" "), TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+        if (h.Done || h.Deleted) text.TextDecorations = TextDecorations.Strikethrough;
+        if (h.Done || h.Deleted) text.Opacity = 0.6;
+        if (h.TextColor is { Length: > 0 } hex && TryBrush(hex) is { } b) text.Foreground = b;
+
+        var tail = new TextBlock { Foreground = Brushes.Gray, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+        tail.Text = h.Deleted ? "삭제됨" : h.Repeating ? "반복" : "";
+        DockPanel.SetDock(date, Dock.Left); DockPanel.SetDock(kind, Dock.Left); DockPanel.SetDock(tail, Dock.Right);
+        line.Children.Add(date); line.Children.Add(kind); line.Children.Add(tail); line.Children.Add(text);
+        return line;
+    }
+
+    private static SolidColorBrush? TryBrush(string hex)
+    {
+        try { return (SolidColorBrush)new BrushConverter().ConvertFrom(hex)!; } catch { return null; }
+    }
+
+    private SearchHit? Selected => (_results.SelectedItem as DockPanel)?.Tag as SearchHit;
+
+    private void GoToSelected()
+    {
+        if (Selected is { } h) _goTo(h.Date);
+        else MessageBox.Show(this, "목록에서 결과를 고르세요.", "검색");
+    }
+
+    private void ShowHistory()
+    {
+        if (Selected is not { Kind: SearchKind.Item } h) { MessageBox.Show(this, "이력은 할 일 항목에서만 볼 수 있습니다. 목록에서 할 일을 고르세요.", "이력"); return; }
+        var item = _items.Get(h.Id);
+        if (item is null) return;
+        if (HistoryWindow.Show(this, _items, _history, item)) { _changed(); Run(); }
+    }
+
+    private void Undelete()
+    {
+        if (Selected is not { Kind: SearchKind.Item, Deleted: true } h)
+        {
+            MessageBox.Show(this, "'삭제된 할 일 포함'을 켜고, 삭제됨으로 표시된 할 일을 고르세요.", "복원");
+            return;
+        }
+        if (_items.Undelete(h.Id)) { _changed(); Run(); }
+    }
+}

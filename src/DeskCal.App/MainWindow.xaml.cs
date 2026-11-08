@@ -49,7 +49,7 @@ public partial class MainWindow : Window
     /// <summary>Raised when reminders were added, changed or removed, so the scheduler can re-arm its timer.</summary>
     internal event Action? RemindersChanged;
 
-    private static readonly (string Name, string? Hex)[] Palette =
+    internal static readonly (string Name, string? Hex)[] Palette =
     [
         ("기본", null), ("빨강", "#FF6B6B"), ("주황", "#FFA94D"), ("노랑", "#FFE066"),
         ("초록", "#69DB7C"), ("파랑", "#74C0FC"), ("보라", "#B197FC"),
@@ -80,6 +80,14 @@ public partial class MainWindow : Window
 
     private KoreanDays? _calendar;
     internal void SetCalendar(KoreanDays calendar) { _calendar = calendar; Render(); }
+
+    private CountdownRepository? _countdowns;
+    private HistoryRepository? _history;
+    internal void SetCountdowns(CountdownRepository countdowns) { _countdowns = countdowns; Render(); }
+    internal void SetHistory(HistoryRepository history) => _history = history;
+
+    /// <summary>Redraw after items were restored/undeleted or countdowns changed elsewhere (search window, countdown manager).</summary>
+    internal void Refresh() => Render();
 
     /// <summary>Apply new settings. Switching display mode re-centres on today.</summary>
     internal void ApplySettings(BoardSettings settings)
@@ -390,6 +398,27 @@ public partial class MainWindow : Window
                 Place(MakeCell(cell, items ?? [], events ?? [], s, text, off, font, dayFont, dense), r + 1, c + colOffset);
             }
         }
+
+        RenderCountdownBar(text, font, headerSize + 1);
+    }
+
+    /// <summary>The strip under the grid: the countdowns that asked to be shown there, nearest first.</summary>
+    private void RenderCountdownBar(WpfBrush text, FontFamily font, double size)
+    {
+        CountdownBar.Children.Clear();
+        var shown = _countdowns is null ? []
+            : CountdownCalc.Ordered(_countdowns.List().Where(c => c.ShowBottom), _renderedToday);
+        CountdownBar.Visibility = shown.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        foreach (var (cd, status) in shown)
+        {
+            var tb = new TextBlock
+            {
+                Text = CountdownCalc.Summary(cd, status), Foreground = text, FontFamily = font, FontSize = size,
+                Margin = new Thickness(0, 0, 14, 0), Opacity = status.Elapsed ? 0.65 : 0.95,
+            };
+            if (status.Days == 0 && !status.Elapsed) tb.FontWeight = FontWeights.Bold;
+            CountdownBar.Children.Add(tb);
+        }
     }
 
     private Dictionary<DateOnly, List<Item>> LoadItems(BoardGrid grid)
@@ -495,7 +524,8 @@ public partial class MainWindow : Window
         tip.AddRange(items.Select(i => (i.Done ? "✓ " : "• ") + i.Content));
         if (tip.Count > 0) border.ToolTip = string.Join("\n", tip);
         border.ContextMenu = BuildCellMenu(cell.Date);
-        border.MouseLeftButtonUp += (_, e) => { if (!_editMode && !e.Handled) { e.Handled = true; OpenEditor(cell.Date); } };
+        // A single click does nothing (it used to open the editor, which fired by accident); double-click opens it.
+        border.MouseLeftButtonDown += (_, e) => { if (e.ClickCount == 2 && !_editMode && !e.Handled) { e.Handled = true; OpenEditor(cell.Date); } };
         _cells[cell.Date] = border;
         return border;
     }
@@ -562,7 +592,7 @@ public partial class MainWindow : Window
                 TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap,
             },
         };
-        row.MouseLeftButtonUp += (_, e) => { e.Handled = true; if (!_editMode) EditEvent(occ); };
+        row.MouseLeftButtonDown += (_, e) => { e.Handled = true; if (e.ClickCount == 2 && !_editMode) EditEvent(occ); };
         row.ContextMenu = BuildEventMenu(occ);
         return row;
     }
@@ -649,6 +679,7 @@ public partial class MainWindow : Window
                 Cursor = System.Windows.Input.Cursors.Hand, ToolTip = item.Done ? "완료 해제" : "완료로 표시",
                 Opacity = item.Done ? 0.6 : 1.0,
             };
+            m.MouseLeftButtonDown += (_, e) => e.Handled = true;   // keep the press from reaching the cell's double-click handler
             m.MouseLeftButtonUp += (_, e) => { e.Handled = true; if (!_editMode) ToggleDone(item); };
             row.Children.Add(m);
         }
@@ -696,6 +727,7 @@ public partial class MainWindow : Window
         var menu = new ContextMenu();
         menu.Items.Add(MenuEntry(item.Done ? "완료 해제" : "완료로 표시", () => ToggleDone(item)));
         menu.Items.Add(MenuEntry("편집…", () => OpenEditor(date)));
+        menu.Items.Add(MenuEntry("이력 보기…", () => ShowItemHistory(item)));
         menu.Items.Add(new Separator());
         var reminder = new MenuItem { Header = "알림" };
         foreach (var (label, offset) in new (string, int?)[] { ("알림 없음", null), ("당일 09:00", 0), ("하루 전 09:00", 1440), ("3일 전 09:00", 4320) })
@@ -706,6 +738,14 @@ public partial class MainWindow : Window
         menu.Items.Add(new Separator());
         menu.Items.Add(MenuEntry("삭제", () => { _items?.SoftDelete(item.Id); Render(); }));
         return menu;
+    }
+
+    private void ShowItemHistory(Item item)
+    {
+        if (_items is null || _history is null || _editMode) return;
+        if (_editingDay is not null) CommitEditor();
+        if (HistoryWindow.Show(this, _items, _history, item)) Render();
+        SendBack();
     }
 
     private MenuItem ColorMenu(string header, Action<string?> apply)
