@@ -9,6 +9,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using DeskCal.Core;
+using DeskCal.Core.Calendars;
 using DeskCal.Data;
 using Brushes = System.Windows.Media.Brushes;
 using Color = System.Windows.Media.Color;
@@ -63,6 +64,9 @@ public partial class MainWindow : Window
 
     internal void SetItems(ItemRepository items) { _items = items; Render(); }
 
+    private KoreanDays? _calendar;
+    internal void SetCalendar(KoreanDays calendar) { _calendar = calendar; Render(); }
+
     /// <summary>Apply new settings. Switching display mode re-centres on today.</summary>
     internal void ApplySettings(BoardSettings settings)
     {
@@ -73,6 +77,7 @@ public partial class MainWindow : Window
     }
 
     internal void GoToday() { _anchor = Today(); Render(); }
+    internal void GoTo(DateOnly date) { _anchor = date; Render(); }
 
     internal void SetRect(DesktopHost.RectInt rect) => _rect = rect;
     public void SetPosition(int x, int y) => _rect = new(x, y, _rect.Width, _rect.Height);
@@ -371,10 +376,15 @@ public partial class MainWindow : Window
             ? $"{cell.Date.Month}/{cell.Date.Day}"
             : cell.Date.Day.ToString(CultureInfo.InvariantCulture);
 
+        var info = _calendar?.Get(cell.Date);
+        var holidayBrush = Brush(s.HolidayColor, Color.FromRgb(0xFF, 0x6B, 0x6B));
+        bool isHoliday = s.ShowHolidays && info?.IsDayOff == true;
+        WpfBrush numberBrush = isHoliday ? holidayBrush : s.ShowOffDays && cell.IsOffDay ? off : text;
+
         var number = new TextBlock
         {
             Text = label, FontFamily = font, FontSize = size,
-            Foreground = s.ShowOffDays && cell.IsOffDay ? off : text,
+            Foreground = numberBrush,
             FontWeight = cell.IsToday ? FontWeights.Bold : FontWeights.Normal,
         };
         UIElement head = number;
@@ -391,7 +401,7 @@ public partial class MainWindow : Window
         else number.Margin = new Thickness(6, 4, 0, 0);
 
         var stack = new StackPanel { Opacity = cell.InAnchorMonth ? 1.0 : 0.42 };
-        stack.Children.Add(head);
+        stack.Children.Add(!dense && info is not null ? WithAnnotations(head, info, s, text, holidayBrush, font, size) : head);
 
         var shown = s.ShowCompleted ? items : items.Where(i => !i.Done).ToList();
         if (dense)
@@ -408,11 +418,60 @@ public partial class MainWindow : Window
         }
         border.Child = stack;
 
-        if (items.Count > 0) border.ToolTip = string.Join("\n", items.Select(i => (i.Done ? "✓ " : "• ") + i.Content));
+        var tip = new List<string>();
+        if (info?.Lunar is { } lunar) tip.Add($"음력 {lunar.ToShortString()}");
+        if (info?.Term is { } term) tip.Add($"{term.Name} ({term.Kst:M/d HH:mm})");
+        if (info is not null) tip.AddRange(info.Holidays.Select(h => h.IsDayOff ? $"{h.Name} (휴일)" : h.Name));
+        tip.AddRange(items.Select(i => (i.Done ? "✓ " : "• ") + i.Content));
+        if (tip.Count > 0) border.ToolTip = string.Join("\n", tip);
         border.ContextMenu = BuildCellMenu(cell.Date);
         border.MouseLeftButtonUp += (_, e) => { if (!_editMode && !e.Handled) { e.Handled = true; OpenEditor(cell.Date); } };
         _cells[cell.Date] = border;
         return border;
+    }
+
+    private static readonly SolidColorBrush TermBrush = Brush("#8FD694", Colors.LightGreen);
+    private static readonly SolidColorBrush FestivalBrush = Brush("#FFD27F", Colors.Orange);
+
+    /// <summary>The head row of a cell: day number on the left, lunar date on the right, and one name in between
+    /// (holiday, else solar term, else memorial day).</summary>
+    private static UIElement WithAnnotations(UIElement head, DayInfo info, BoardSettings s, WpfBrush text,
+                                             WpfBrush holidayBrush, FontFamily font, double size)
+    {
+        double small = Math.Max(8.5, size - 6);
+        var dock = new DockPanel();
+
+        if (s.ShowLunar && info.Lunar is { } lunar)
+        {
+            var l = new TextBlock
+            {
+                Text = lunar.ToShortString(), FontFamily = font, FontSize = small, Foreground = text, Opacity = 0.55,
+                Margin = new Thickness(0, 5, 5, 0), VerticalAlignment = VerticalAlignment.Top,
+            };
+            DockPanel.SetDock(l, Dock.Right);
+            dock.Children.Add(l);
+        }
+
+        DockPanel.SetDock(head, Dock.Left);
+        dock.Children.Add(head);
+
+        (string Text, WpfBrush Brush)? name =
+            s.ShowHolidays && info.HolidayName is { } hn ? (hn, holidayBrush)
+            : s.ShowSolarTerms && info.Term is { } t ? (t.Name, TermBrush)
+            : s.ShowFestivals && info.FestivalName is { } fn ? (fn, FestivalBrush)
+            : null;
+        dock.LastChildFill = false;
+        if (name is not { } n) return dock;
+
+        // The name gets its own line so long names ("부처님오신날", "설날 대체공휴일") are not cut off.
+        var rows = new StackPanel();
+        rows.Children.Add(dock);
+        rows.Children.Add(new TextBlock
+        {
+            Text = n.Text, FontFamily = font, FontSize = small, Foreground = n.Brush,
+            TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(6, 0, 2, 1),
+        });
+        return rows;
     }
 
     private UIElement MakeLine(Item item, int number, BoardSettings s, WpfBrush defaultText, FontFamily font, double size, DateOnly date)

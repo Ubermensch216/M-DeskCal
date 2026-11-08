@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading;
 using System.Windows;
 using DeskCal.Core;
+using DeskCal.Core.Calendars;
 using DeskCal.Data;
 using Forms = System.Windows.Forms;
 
@@ -17,6 +18,8 @@ public partial class App : System.Windows.Application
 
     internal static string DataDir { get; } =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DeskCal");
+
+    private static string HolidaysPath => Path.Combine(DataDir, "holidays.json");
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -37,6 +40,11 @@ public partial class App : System.Windows.Application
 
         _board = new MainWindow();
         _board.SetItems(items);
+        var loaded = HolidayOverrideFile.Load(HolidaysPath);
+        _board.SetCalendar(new KoreanDays(loaded.Overrides));
+        if (loaded.Errors.Count > 0 && !e.Args.Any(a => a.StartsWith("--snapshot=")))
+            System.Windows.MessageBox.Show("holidays.json 에 문제가 있어 해당 항목을 건너뛰었습니다.\n\n" + string.Join("\n", loaded.Errors),
+                "M-DeskCal 휴일 데이터");
         _board.ApplySettings(_boardStore.Load());
 
         // Restore the saved board rectangle (physical pixels), ignoring implausible values.
@@ -83,6 +91,13 @@ public partial class App : System.Windows.Application
                 _board.ApplySettings(new BoardSettings { Mode = mode, ShowWeekNumbers = true, FirstDayOfWeek = DayOfWeek.Monday, MaxRows = 5 });
                 _board.SaveSnapshot(Path.Combine(dir, $"{(int)mode}-{mode}.png"));
             }
+            _board.ApplySettings(new BoardSettings { Mode = DisplayMode.FixedMonth });
+            foreach (var (yy, mm) in new[] { (2026, 2), (2026, 5), (2026, 10), (2025, 10) })
+            {
+                _board.GoTo(new DateOnly(yy, mm, 1));
+                _board.SaveSnapshot(Path.Combine(dir, $"m4-{yy}-{mm:00}.png"));
+            }
+            _board.GoToday();
             _board.ApplySettings(new BoardSettings { Mode = DisplayMode.FixedMonth, Bullet = BulletStyle.Number });
             _board.SaveSnapshot(Path.Combine(dir, "m3-numbered.png"));
             _board.ApplySettings(new BoardSettings { Mode = DisplayMode.FixedMonth, Bullet = BulletStyle.None, ShowCompleted = false });
@@ -168,6 +183,31 @@ public partial class App : System.Windows.Application
             refresh.Add(() => item.Checked = board.Settings.FirstDayOfWeek == dow);
         }
         menu.Items.Add(dowMenu);
+
+        // calendar annotations
+        AddToggle("음력 표시", s => s.ShowLunar, (s, v) => s with { ShowLunar = v });
+        AddToggle("24절기 표시", s => s.ShowSolarTerms, (s, v) => s with { ShowSolarTerms = v });
+        AddToggle("공휴일 표시", s => s.ShowHolidays, (s, v) => s with { ShowHolidays = v });
+        AddToggle("기념일·명절 표시", s => s.ShowFestivals, (s, v) => s with { ShowFestivals = v });
+        menu.Items.Add("휴일 데이터 편집…", null, (_, _) =>
+        {
+            try
+            {
+                HolidayOverrideFile.EnsureTemplate(HolidaysPath);
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(HolidaysPath) { UseShellExecute = true });
+            }
+            catch (Exception ex) { System.Windows.MessageBox.Show(ex.Message, "휴일 데이터 편집"); }
+        });
+        menu.Items.Add("휴일 데이터 다시 읽기", null, (_, _) =>
+        {
+            var r = HolidayOverrideFile.Load(HolidaysPath);
+            board.SetCalendar(new KoreanDays(r.Overrides));
+            System.Windows.MessageBox.Show(
+                r.Errors.Count == 0 ? $"사용자 휴일 {r.Overrides.Count}건을 적용했습니다."
+                                    : $"{r.Overrides.Count}건 적용, 문제 {r.Errors.Count}건:\n\n" + string.Join("\n", r.Errors),
+                "M-DeskCal 휴일 데이터");
+        });
+        menu.Items.Add(new Forms.ToolStripSeparator());
 
         // items
         var bulletMenu = new Forms.ToolStripMenuItem("항목 번호/기호");

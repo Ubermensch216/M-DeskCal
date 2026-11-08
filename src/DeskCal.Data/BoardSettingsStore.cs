@@ -13,6 +13,11 @@ public sealed class BoardSettingsStore(SettingsStore store)
         var d = new BoardSettings();   // defaults
         var s = d with
         {
+            ShowLunar = store.GetBool(Prefix + "show_lunar", d.ShowLunar),
+            ShowSolarTerms = store.GetBool(Prefix + "show_terms", d.ShowSolarTerms),
+            ShowHolidays = store.GetBool(Prefix + "show_holidays", d.ShowHolidays),
+            ShowFestivals = store.GetBool(Prefix + "show_festivals", d.ShowFestivals),
+            HolidayColor = store.GetString(Prefix + "holiday_color") ?? d.HolidayColor,
             Bullet = Enum(store, "bullet", d.Bullet),
             ShowCompleted = store.GetBool(Prefix + "show_completed", d.ShowCompleted),
             CompleteSound = store.GetBool(Prefix + "complete_sound", d.CompleteSound),
@@ -39,6 +44,11 @@ public sealed class BoardSettingsStore(SettingsStore store)
     public void Save(BoardSettings settings)
     {
         var s = settings.Sanitized();
+        store.SetBool(Prefix + "show_lunar", s.ShowLunar);
+        store.SetBool(Prefix + "show_terms", s.ShowSolarTerms);
+        store.SetBool(Prefix + "show_holidays", s.ShowHolidays);
+        store.SetBool(Prefix + "show_festivals", s.ShowFestivals);
+        store.SetString(Prefix + "holiday_color", s.HolidayColor);
         store.SetString(Prefix + "bullet", s.Bullet.ToString());
         store.SetBool(Prefix + "show_completed", s.ShowCompleted);
         store.SetBool(Prefix + "complete_sound", s.CompleteSound);

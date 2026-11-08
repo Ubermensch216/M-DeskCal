@@ -29,6 +29,14 @@ public enum BulletStyle { None = 0, Dot = 1, Number = 2 }
 
 public sealed record BoardSettings
 {
+    // ---- calendar annotations ----
+    public bool ShowLunar { get; init; } = true;
+    public bool ShowSolarTerms { get; init; } = true;
+    public bool ShowHolidays { get; init; } = true;
+    /// <summary>Memorial and traditional days that are not days off (어버이날, 정월대보름, ...).</summary>
+    public bool ShowFestivals { get; init; } = true;
+    public string HolidayColor { get; init; } = "#FF6B6B";
+
     // ---- items ----
     public BulletStyle Bullet { get; init; } = BulletStyle.Dot;
     public bool ShowCompleted { get; init; } = true;
