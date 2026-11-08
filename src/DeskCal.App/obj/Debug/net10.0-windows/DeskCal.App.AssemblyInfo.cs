@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DeskCal.App")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+19eed0403bd5bf5df16cf7af683bf26171a0d314")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+c8274a74702b67c0cfe3c7a6318314e5822959da")]
 [assembly: System.Reflection.AssemblyProductAttribute("DeskCal.App")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DeskCal.App")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

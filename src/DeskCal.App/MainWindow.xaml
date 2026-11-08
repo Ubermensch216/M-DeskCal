@@ -3,25 +3,63 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="M-DeskCal" Width="640" Height="480"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
-        ShowInTaskbar="False" ResizeMode="NoResize" ShowActivated="False">
+        ShowInTaskbar="False" ResizeMode="NoResize" ShowActivated="False"
+        UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
     <Border x:Name="Frame" CornerRadius="14" Background="#99101820"
-            BorderBrush="Transparent" BorderThickness="2" Padding="14">
-        <Grid>
+            BorderBrush="Transparent" BorderThickness="2" Padding="12,10,12,12">
+        <Grid x:Name="Root">
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
-            <TextBlock x:Name="MonthTitle" Foreground="White" FontSize="22" FontWeight="SemiBold"/>
-            <UniformGrid x:Name="Header" Grid.Row="1" Columns="7" Margin="0,10,0,4"/>
-            <UniformGrid x:Name="Days" Grid.Row="2" Columns="7"/>
-            <TextBlock x:Name="EditHint" Grid.Row="2" Visibility="Collapsed"
-                       HorizontalAlignment="Center" VerticalAlignment="Bottom"
-                       Foreground="#FFFFC857" FontSize="13"
+
+            <DockPanel Grid.Row="0" Margin="0,0,0,6">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border x:Name="PrevBtn" Padding="10,2" Cursor="Hand" Background="#01FFFFFF"
+                            MouseLeftButtonDown="Prev_Click" ToolTip="이전">
+                        <TextBlock x:Name="PrevText" Text="◀" FontSize="14"/>
+                    </Border>
+                    <Border x:Name="TodayBtn" Padding="10,2" Cursor="Hand" Background="#01FFFFFF"
+                            MouseLeftButtonDown="Today_Click" ToolTip="오늘로 이동">
+                        <TextBlock x:Name="TodayText" Text="오늘" FontSize="14"/>
+                    </Border>
+                    <Border x:Name="NextBtn" Padding="10,2" Cursor="Hand" Background="#01FFFFFF"
+                            MouseLeftButtonDown="Next_Click" ToolTip="다음">
+                        <TextBlock x:Name="NextText" Text="▶" FontSize="14"/>
+                    </Border>
+                </StackPanel>
+                <TextBlock x:Name="MonthTitle" FontWeight="SemiBold" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"/>
+            </DockPanel>
+
+            <Grid x:Name="GridHost" Grid.Row="1"/>
+
+            <TextBlock x:Name="EditHint" Grid.Row="1" Visibility="Collapsed"
+                       HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,4"
+                       Foreground="#FFFFC857" FontSize="13" Background="#AA000000" Padding="8,2"
                        Text="편집 모드: 드래그로 이동 · 오른쪽 아래 모서리로 크기 조정 · 트레이에서 편집 모드 해제"/>
-            <Thumb x:Name="Grip" Grid.Row="2" Width="18" Height="18" Visibility="Collapsed"
+            <Thumb x:Name="Grip" Grid.Row="1" Width="18" Height="18" Visibility="Collapsed"
                    HorizontalAlignment="Right" VerticalAlignment="Bottom" Cursor="SizeNWSE"
                    DragDelta="Grip_DragDelta"/>
+
+            <!-- Day editor: a click-away scrim plus the panel itself. Position/size are set in code. -->
+            <Grid x:Name="EditorLayer" Grid.RowSpan="2" Visibility="Collapsed">
+                <Border x:Name="Scrim" Background="#01000000" MouseLeftButtonDown="Scrim_Down"/>
+                <Border x:Name="EditorPanel" HorizontalAlignment="Left" VerticalAlignment="Top"
+                        Background="#F2182430" BorderBrush="#FF6EA8FF" BorderThickness="1.5"
+                        CornerRadius="8" Padding="8">
+                    <DockPanel>
+                        <TextBlock x:Name="EditorTitle" DockPanel.Dock="Top" Foreground="#FFBFD8FF"
+                                   FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBlock DockPanel.Dock="Bottom" Foreground="#99FFFFFF" FontSize="11" Margin="0,4,0,0"
+                                   Text="한 줄에 항목 하나 · Ctrl+Enter 저장 · Esc 취소"/>
+                        <TextBox x:Name="EditorBox" AcceptsReturn="True" TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto" Background="#33FFFFFF" Foreground="White"
+                                 CaretBrush="White" BorderThickness="0" Padding="4"
+                                 PreviewKeyDown="EditorBox_PreviewKeyDown"/>
+                    </DockPanel>
+                </Border>
+            </Grid>
         </Grid>
     </Border>
 </Window>

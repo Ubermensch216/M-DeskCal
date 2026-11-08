@@ -1,5 +1,10 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/DeskCal.App/DeskCal.App.csproj" />
+    <Project Path="src/DeskCal.Core/DeskCal.Core.csproj" />
+    <Project Path="src/DeskCal.Data/DeskCal.Data.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DeskCal.Tests/DeskCal.Tests.csproj" />
   </Folder>
 </Solution>

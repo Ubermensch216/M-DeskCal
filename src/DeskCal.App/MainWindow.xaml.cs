@@ -7,47 +7,144 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
+using DeskCal.Core;
+using DeskCal.Data;
 using Brushes = System.Windows.Media.Brushes;
 using Color = System.Windows.Media.Color;
+using ColorConverter = System.Windows.Media.ColorConverter;
+using ContextMenu = System.Windows.Controls.ContextMenu;
+using FontFamily = System.Windows.Media.FontFamily;
+using HorizontalAlignment = System.Windows.HorizontalAlignment;
+using MenuItem = System.Windows.Controls.MenuItem;
+using KeyEventArgs = System.Windows.Input.KeyEventArgs;
+using Orientation = System.Windows.Controls.Orientation;
+using TextBox = System.Windows.Controls.TextBox;
+using WpfBrush = System.Windows.Media.Brush;
 
 namespace DeskCal.App;
 
-/// <summary>M0 prototype board: a month grid placed on the desktop layer.</summary>
+/// <summary>The calendar board window. Geometry comes from <see cref="BoardLayout"/>; this class only draws it.</summary>
 public partial class MainWindow : Window
 {
-    private bool _editMode;
-    private DesktopHost.RectInt _rect = new(200, 150, 640, 480); // physical pixels
+    private bool _editMode;                                         // "edit position/size" mode
+    private DesktopHost.RectInt _rect = new(200, 150, 640, 480);    // physical pixels
     private uint _taskbarCreated;
     private bool _attached;
+
+    private BoardSettings _settings = new();
+    private DateOnly _anchor = DateOnly.FromDateTime(DateTime.Today);
+    private DateOnly _renderedToday;
+
+    private ItemRepository? _items;
+    private readonly Dictionary<DateOnly, Border> _cells = [];
+    private DateOnly? _editingDay;
+
+    private static readonly (string Name, string? Hex)[] Palette =
+    [
+        ("기본", null), ("빨강", "#FF6B6B"), ("주황", "#FFA94D"), ("노랑", "#FFE066"),
+        ("초록", "#69DB7C"), ("파랑", "#74C0FC"), ("보라", "#B197FC"),
+    ];
 
     public MainWindow()
     {
         InitializeComponent();
-        BuildMonth(DateTime.Today);
         SourceInitialized += (_, _) =>
         {
             _taskbarCreated = RegisterWindowMessage("TaskbarCreated");
             ((HwndSource)PresentationSource.FromVisual(this)!).AddHook(WndProc);
         };
+        Render();
     }
 
-    public void AttachToDesktop()
+    // ---- public surface ----------------------------------------------------
+
+    internal BoardSettings Settings => _settings;
+
+    internal void SetItems(ItemRepository items) { _items = items; Render(); }
+
+    /// <summary>Apply new settings. Switching display mode re-centres on today.</summary>
+    internal void ApplySettings(BoardSettings settings)
     {
-        _attached = DesktopHost.Attach(this, _rect);
-        Log($"attach -> {_attached}\n{DesktopHost.LastDiagnostics}");
+        var s = settings.Sanitized();
+        if (s.Mode != _settings.Mode) _anchor = Today();
+        _settings = s;
+        Render();
+    }
+
+    internal void GoToday() { _anchor = Today(); Render(); }
+
+    internal void SetRect(DesktopHost.RectInt rect) => _rect = rect;
+    public void SetPosition(int x, int y) => _rect = new(x, y, _rect.Width, _rect.Height);
+
+    /// <summary>Raised after the user finishes edit mode, with the final physical-pixel rect.</summary>
+    internal event Action<DesktopHost.RectInt>? RectCommitted;
+
+    /// <summary>Dev aid: render the board (over a flat stand-in wallpaper) to a PNG without touching the screen.</summary>
+    internal void SaveSnapshot(string path)
+    {
+        var root = (FrameworkElement)Content;
+        double w = 640, h = 480;
+        root.Measure(new System.Windows.Size(w, h));
+        root.Arrange(new Rect(0, 0, w, h));
+        root.UpdateLayout();
+        var dv = new DrawingVisual();
+        using (var dc = dv.RenderOpen())
+        {
+            dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0x3A, 0x5F, 0x7A)), null, new Rect(0, 0, w, h));
+            dc.DrawRectangle(new VisualBrush(root), null, new Rect(0, 0, w, h));
+        }
+        var bmp = new System.Windows.Media.Imaging.RenderTargetBitmap((int)w, (int)h, 96, 96, PixelFormats.Pbgra32);
+        bmp.Render(dv);
+        var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bmp));
+        using var fs = File.Create(path);
+        enc.Save(fs);
     }
 
     public string Diagnostics() =>
-        $"attached={_attached} edit={_editMode}\nrect={_rect}\n{DesktopHost.LastDiagnostics}";
+        $"attached={_attached} edit={_editMode}\nrect={_rect}\nanchor={_anchor} mode={_settings.Mode}\n{DesktopHost.LastDiagnostics}";
+
+    // ---- desktop pinning ---------------------------------------------------
+
+    public void AttachToDesktop()
+    {
+        _attached = DesktopHost.Pin(this, _rect);
+        Log($"pin -> {_attached} {DesktopHost.LastDiagnostics}");
+        _timer ??= StartTimer();
+    }
+
+    private System.Windows.Threading.DispatcherTimer? _timer;
+
+    // Windows reorders top-level windows when other apps activate, so keep us just above the desktop.
+    // The same tick notices midnight so "today" moves on without user action.
+    private System.Windows.Threading.DispatcherTimer StartTimer()
+    {
+        var t = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        t.Tick += (_, _) =>
+        {
+            if (!_editMode && !IsActive) DesktopHost.Repin(this);
+            if (Today() != _renderedToday && _editingDay is null) Render();
+        };
+        t.Start();
+        return t;
+    }
+
+    protected override void OnDeactivated(EventArgs e)
+    {
+        base.OnDeactivated(e);
+        if (_editingDay is not null) CommitEditor();   // never lose typed text when focus moves away
+        else if (!_editMode && _attached) DesktopHost.Repin(this);
+    }
 
     public void SetEditMode(bool on)
     {
         if (on == _editMode) return;
+        if (on && _editingDay is not null) CommitEditor();
         _editMode = on;
         if (on)
         {
-            _rect = DesktopHost.GetScreenRect(this);
-            DesktopHost.Detach(this, _rect);
+            DesktopHost.Float(this);
             Frame.BorderBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0xC8, 0x57));
             EditHint.Visibility = Grip.Visibility = Visibility.Visible;
             ShowActivated = true;
@@ -59,8 +156,11 @@ public partial class MainWindow : Window
             Frame.BorderBrush = Brushes.Transparent;
             EditHint.Visibility = Grip.Visibility = Visibility.Collapsed;
             AttachToDesktop();
+            RectCommitted?.Invoke(_rect);
         }
     }
+
+    // ---- input -------------------------------------------------------------
 
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
     {
@@ -68,50 +168,383 @@ public partial class MainWindow : Window
         if (_editMode) DragMove();
     }
 
-    private void Grip_DragDelta(object sender, DragDeltaEventArgs e)
+    protected override void OnMouseWheel(MouseWheelEventArgs e)
     {
-        var dpi = VisualTreeHelper.GetDpi(this);
-        Width = Math.Max(320, Width + e.HorizontalChange);
-        Height = Math.Max(240, Height + e.VerticalChange);
-        _ = dpi;
+        base.OnMouseWheel(e);
+        if (_editingDay is null) Navigate(e.Delta > 0 ? -1 : +1);
     }
 
-    private void BuildMonth(DateTime today)
+    private void Navigate(int direction)
     {
-        var ci = CultureInfo.CurrentCulture;
-        MonthTitle.Text = today.ToString("yyyy년 M월", ci);
-        foreach (var d in new[] { DayOfWeek.Sunday, DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday,
-                                  DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday })
-            Header.Children.Add(Cell(ci.DateTimeFormat.GetAbbreviatedDayName(d), d == DayOfWeek.Sunday, false, true));
+        _anchor = BoardLayout.Step(_anchor, direction, _settings);
+        Render();
+    }
 
-        var first = new DateTime(today.Year, today.Month, 1);
-        for (int i = 0; i < (int)first.DayOfWeek; i++) Days.Children.Add(new Border());
-        for (int d = 1; d <= DateTime.DaysInMonth(today.Year, today.Month); d++)
+    private void Prev_Click(object sender, MouseButtonEventArgs e) { e.Handled = true; Navigate(-1); }
+    private void Next_Click(object sender, MouseButtonEventArgs e) { e.Handled = true; Navigate(+1); }
+    private void Today_Click(object sender, MouseButtonEventArgs e) { e.Handled = true; GoToday(); }
+
+    private void Grip_DragDelta(object sender, DragDeltaEventArgs e)
+    {
+        Width = Math.Max(320, Width + e.HorizontalChange);
+        Height = Math.Max(240, Height + e.VerticalChange);
+    }
+
+    // ---- day editor --------------------------------------------------------
+
+    /// <summary>Open the one-line-per-item editor over the given day's cell.</summary>
+    internal void OpenEditor(DateOnly date)
+    {
+        if (_items is null || _editMode) return;
+        if (_editingDay is not null) CommitEditor();
+        _editingDay = date;
+
+        var lines = _items.GetByDay(DayKey(date)).Select(i => i.Content);
+        EditorTitle.Text = date.ToString("D", CultureInfo.CurrentCulture);
+        EditorBox.Text = string.Join("\r\n", lines);
+        EditorBox.FontFamily = new FontFamily(_settings.FontFamily);
+        EditorBox.FontSize = Math.Max(12, _settings.FontSize - 1);
+
+        Root.UpdateLayout();
+        double rw = Root.ActualWidth, rh = Root.ActualHeight;
+        var r = _cells.TryGetValue(date, out var cell) && cell.IsLoaded
+            ? cell.TransformToAncestor(Root).TransformBounds(new Rect(0, 0, cell.ActualWidth, cell.ActualHeight))
+            : new Rect(rw / 2 - 130, rh / 2 - 95, 260, 190);
+        double w = Math.Min(Math.Max(r.Width, 270), Math.Max(150, rw - 8));
+        double h = Math.Min(Math.Max(r.Height + 50, 200), Math.Max(120, rh - 8));
+        EditorPanel.Width = w;
+        EditorPanel.Height = h;
+        EditorPanel.Margin = new Thickness(
+            Math.Clamp(r.Left, 4, Math.Max(4, rw - w - 4)),
+            Math.Clamp(r.Top, 4, Math.Max(4, rh - h - 4)), 0, 0);
+        EditorLayer.Visibility = Visibility.Visible;
+
+        Activate();
+        EditorBox.Focus();
+        EditorBox.CaretIndex = EditorBox.Text.Length;
+        Keyboard.Focus(EditorBox);
+    }
+
+    /// <summary>Dev aid (snapshot self-test): the editor's text, as if typed by the user.</summary>
+    internal string EditorText { get => EditorBox.Text; set => EditorBox.Text = value; }
+
+    internal void CommitEditor()
+    {
+        if (_editingDay is not { } day) return;
+        var lines = EditorBox.Text.Split('\n').Select(l => l.TrimEnd('\r')).ToList();
+        _editingDay = null;
+        EditorLayer.Visibility = Visibility.Collapsed;
+        _items?.ReplaceDay(DayKey(day), lines);
+        Render();
+        SendBack();
+    }
+
+    private void CancelEditor()
+    {
+        if (_editingDay is null) return;
+        _editingDay = null;
+        EditorLayer.Visibility = Visibility.Collapsed;
+        SendBack();
+    }
+
+    // After editing, drop back beneath the other windows instead of covering them.
+    private void SendBack()
+    {
+        if (!_editMode && _attached) DesktopHost.Repin(this);
+    }
+
+    private void Scrim_Down(object sender, MouseButtonEventArgs e) { e.Handled = true; CommitEditor(); }
+
+    private void EditorBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape) { e.Handled = true; CancelEditor(); }
+        else if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) != 0) { e.Handled = true; CommitEditor(); }
+    }
+
+    // ---- rendering ---------------------------------------------------------
+
+    private static DateOnly Today() => DateOnly.FromDateTime(DateTime.Today);
+    private static string DayKey(DateOnly d) => d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    private void Render()
+    {
+        var s = _settings;
+        var culture = CultureInfo.CurrentCulture;
+        _renderedToday = Today();
+        var grid = BoardLayout.Build(_anchor, _renderedToday, s);
+        var byDay = LoadItems(grid);
+        _cells.Clear();
+
+        // frame: background, opacity, shadow
+        var bg = ParseColor(s.BackgroundColor, Color.FromRgb(0x10, 0x18, 0x20));
+        bg.A = (byte)Math.Round(s.BackgroundOpacity * 255);
+        Frame.Background = new SolidColorBrush(bg);
+        Frame.Margin = new Thickness(s.Shadow ? 12 : 0);
+        Frame.Effect = s.Shadow ? new DropShadowEffect { BlurRadius = 16, ShadowDepth = 2, Opacity = 0.55, Color = Colors.Black } : null;
+
+        var text = Brush(s.TextColor, Colors.White);
+        var off = Brush(s.OffDayColor, Color.FromRgb(0xFF, 0x7A, 0x7A));
+        var font = new FontFamily(s.FontFamily);
+
+        foreach (var tb in new[] { MonthTitle, PrevText, TodayText, NextText }) { tb.Foreground = text; tb.FontFamily = font; }
+        MonthTitle.FontSize = s.FontSize + 7;
+        MonthTitle.Text = FormatTitle(grid, culture);
+
+        // grid
+        GridHost.Children.Clear();
+        GridHost.RowDefinitions.Clear();
+        GridHost.ColumnDefinitions.Clear();
+        int colOffset = grid.HasWeekNumbers ? 1 : 0;
+        if (grid.HasWeekNumbers) GridHost.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        for (int c = 0; c < grid.Columns; c++) GridHost.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        GridHost.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        // Single-line modes: rows hug their content instead of stretching over the whole window.
+        var rowHeight = grid.Rows.Count == 1 ? GridLength.Auto : new GridLength(1, GridUnitType.Star);
+        foreach (var _ in grid.Rows) GridHost.RowDefinitions.Add(new RowDefinition { Height = rowHeight });
+
+        double headerSize = Math.Max(9, s.FontSize - 2);
+        for (int c = 0; c < grid.Columns; c++)
         {
-            var date = new DateTime(today.Year, today.Month, d);
-            Days.Children.Add(Cell(d.ToString(), date.DayOfWeek == DayOfWeek.Sunday, date == today, false));
+            var dow = grid.HeaderDays[c];
+            bool isOff = s.ShowOffDays && s.IsOffDay(dow);
+            Place(new TextBlock
+            {
+                Text = culture.DateTimeFormat.GetAbbreviatedDayName(dow),
+                Foreground = isOff ? off : text, Opacity = 0.8, FontFamily = font, FontSize = headerSize,
+                HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 4),
+            }, 0, c + colOffset);
+        }
+
+        bool dense = grid.Columns > 7;                // single-line modes: narrow cells
+        double dayFont = dense ? Math.Max(9, s.FontSize - 3) : s.FontSize;
+        for (int r = 0; r < grid.Rows.Count; r++)
+        {
+            var row = grid.Rows[r];
+            if (grid.HasWeekNumbers)
+                Place(new TextBlock
+                {
+                    Text = row.WeekNumber?.ToString(CultureInfo.InvariantCulture), Foreground = text, Opacity = 0.5,
+                    FontFamily = font, FontSize = headerSize, Margin = new Thickness(0, 6, 8, 0), VerticalAlignment = VerticalAlignment.Top,
+                }, r + 1, 0);
+
+            for (int c = 0; c < row.Cells.Count; c++)
+            {
+                var cell = row.Cells[c];
+                byDay.TryGetValue(cell.Date, out var items);
+                Place(MakeCell(cell, items ?? [], s, text, off, font, dayFont, dense), r + 1, c + colOffset);
+            }
         }
     }
 
-    private static UIElement Cell(string text, bool red, bool isToday, bool header) => new Border
+    private Dictionary<DateOnly, List<Item>> LoadItems(BoardGrid grid)
     {
-        Margin = new Thickness(2),
-        CornerRadius = new CornerRadius(6),
-        Background = isToday ? new SolidColorBrush(Color.FromArgb(0xAA, 0x3B, 0x82, 0xF6)) : Brushes.Transparent,
-        Child = new TextBlock
+        var result = new Dictionary<DateOnly, List<Item>>();
+        if (_items is null || grid.Rows.Count == 0) return result;
+        var first = grid.Rows[0].Cells[0].Date;
+        var last = grid.Rows[^1].Cells[^1].Date;
+        foreach (var item in _items.GetRange(DayKey(first), DayKey(last)))
+            if (DateOnly.TryParseExact(item.Day, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d))
+                (result.TryGetValue(d, out var list) ? list : result[d] = []).Add(item);
+        return result;
+    }
+
+    private UIElement MakeCell(BoardCell cell, List<Item> items, BoardSettings s, WpfBrush text, WpfBrush off,
+                               FontFamily font, double size, bool dense)
+    {
+        var border = new Border
         {
-            Text = text,
-            Foreground = red ? new SolidColorBrush(Color.FromRgb(0xFF, 0x7A, 0x7A)) : Brushes.White,
-            FontSize = header ? 13 : 16,
-            Margin = new Thickness(6, 4, 0, 0),
-        },
-    };
+            Margin = new Thickness(s.CellGap / 2.0),
+            CornerRadius = new CornerRadius(6),
+            Background = Brushes.Transparent,          // transparent (not null) so empty cells are clickable
+            ClipToBounds = true,
+        };
+        if (cell.IsBlank) return border;
+
+        var accent = Color.FromRgb(0x3B, 0x82, 0xF6);
+        if (cell.IsToday) border.Background = new SolidColorBrush(dense ? Color.FromArgb(0xB0, accent.R, accent.G, accent.B)
+                                                                         : Color.FromArgb(0x30, accent.R, accent.G, accent.B));
+        if (dense || s.Mode is DisplayMode.SingleLine or DisplayMode.SingleLineFloating) border.MinHeight = size * 2.4;
+
+        // "M/d" on the 1st only where the view can span months; a fixed month needs no label.
+        bool floatingLike = s.Mode is DisplayMode.FloatingMonth or DisplayMode.SingleLineFloating;
+        string label = cell.IsMonthStart && floatingLike
+            ? $"{cell.Date.Month}/{cell.Date.Day}"
+            : cell.Date.Day.ToString(CultureInfo.InvariantCulture);
+
+        var number = new TextBlock
+        {
+            Text = label, FontFamily = font, FontSize = size,
+            Foreground = s.ShowOffDays && cell.IsOffDay ? off : text,
+            FontWeight = cell.IsToday ? FontWeights.Bold : FontWeights.Normal,
+        };
+        UIElement head = number;
+        if (cell.IsToday && !dense)
+        {
+            number.Margin = new Thickness(5, 0, 5, 0);
+            head = new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(0xC0, accent.R, accent.G, accent.B)),
+                CornerRadius = new CornerRadius(4), HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(3, 3, 0, 1), Child = number,
+            };
+        }
+        else number.Margin = new Thickness(6, 4, 0, 0);
+
+        var stack = new StackPanel { Opacity = cell.InAnchorMonth ? 1.0 : 0.42 };
+        stack.Children.Add(head);
+
+        var shown = s.ShowCompleted ? items : items.Where(i => !i.Done).ToList();
+        if (dense)
+        {
+            if (shown.Count > 0)
+                stack.Children.Add(new TextBlock { Text = "•", Foreground = text, FontSize = size, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, -2, 0, 0) });
+        }
+        else
+        {
+            double itemSize = Math.Max(9, size - 4);
+            int n = 0;
+            foreach (var item in shown)
+                stack.Children.Add(MakeLine(item, ++n, s, text, font, itemSize, cell.Date));
+        }
+        border.Child = stack;
+
+        if (items.Count > 0) border.ToolTip = string.Join("\n", items.Select(i => (i.Done ? "✓ " : "• ") + i.Content));
+        border.ContextMenu = BuildCellMenu(cell.Date);
+        border.MouseLeftButtonUp += (_, e) => { if (!_editMode && !e.Handled) { e.Handled = true; OpenEditor(cell.Date); } };
+        _cells[cell.Date] = border;
+        return border;
+    }
+
+    private UIElement MakeLine(Item item, int number, BoardSettings s, WpfBrush defaultText, FontFamily font, double size, DateOnly date)
+    {
+        var row = new Grid
+        {
+            Margin = new Thickness(4, 1, 2, 0),
+            Background = item.BgColor is { } bgHex ? new SolidColorBrush(WithAlpha(ParseColor(bgHex, Colors.Transparent), 0x66)) : Brushes.Transparent,
+        };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var fg = item.TextColor is { } tc ? Brush(tc, Colors.White) : defaultText;
+        string marker = s.Bullet switch
+        {
+            BulletStyle.Number => $"{number}.",
+            BulletStyle.Dot => item.Done ? "✓" : "•",
+            _ => item.Done ? "✓" : "",
+        };
+        if (marker.Length > 0)
+        {
+            var m = new TextBlock
+            {
+                Text = marker, Foreground = fg, FontFamily = font, FontSize = size, Margin = new Thickness(0, 0, 3, 0),
+                Cursor = System.Windows.Input.Cursors.Hand, ToolTip = item.Done ? "완료 해제" : "완료로 표시",
+                Opacity = item.Done ? 0.6 : 1.0,
+            };
+            m.MouseLeftButtonUp += (_, e) => { e.Handled = true; if (!_editMode) ToggleDone(item); };
+            row.Children.Add(m);
+        }
+
+        var t = new TextBlock
+        {
+            Text = item.Content, Foreground = fg, FontFamily = font, FontSize = size,
+            TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap,
+            TextDecorations = item.Done ? TextDecorations.Strikethrough : null,
+            Opacity = item.Done ? 0.5 : 1.0,
+        };
+        Grid.SetColumn(t, 1);
+        row.Children.Add(t);
+
+        row.ContextMenu = BuildItemMenu(item, date);
+        return row;
+    }
+
+    private void ToggleDone(Item item)
+    {
+        if (_items is null) return;
+        bool nowDone = !item.Done;
+        if (_items.SetDone(item.Id, nowDone) && nowDone && _settings.CompleteSound) Sounds.PlayComplete();
+        Render();
+    }
+
+    // ---- context menus -----------------------------------------------------
+
+    private ContextMenu BuildCellMenu(DateOnly date)
+    {
+        var menu = new ContextMenu();
+        menu.Items.Add(MenuEntry("항목 추가/편집…", () => OpenEditor(date)));
+        return menu;
+    }
+
+    private ContextMenu BuildItemMenu(Item item, DateOnly date)
+    {
+        var menu = new ContextMenu();
+        menu.Items.Add(MenuEntry(item.Done ? "완료 해제" : "완료로 표시", () => ToggleDone(item)));
+        menu.Items.Add(MenuEntry("편집…", () => OpenEditor(date)));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(ColorMenu("글자색", hex => _items?.SetTextColor(item.Id, hex)));
+        menu.Items.Add(ColorMenu("배경색", hex => _items?.SetColor(item.Id, hex)));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(MenuEntry("삭제", () => { _items?.SoftDelete(item.Id); Render(); }));
+        return menu;
+    }
+
+    private MenuItem ColorMenu(string header, Action<string?> apply)
+    {
+        var parent = new MenuItem { Header = header };
+        foreach (var (name, hex) in Palette)
+        {
+            var mi = MenuEntry(name, () => { apply(hex); Render(); });
+            if (hex is not null) mi.Foreground = Brush(hex, Colors.White);
+            mi.Background = Brushes.Black;
+            parent.Items.Add(mi);
+        }
+        return parent;
+    }
+
+    private static MenuItem MenuEntry(string header, Action click)
+    {
+        var mi = new MenuItem { Header = header };
+        mi.Click += (_, _) => click();
+        return mi;
+    }
+
+    // ---- helpers -----------------------------------------------------------
+
+    private void Place(UIElement e, int row, int col)
+    {
+        Grid.SetRow(e, row);
+        Grid.SetColumn(e, col);
+        GridHost.Children.Add(e);
+    }
+
+    private static string FormatTitle(BoardGrid g, CultureInfo culture)
+    {
+        bool wholeMonth = g.TitleStart.Day == 1 && g.TitleEnd.Month == g.TitleStart.Month && g.TitleEnd.Year == g.TitleStart.Year
+                          && g.TitleEnd.AddDays(1).Day == 1;
+        return wholeMonth
+            ? g.TitleStart.ToString("Y", culture)
+            : $"{g.TitleStart.ToString("d", culture)} – {g.TitleEnd.ToString("d", culture)}";
+    }
+
+    private static Color WithAlpha(Color c, byte a) { c.A = a; return c; }
+
+    private static Color ParseColor(string hex, Color fallback)
+    {
+        try { return (Color)ColorConverter.ConvertFromString(hex); } catch { return fallback; }
+    }
+
+    private static SolidColorBrush Brush(string hex, Color fallback)
+    {
+        var b = new SolidColorBrush(ParseColor(hex, fallback));
+        b.Freeze();
+        return b;
+    }
 
     // Re-attach after Explorer restarts (TaskbarCreated is broadcast on restart).
     private nint WndProc(nint hwnd, int msg, nint wParam, nint lParam, ref bool handled)
     {
         if (_taskbarCreated != 0 && (uint)msg == _taskbarCreated && !_editMode)
-            Dispatcher.BeginInvoke(() => { _rect = new(_rect.X, _rect.Y, _rect.Width, _rect.Height); AttachToDesktop(); });
+            Dispatcher.BeginInvoke(AttachToDesktop);
         return 0;
     }
 
