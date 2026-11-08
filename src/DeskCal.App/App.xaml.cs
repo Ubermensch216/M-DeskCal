@@ -318,8 +318,29 @@ public partial class App : System.Windows.Application
 
     // ---- external calendar sync and the AI connection ------------------------------------------------
 
+    private System.Windows.Threading.DispatcherTimer? _maintTimer;
+
+    /// <summary>
+    /// An always-on widget allocates almost nothing, so the garbage collector rarely runs, and handles of finished threads and
+    /// events (about 12 per minute here) stay open until the objects holding them are finalized. Measured: handles grew steadily
+    /// while memory stayed flat. A collection every few minutes returns them; it costs a few milliseconds.
+    /// </summary>
+    private void StartMaintenance()
+    {
+        int seconds = int.TryParse(Environment.GetEnvironmentVariable("DESKCAL_MAINT_SECONDS"), out int s) && s >= 10 ? s : 300;
+        _maintTimer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(seconds) };
+        _maintTimer.Tick += (_, _) =>
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+        };
+        _maintTimer.Start();
+    }
+
     private void StartBackgroundWork()
     {
+        StartMaintenance();
         _sync!.Finished += (account, report, error) =>
         {
             if (report?.ChangedLocal == true) AfterImport();
@@ -719,6 +740,7 @@ public partial class App : System.Windows.Application
     {
         _trayTimer?.Stop();
         _syncTimer?.Stop();
+        _maintTimer?.Stop();
         _mcpTimer?.Stop();
         _hotkeys?.Dispose();
         _showWait?.Unregister(null);
