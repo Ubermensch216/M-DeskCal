@@ -41,6 +41,14 @@ public partial class MainWindow : Window
     private readonly Dictionary<DateOnly, Border> _cells = [];
     private DateOnly? _editingDay;
 
+    private EventRepository? _events;
+    private EventSeriesService? _series;
+    private ReminderRepository? _reminders;
+    private HashSet<string> _itemsWithReminder = [];
+
+    /// <summary>Raised when reminders were added, changed or removed, so the scheduler can re-arm its timer.</summary>
+    internal event Action? RemindersChanged;
+
     private static readonly (string Name, string? Hex)[] Palette =
     [
         ("기본", null), ("빨강", "#FF6B6B"), ("주황", "#FFA94D"), ("노랑", "#FFE066"),
@@ -63,6 +71,12 @@ public partial class MainWindow : Window
     internal BoardSettings Settings => _settings;
 
     internal void SetItems(ItemRepository items) { _items = items; Render(); }
+
+    internal void SetEvents(EventRepository events, EventSeriesService series, ReminderRepository reminders)
+    {
+        _events = events; _series = series; _reminders = reminders;
+        Render();
+    }
 
     private KoreanDays? _calendar;
     internal void SetCalendar(KoreanDays calendar) { _calendar = calendar; Render(); }
@@ -121,6 +135,39 @@ public partial class MainWindow : Window
 
     private System.Windows.Threading.DispatcherTimer? _timer;
 
+    /// <summary>True while the board is shown on the desktop (it can be hidden from the tray menu or by a shortcut).</summary>
+    internal bool BoardVisible => IsVisible;
+
+    /// <summary>Show the board and pin it above the desktop. Safe to call when it is already visible.</summary>
+    internal void ShowBoard()
+    {
+        if (!IsVisible) Show();
+        if (!_editMode) AttachToDesktop();
+    }
+
+    internal void HideBoard()
+    {
+        if (_editMode) SetEditMode(false);
+        if (_editingDay is not null) CommitEditor();
+        Hide();
+    }
+
+    internal void ToggleBoard() { if (IsVisible) HideBoard(); else ShowBoard(); }
+
+    /// <summary>
+    /// Raise the board above the other windows so it can be read or used, and give it the keyboard focus.
+    /// The 1 s timer (and deactivation) put it back under the other windows once the user clicks elsewhere.
+    /// </summary>
+    internal void BringToFront()
+    {
+        // Do not re-pin when already shown: moving the window behind the others would deactivate it, and the
+        // queued deactivation would then send it straight back.
+        if (!IsVisible) ShowBoard();
+        DesktopHost.Float(this);
+        Activate();
+        Focus();
+    }
+
     // Windows reorders top-level windows when other apps activate, so keep us just above the desktop.
     // The same tick notices midnight so "today" moves on without user action.
     private System.Windows.Threading.DispatcherTimer StartTimer()
@@ -128,7 +175,7 @@ public partial class MainWindow : Window
         var t = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         t.Tick += (_, _) =>
         {
-            if (!_editMode && !IsActive) DesktopHost.Repin(this);
+            if (!_editMode && IsVisible && !IsActive) DesktopHost.Repin(this);
             if (Today() != _renderedToday && _editingDay is null) Render();
         };
         t.Start();
@@ -139,12 +186,13 @@ public partial class MainWindow : Window
     {
         base.OnDeactivated(e);
         if (_editingDay is not null) CommitEditor();   // never lose typed text when focus moves away
-        else if (!_editMode && _attached) DesktopHost.Repin(this);
+        else if (!_editMode && _attached && IsVisible) DesktopHost.Repin(this);
     }
 
     public void SetEditMode(bool on)
     {
         if (on == _editMode) return;
+        if (on && !IsVisible) ShowBoard();
         if (on && _editingDay is not null) CommitEditor();
         _editMode = on;
         if (on)
@@ -278,6 +326,8 @@ public partial class MainWindow : Window
         _renderedToday = Today();
         var grid = BoardLayout.Build(_anchor, _renderedToday, s);
         var byDay = LoadItems(grid);
+        var eventsByDay = LoadEvents(grid);
+        _itemsWithReminder = LoadItemReminderIds();
         _cells.Clear();
 
         // frame: background, opacity, shadow
@@ -336,7 +386,8 @@ public partial class MainWindow : Window
             {
                 var cell = row.Cells[c];
                 byDay.TryGetValue(cell.Date, out var items);
-                Place(MakeCell(cell, items ?? [], s, text, off, font, dayFont, dense), r + 1, c + colOffset);
+                eventsByDay.TryGetValue(cell.Date, out var events);
+                Place(MakeCell(cell, items ?? [], events ?? [], s, text, off, font, dayFont, dense), r + 1, c + colOffset);
             }
         }
     }
@@ -353,7 +404,23 @@ public partial class MainWindow : Window
         return result;
     }
 
-    private UIElement MakeCell(BoardCell cell, List<Item> items, BoardSettings s, WpfBrush text, WpfBrush off,
+    private Dictionary<DateOnly, List<EventOccurrence>> LoadEvents(BoardGrid grid)
+    {
+        var result = new Dictionary<DateOnly, List<EventOccurrence>>();
+        if (_events is null || grid.Rows.Count == 0) return result;
+        var first = grid.Rows[0].Cells[0].Date;
+        var last = grid.Rows[^1].Cells[^1].Date;
+        Func<DateOnly, bool>? isDayOff = _calendar is null ? null : _calendar.Holidays.IsDayOff;
+        foreach (var occ in EventOccurrences.Expand(_events.GetAllActive(), _events.GetExceptions(), first, last, isDayOff))
+            for (var d = occ.Date > first ? occ.Date : first; d <= occ.EndDate && d <= last; d = d.AddDays(1))
+                (result.TryGetValue(d, out var list) ? list : result[d] = []).Add(occ);
+        return result;
+    }
+
+    private HashSet<string> LoadItemReminderIds() =>
+        _reminders is null ? [] : _reminders.ListAll().Where(r => r.OwnerType == ReminderOwner.Item).Select(r => r.OwnerId).ToHashSet();
+
+    private UIElement MakeCell(BoardCell cell, List<Item> items, List<EventOccurrence> events, BoardSettings s, WpfBrush text, WpfBrush off,
                                FontFamily font, double size, bool dense)
     {
         var border = new Border
@@ -406,12 +473,14 @@ public partial class MainWindow : Window
         var shown = s.ShowCompleted ? items : items.Where(i => !i.Done).ToList();
         if (dense)
         {
-            if (shown.Count > 0)
+            if (shown.Count > 0 || events.Count > 0)
                 stack.Children.Add(new TextBlock { Text = "•", Foreground = text, FontSize = size, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, -2, 0, 0) });
         }
         else
         {
             double itemSize = Math.Max(9, size - 4);
+            foreach (var occ in events)
+                stack.Children.Add(MakeEventLine(occ, cell.Date, text, font, itemSize));
             int n = 0;
             foreach (var item in shown)
                 stack.Children.Add(MakeLine(item, ++n, s, text, font, itemSize, cell.Date));
@@ -422,6 +491,7 @@ public partial class MainWindow : Window
         if (info?.Lunar is { } lunar) tip.Add($"음력 {lunar.ToShortString()}");
         if (info?.Term is { } term) tip.Add($"{term.Name} ({term.Kst:M/d HH:mm})");
         if (info is not null) tip.AddRange(info.Holidays.Select(h => h.IsDayOff ? $"{h.Name} (휴일)" : h.Name));
+        tip.AddRange(events.Select(o => "◷ " + (o.StartTime is { } st ? $"{st:HH:mm} " : "") + o.Event.Title));
         tip.AddRange(items.Select(i => (i.Done ? "✓ " : "• ") + i.Content));
         if (tip.Count > 0) border.ToolTip = string.Join("\n", tip);
         border.ContextMenu = BuildCellMenu(cell.Date);
@@ -474,6 +544,85 @@ public partial class MainWindow : Window
         return rows;
     }
 
+    private static readonly SolidColorBrush DefaultEventBrush = Brush("#9CC9FF", Colors.LightSkyBlue);
+
+    /// <summary>An event inside a day cell: coloured left bar, time (first day only) and title.</summary>
+    private UIElement MakeEventLine(EventOccurrence occ, DateOnly day, WpfBrush text, FontFamily font, double size)
+    {
+        var color = occ.Event.Color is { } hex ? Brush(hex, Colors.LightSkyBlue) : DefaultEventBrush;
+        string prefix = day > occ.Date ? "↳ " : occ.StartTime is { } t ? $"{t:HH:mm} " : "";
+        var row = new Border
+        {
+            Margin = new Thickness(4, 1, 2, 0), Padding = new Thickness(4, 0, 2, 0), CornerRadius = new CornerRadius(2),
+            BorderBrush = color, BorderThickness = new Thickness(2.5, 0, 0, 0), Background = Brushes.Transparent,
+            Cursor = System.Windows.Input.Cursors.Hand,
+            Child = new TextBlock
+            {
+                Text = prefix + occ.Event.Title, Foreground = text, FontFamily = font, FontSize = size,
+                TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap,
+            },
+        };
+        row.MouseLeftButtonUp += (_, e) => { e.Handled = true; if (!_editMode) EditEvent(occ); };
+        row.ContextMenu = BuildEventMenu(occ);
+        return row;
+    }
+
+    internal void NewEvent(DateOnly date) => RunEventEditor(null, date);
+    private void EditEvent(EventOccurrence occ) => RunEventEditor(occ.Event.Id, occ.Date);
+
+    private void RunEventEditor(string? eventId, DateOnly date)
+    {
+        if (_series is null || _editMode) return;
+        if (_editingDay is not null) CommitEditor();
+        var win = new EventEditorWindow(_series, eventId, date);
+        win.ShowDialog();
+        if (win.Changed) { Render(); RemindersChanged?.Invoke(); }
+        SendBack();
+    }
+
+    private void DeleteEvent(EventOccurrence occ)
+    {
+        if (_series is null) return;
+        bool repeating = RecurrenceRule.From(occ.Event).IsRepeating;
+        if (repeating)
+        {
+            switch (ScopeDialog.Ask(this, "삭제"))
+            {
+                case SeriesScope.This: _series.DeleteThis(occ.Event.Id, occ.Date); break;
+                case SeriesScope.Future: _series.DeleteFuture(occ.Event.Id, occ.Date); break;
+                case SeriesScope.All: _series.DeleteAll(occ.Event.Id); break;
+                default: SendBack(); return;
+            }
+        }
+        else
+        {
+            if (System.Windows.MessageBox.Show($"'{occ.Event.Title}' 일정을 삭제할까요?", "일정 삭제",
+                    MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) { SendBack(); return; }
+            _series.DeleteAll(occ.Event.Id);
+        }
+        Render();
+        RemindersChanged?.Invoke();
+        SendBack();
+    }
+
+    private ContextMenu BuildEventMenu(EventOccurrence occ)
+    {
+        var menu = new ContextMenu();
+        menu.Items.Add(MenuEntry("일정 편집…", () => EditEvent(occ)));
+        menu.Items.Add(MenuEntry("일정 삭제…", () => DeleteEvent(occ)));
+        return menu;
+    }
+
+    /// <summary>Set (or clear, with null) the reminder of a day-cell item: it fires at 09:00, that many minutes earlier.</summary>
+    private void SetItemReminder(Item item, int? offsetMinutes)
+    {
+        if (_reminders is null) return;
+        _reminders.ReplaceForOwner(ReminderOwner.Item, item.Id,
+            offsetMinutes is { } m ? [(m, "09:00", (string?)null)] : []);
+        Render();
+        RemindersChanged?.Invoke();
+    }
+
     private UIElement MakeLine(Item item, int number, BoardSettings s, WpfBrush defaultText, FontFamily font, double size, DateOnly date)
     {
         var row = new Grid
@@ -483,6 +632,7 @@ public partial class MainWindow : Window
         };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var fg = item.TextColor is { } tc ? Brush(tc, Colors.White) : defaultText;
         string marker = s.Bullet switch
@@ -512,6 +662,12 @@ public partial class MainWindow : Window
         };
         Grid.SetColumn(t, 1);
         row.Children.Add(t);
+        if (_itemsWithReminder.Contains(item.Id))
+        {
+            var bell = new TextBlock { Text = "⏰", FontSize = size - 1, Margin = new Thickness(3, 0, 0, 0), Opacity = 0.85, ToolTip = "알림 설정됨" };
+            Grid.SetColumn(bell, 2);
+            row.Children.Add(bell);
+        }
 
         row.ContextMenu = BuildItemMenu(item, date);
         return row;
@@ -530,6 +686,7 @@ public partial class MainWindow : Window
     private ContextMenu BuildCellMenu(DateOnly date)
     {
         var menu = new ContextMenu();
+        menu.Items.Add(MenuEntry("일정 추가…", () => NewEvent(date)));
         menu.Items.Add(MenuEntry("항목 추가/편집…", () => OpenEditor(date)));
         return menu;
     }
@@ -540,6 +697,10 @@ public partial class MainWindow : Window
         menu.Items.Add(MenuEntry(item.Done ? "완료 해제" : "완료로 표시", () => ToggleDone(item)));
         menu.Items.Add(MenuEntry("편집…", () => OpenEditor(date)));
         menu.Items.Add(new Separator());
+        var reminder = new MenuItem { Header = "알림" };
+        foreach (var (label, offset) in new (string, int?)[] { ("알림 없음", null), ("당일 09:00", 0), ("하루 전 09:00", 1440), ("3일 전 09:00", 4320) })
+            reminder.Items.Add(MenuEntry(label, () => SetItemReminder(item, offset)));
+        menu.Items.Add(reminder);
         menu.Items.Add(ColorMenu("글자색", hex => _items?.SetTextColor(item.Id, hex)));
         menu.Items.Add(ColorMenu("배경색", hex => _items?.SetColor(item.Id, hex)));
         menu.Items.Add(new Separator());
@@ -602,7 +763,7 @@ public partial class MainWindow : Window
     // Re-attach after Explorer restarts (TaskbarCreated is broadcast on restart).
     private nint WndProc(nint hwnd, int msg, nint wParam, nint lParam, ref bool handled)
     {
-        if (_taskbarCreated != 0 && (uint)msg == _taskbarCreated && !_editMode)
+        if (_taskbarCreated != 0 && (uint)msg == _taskbarCreated && !_editMode && IsVisible)
             Dispatcher.BeginInvoke(AttachToDesktop);
         return 0;
     }

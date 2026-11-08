@@ -41,6 +41,7 @@ public sealed record BoardSettings
     public BulletStyle Bullet { get; init; } = BulletStyle.Dot;
     public bool ShowCompleted { get; init; } = true;
     public bool CompleteSound { get; init; } = true;
+    public bool ReminderSound { get; init; } = true;
 
     // ---- layout ----
     public DisplayMode Mode { get; init; } = DisplayMode.FixedMonth;

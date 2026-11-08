@@ -129,5 +129,11 @@ internal static class Migrations
         """,
         // v2: per-item text colour
         "ALTER TABLE items ADD COLUMN text_color TEXT;",
+        // v3: dates removed from a repeating event ("delete this occurrence only")
+        """
+        CREATE TABLE event_exceptions(
+            event_id TEXT NOT NULL, day TEXT NOT NULL,
+            PRIMARY KEY(event_id, day));
+        """,
     ];
 }

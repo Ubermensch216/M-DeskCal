@@ -16,4 +16,11 @@
     <RootNamespace>DeskCal.App</RootNamespace>
   </PropertyGroup>
 
+  <!-- WinForms is only used for the tray icon; keep its types (Brushes, Color, FontFamily, KeyEventArgs...) out of the global usings
+       so they do not clash with the WPF ones. -->
+  <ItemGroup>
+    <Using Remove="System.Drawing" />
+    <Using Remove="System.Windows.Forms" />
+  </ItemGroup>
+
 </Project>

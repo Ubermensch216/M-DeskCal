@@ -292,6 +292,51 @@ public sealed class EventRepository(DeskCalDb db, IClock clock) : RepoBase(db, c
         return true;
     }
 
+    /// <summary>Every non-deleted event (the table stays small; recurrence is expanded in memory).</summary>
+    public IReadOnlyList<EventEntry> GetAllActive()
+    {
+        using var c = Db.Open();
+        using var cmd = Cmd(c, $"SELECT {Cols} FROM events WHERE deleted=0 ORDER BY start");
+        using var r = cmd.ExecuteReader();
+        var list = new List<EventEntry>();
+        while (r.Read()) list.Add(Map(r));
+        return list;
+    }
+
+    /// <summary>Remove one occurrence of a repeating event ("delete this one only").</summary>
+    public void AddException(string eventId, DateOnly day)
+    {
+        using var c = Db.Open();
+        using var cmd = Cmd(c, "INSERT OR IGNORE INTO event_exceptions(event_id, day) VALUES($e,$d)", null,
+            ("$e", eventId), ("$d", day.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)));
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>Skipped days per event id, for all events at once.</summary>
+    public IReadOnlyDictionary<string, IReadOnlySet<DateOnly>> GetExceptions()
+    {
+        using var c = Db.Open();
+        using var cmd = Cmd(c, "SELECT event_id, day FROM event_exceptions");
+        using var r = cmd.ExecuteReader();
+        var map = new Dictionary<string, HashSet<DateOnly>>();
+        while (r.Read())
+            if (DateOnly.TryParseExact(r.GetString(1), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var d))
+                (map.TryGetValue(r.GetString(0), out var set) ? set : map[r.GetString(0)] = []).Add(d);
+        return map.ToDictionary(kv => kv.Key, kv => (IReadOnlySet<DateOnly>)kv.Value);
+    }
+
+    public IReadOnlySet<DateOnly> GetExceptions(string eventId) =>
+        GetExceptions().TryGetValue(eventId, out var s) ? s : new HashSet<DateOnly>();
+
+    /// <summary>Forget skipped days on or after <paramref name="day"/> (they no longer matter once the series ends before it).</summary>
+    public void RemoveExceptionsFrom(string eventId, DateOnly day)
+    {
+        using var c = Db.Open();
+        using var cmd = Cmd(c, "DELETE FROM event_exceptions WHERE event_id=$e AND day >= $d", null,
+            ("$e", eventId), ("$d", day.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)));
+        cmd.ExecuteNonQuery();
+    }
+
     public bool SoftDelete(string id)
     {
         using var c = Db.Open();
@@ -307,14 +352,44 @@ public sealed class ReminderRepository(DeskCalDb db, IClock clock) : RepoBase(db
         r.GetString(0), (ReminderOwner)r.GetInt32(1), r.GetString(2), r.GetInt32(3), Str(r, 4), Str(r, 5),
         r.IsDBNull(6) ? null : r.GetInt64(6));
 
-    public Reminder Add(ReminderOwner owner, string ownerId, int offsetMinutes, string? customTime = null, string? sound = null)
+    /// <summary>
+    /// New reminders are "armed" at creation: FiredAt starts at <paramref name="armedAtMs"/> (default: now) and means
+    /// "every trigger up to here has been handled", so past triggers of a newly created reminder never fire.
+    /// </summary>
+    public Reminder Add(ReminderOwner owner, string ownerId, int offsetMinutes, string? customTime = null, string? sound = null, long? armedAtMs = null)
     {
-        var rem = new Reminder(NewId(), owner, ownerId, offsetMinutes, customTime, sound, null);
+        var rem = new Reminder(NewId(), owner, ownerId, Math.Max(0, offsetMinutes), customTime, sound, armedAtMs ?? Clock.NowMs);
         using var c = Db.Open();
-        using var cmd = Cmd(c, "INSERT INTO reminders(id, owner_type, owner_id, offset_minutes, custom_time, sound, fired_at) VALUES($id,$o,$oi,$m,$ct,$s,NULL)",
-            null, ("$id", rem.Id), ("$o", (int)owner), ("$oi", ownerId), ("$m", offsetMinutes), ("$ct", customTime), ("$s", sound));
+        using var cmd = Cmd(c, "INSERT INTO reminders(id, owner_type, owner_id, offset_minutes, custom_time, sound, fired_at) VALUES($id,$o,$oi,$m,$ct,$s,$f)",
+            null, ("$id", rem.Id), ("$o", (int)owner), ("$oi", ownerId), ("$m", rem.OffsetMinutes), ("$ct", customTime), ("$s", sound), ("$f", rem.FiredAt));
         cmd.ExecuteNonQuery();
         return rem;
+    }
+
+    public IReadOnlyList<Reminder> ListAll()
+    {
+        using var c = Db.Open();
+        using var cmd = Cmd(c, "SELECT id, owner_type, owner_id, offset_minutes, custom_time, sound, fired_at FROM reminders ORDER BY owner_type, owner_id, offset_minutes DESC");
+        using var r = cmd.ExecuteReader();
+        var list = new List<Reminder>();
+        while (r.Read()) list.Add(Map(r));
+        return list;
+    }
+
+    /// <summary>Replace an owner's reminders with the given ones (all armed now).</summary>
+    public void ReplaceForOwner(ReminderOwner owner, string ownerId, IEnumerable<(int Offset, string? CustomTime, string? Sound)> specs)
+    {
+        DeleteByOwner(owner, ownerId);
+        foreach (var (offset, custom, sound) in specs) Add(owner, ownerId, offset, custom, sound);
+    }
+
+    /// <summary>Treat everything up to now as handled (after an event was edited, so old triggers do not replay).</summary>
+    public void RearmOwner(ReminderOwner owner, string ownerId)
+    {
+        using var c = Db.Open();
+        using var cmd = Cmd(c, "UPDATE reminders SET fired_at=$f WHERE owner_type=$o AND owner_id=$i", null,
+            ("$f", Clock.NowMs), ("$o", (int)owner), ("$i", ownerId));
+        cmd.ExecuteNonQuery();
     }
 
     public IReadOnlyList<Reminder> GetByOwner(ReminderOwner owner, string ownerId)

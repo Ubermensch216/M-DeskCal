@@ -21,12 +21,43 @@ public partial class App : System.Windows.Application
 
     private static string HolidaysPath => Path.Combine(DataDir, "holidays.json");
 
+    private KoreanDays _days = new();
+    private ReminderService? _reminderService;
+
+    private const string ShowSignalName = "Local\\M-DeskCal-Show";
+    private EventWaitHandle? _showSignal;
+    private RegisteredWaitHandle? _showWait;
+    private AppPreferencesStore? _prefsStore;
+    private AppPreferences _prefs = new();
+    private HotkeyManager? _hotkeys;
+    private readonly StartupRegistration _startup = new();
+    private static string ExePath => Environment.ProcessPath ?? System.Reflection.Assembly.GetExecutingAssembly().Location;
+
+    /// <summary>Tell the instance that is already running to bring its calendar forward (waits briefly while it is still starting).</summary>
+    private static void SignalRunningInstance()
+    {
+        for (int i = 0; i < 20; i++)
+        {
+            if (EventWaitHandle.TryOpenExisting(ShowSignalName, out var handle)) { using (handle) handle.Set(); return; }
+            Thread.Sleep(100);
+        }
+    }
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
         _singleInstance = new Mutex(true, "Local\\M-DeskCal-SingleInstance", out bool created);
-        if (!created) { Shutdown(); return; }
+        if (!created)
+        {
+            SignalRunningInstance();   // "I was launched again" = the user wants to see the calendar
+            Shutdown();
+            return;
+        }
+        _showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, ShowSignalName);
+        _showWait = ThreadPool.RegisterWaitForSingleObject(_showSignal,
+            (_, _) => Dispatcher.BeginInvoke(() => { if (_board is null) return; _board.BringToFront(); RememberVisibility(); }),
+            null, Timeout.Infinite, executeOnlyOnce: false);
 
         Directory.CreateDirectory(DataDir);
 
@@ -36,13 +67,24 @@ public partial class App : System.Windows.Application
         db.Migrate();
         var settings = new SettingsStore(db);
         _boardStore = new BoardSettingsStore(settings);
-        var items = new ItemRepository(db, new SystemClock());
+        _prefsStore = new AppPreferencesStore(settings);
+        _prefs = _prefsStore.Load();
+
+        var clock = new SystemClock();
+        var items = new ItemRepository(db, clock);
+        var events = new EventRepository(db, clock);
+        var reminders = new ReminderRepository(db, clock);
+        Func<DateOnly, bool> isDayOff = d => _days.Holidays.IsDayOff(d);
+        var series = new EventSeriesService(db, clock, isDayOff);
+        bool snapshotMode = e.Args.Any(a => a.StartsWith("--snapshot="));
 
         _board = new MainWindow();
         _board.SetItems(items);
+        _board.SetEvents(events, series, reminders);
         var loaded = HolidayOverrideFile.Load(HolidaysPath);
-        _board.SetCalendar(new KoreanDays(loaded.Overrides));
-        if (loaded.Errors.Count > 0 && !e.Args.Any(a => a.StartsWith("--snapshot=")))
+        _days = new KoreanDays(loaded.Overrides);
+        _board.SetCalendar(_days);
+        if (loaded.Errors.Count > 0 && !snapshotMode)
             System.Windows.MessageBox.Show("holidays.json 에 문제가 있어 해당 항목을 건너뛰었습니다.\n\n" + string.Join("\n", loaded.Errors),
                 "M-DeskCal 휴일 데이터");
         _board.ApplySettings(_boardStore.Load());
@@ -62,82 +104,126 @@ public partial class App : System.Windows.Application
             int.TryParse(px, out int x) && int.TryParse(py, out int y))
             _board.SetPosition(x, y); // dev aid: physical screen pixels
 
-        var snapArg = e.Args.FirstOrDefault(a => a.StartsWith("--snapshot="));
-        if (snapArg is not null)
+        if (snapshotMode)
         {
-            // Dev aid: render every display mode to PNGs offscreen, then exit. Never touches settings/DB.
-            var dir = snapArg["--snapshot=".Length..];
-            Directory.CreateDirectory(dir);
-            _board.Left = -20000; _board.Top = -20000;
-            _board.Show();
-
-            if (e.Args.Contains("--seed"))
-            {
-                var today = DateOnly.FromDateTime(DateTime.Today);
-                string D(int offset) => today.AddDays(offset).ToString("yyyy-MM-dd");
-                items.ReplaceDay(D(0), ["기획서 검토", "점심 약속 12:00", "운동", "장보기", "책 반납"]);
-                items.ReplaceDay(D(2), ["치과 예약", "세금 신고"]);
-                items.ReplaceDay(D(-3), ["보고서 제출", "팀 회식"]);
-                items.ReplaceDay(D(5), ["월간 회의 준비"]);
-                var day2 = items.GetByDay(D(2));
-                items.SetDone(day2[1].Id, true);
-                items.SetTextColor(day2[0].Id, "#FFE066");
-                items.SetColor(items.GetByDay(D(0))[0].Id, "#74C0FC");
-                items.SetDone(items.GetByDay(D(-3))[0].Id, true);
-            }
-
-            foreach (var mode in Enum.GetValues<DisplayMode>())
-            {
-                _board.ApplySettings(new BoardSettings { Mode = mode, ShowWeekNumbers = true, FirstDayOfWeek = DayOfWeek.Monday, MaxRows = 5 });
-                _board.SaveSnapshot(Path.Combine(dir, $"{(int)mode}-{mode}.png"));
-            }
-            _board.ApplySettings(new BoardSettings { Mode = DisplayMode.FixedMonth });
-            foreach (var (yy, mm) in new[] { (2026, 2), (2026, 5), (2026, 10), (2025, 10) })
-            {
-                _board.GoTo(new DateOnly(yy, mm, 1));
-                _board.SaveSnapshot(Path.Combine(dir, $"m4-{yy}-{mm:00}.png"));
-            }
-            _board.GoToday();
-            _board.ApplySettings(new BoardSettings { Mode = DisplayMode.FixedMonth, Bullet = BulletStyle.Number });
-            _board.SaveSnapshot(Path.Combine(dir, "m3-numbered.png"));
-            _board.ApplySettings(new BoardSettings { Mode = DisplayMode.FixedMonth, Bullet = BulletStyle.None, ShowCompleted = false });
-            _board.SaveSnapshot(Path.Combine(dir, "m3-hide-completed.png"));
-            _board.ApplySettings(new BoardSettings { Mode = DisplayMode.FixedMonth });
-            _board.OpenEditor(DateOnly.FromDateTime(DateTime.Today));
-            _board.SaveSnapshot(Path.Combine(dir, "m3-editor.png"));
-
-            // Self-test of the editor wiring: type new text, commit, and check what reached the database.
-            if (e.Args.Contains("--seed"))
-            {
-                var todayKey = DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd");
-                var before = items.GetByDay(todayKey);
-                _board.EditorText = "기획서 검토\r\n새 항목\r\n\r\n운동   ";
-                _board.CommitEditor();
-                var after = items.GetByDay(todayKey);
-                bool ok = after.Select(i => i.Content).SequenceEqual(["기획서 검토", "새 항목", "운동"])
-                          && after[0].Id == before[0].Id && after[0].BgColor == "#74C0FC"      // kept line keeps identity + colour
-                          && after[2].Id == before[2].Id                                         // "운동" kept although lines were removed below
-                          && after[1].Id == before[1].Id;                                        // edited line stays the same item
-                File.WriteAllText(Path.Combine(dir, "selftest.txt"),
-                    $"{(ok ? "PASS" : "FAIL")}: {string.Join(" | ", after.Select(i => i.Content))}  deleted-others={items.GetByDay(todayKey).Count}");
-                _board.SaveSnapshot(Path.Combine(dir, "m3-after-edit.png"));
-            }
+            // Dev aid: render the UI offscreen and run editor self-tests, then exit.
+            var dir = e.Args.First(a => a.StartsWith("--snapshot="))["--snapshot=".Length..];
+            DevHarness.Run(_board, items, series, events, reminders, _days, dir, e.Args.Contains("--seed"));
             Shutdown();
             return;
         }
 
-        _board.Show();
-        if (!e.Args.Contains("--plain")) _board.AttachToDesktop(); // --plain: stay a normal window (debug)
+        // A launch started by Windows restores the last visibility; a launch by the user always shows the calendar.
+        bool autoStart = e.Args.Contains(StartupRegistration.AutoStartFlag);
+        bool startHidden = autoStart && !_prefs.BoardVisible;
+        if (e.Args.Contains("--plain")) _board.Show();             // --plain: stay a normal window (debug)
+        else if (!startHidden) _board.ShowBoard();
 
+        if (e.Args.Contains("--demo-reminder") && dbArg is not null)
+        {
+            // Dev aid (scratch DB only): an event 3 minutes from now with a reminder 2 minutes before it -> fires within a minute.
+            var start = DateTime.Now.AddMinutes(3);
+            series.Create(new EventDraft("데모 알림 일정", "", DateOnly.FromDateTime(start), new TimeOnly(start.Hour, start.Minute), null, null,
+                RecurrenceRule.None, null, [new ReminderSpec(2)]));
+        }
+
+        if (!e.Args.Contains("--no-reminders"))
+        {
+            var presenter = new ReminderPresenter();
+            _reminderService = new ReminderService(new ReminderProcessor(db, clock, isDayOff),
+                msgs => presenter.Show(msgs, _board.Settings.ReminderSound), missedWindow: TimeSpan.FromHours(24));
+            _board.RemindersChanged += _reminderService.Reschedule;
+            _reminderService.Start();
+        }
+
+        _trayDay = DateTime.Today;
         _tray = new Forms.NotifyIcon
         {
-            Icon = SystemIcons.Application,
-            Text = "M-DeskCal",
+            Icon = TrayIcon.Create(),
             Visible = true,
             ContextMenuStrip = BuildMenu(),
         };
+        _tray.MouseDoubleClick += (_, a) => { if (a.Button == Forms.MouseButtons.Left) ToggleBoard(); };
+        UpdateTrayText(failed: []);
+
+        // The icon shows today's date; redraw it when the day changes.
+        _trayTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
+        _trayTimer.Tick += (_, _) =>
+        {
+            if (DateTime.Today == _trayDay) return;
+            _trayDay = DateTime.Today;
+            var old = _tray.Icon;
+            _tray.Icon = TrayIcon.Create();
+            old?.Dispose();
+        };
+        _trayTimer.Start();
+
+        _hotkeys = new HotkeyManager();
+        _hotkeys.Pressed += action => Dispatcher.BeginInvoke(() => OnHotkey(action));
+        UpdateTrayText(_hotkeys.Apply(_prefs));
+
+        // Keep the Run entry pointing at the current exe if the program folder was moved.
+        try { if (_startup.IsStale(ExePath)) _startup.Enable(ExePath); } catch { /* registry unavailable: leave it */ }
 
         if (e.Args.Contains("--edit")) EditItem.Checked = true; // dev aid: start in edit mode
+    }
+
+    // ---- visibility, shortcuts, auto-start ------------------------------------
+
+    private DateTime _trayDay;
+    private System.Windows.Threading.DispatcherTimer? _trayTimer;
+
+    private void ToggleBoard()
+    {
+        if (_board!.BoardVisible) _board.HideBoard(); else _board.BringToFront();
+        RememberVisibility();
+    }
+
+    private void RememberVisibility()
+    {
+        _prefs = _prefs with { BoardVisible = _board!.BoardVisible };
+        _prefsStore?.Save(_prefs);
+    }
+
+    private void OnHotkey(HotkeyAction action)
+    {
+        switch (action)
+        {
+            case HotkeyAction.BringToFront:
+                _board!.BringToFront(); RememberVisibility();
+                break;
+            case HotkeyAction.ToggleVisible:
+                ToggleBoard();
+                break;
+            case HotkeyAction.NewEvent:
+                _board!.BringToFront(); RememberVisibility();
+                _board.NewEvent(DateOnly.FromDateTime(DateTime.Today));
+                break;
+        }
+    }
+
+    /// <summary>Tray tooltip: the name plus the active shortcuts, and a warning for any that could not be registered.</summary>
+    private void UpdateTrayText(IReadOnlyList<HotkeyAction> failed)
+    {
+        if (_tray is null) return;
+        string text = "M-DeskCal";
+        if (_prefs.HotkeysEnabled)
+        {
+            text += $"\n{_prefs.BringToFront.Format()} 앞으로 · {_prefs.ToggleVisible.Format()} 숨김";
+            if (failed.Count > 0) text += $"\n사용 중이라 등록 못 함: {failed.Count}개";
+        }
+        _tray.Text = text.Length <= 63 ? text : text[..63];   // NotifyIcon.Text is limited to 63 characters
+        if (failed.Count > 0)
+            _tray.ShowBalloonTip(5000, "M-DeskCal 단축키",
+                "다른 프로그램이 이미 사용 중인 단축키가 있습니다: " + string.Join(", ", failed.Select(a => $"{HotkeyManager.ActionName(a)}({_prefs.Get(a).Format()})"))
+                + "\n트레이 메뉴의 '단축키 설정…'에서 바꿀 수 있습니다.", Forms.ToolTipIcon.Warning);
+    }
+
+    private void ApplyPrefs(AppPreferences next)
+    {
+        _prefs = next;
+        _prefsStore!.Save(_prefs);
+        UpdateTrayText(_hotkeys?.Apply(_prefs) ?? []);
     }
 
     // ---- tray menu -----------------------------------------------------------
@@ -150,6 +236,11 @@ public partial class App : System.Windows.Application
         var menu = new Forms.ContextMenuStrip();
         var refresh = new List<Action>();   // re-sync check marks each time the menu opens
 
+        var showItem = new Forms.ToolStripMenuItem();
+        showItem.Click += (_, _) => ToggleBoard();
+        menu.Items.Add(showItem);
+        refresh.Add(() => showItem.Text = board.BoardVisible ? "달력 숨기기" : "달력 보이기");
+        menu.Items.Add("새 일정 (오늘)…", null, (_, _) => OnHotkey(HotkeyAction.NewEvent));
         EditItem = new Forms.ToolStripMenuItem("편집 모드 (위치/크기 조정)") { CheckOnClick = true };
         EditItem.CheckedChanged += (_, _) => board.SetEditMode(EditItem.Checked);
         menu.Items.Add(EditItem);
@@ -201,7 +292,8 @@ public partial class App : System.Windows.Application
         menu.Items.Add("휴일 데이터 다시 읽기", null, (_, _) =>
         {
             var r = HolidayOverrideFile.Load(HolidaysPath);
-            board.SetCalendar(new KoreanDays(r.Overrides));
+            _days = new KoreanDays(r.Overrides);
+            board.SetCalendar(_days);
             System.Windows.MessageBox.Show(
                 r.Errors.Count == 0 ? $"사용자 휴일 {r.Overrides.Count}건을 적용했습니다."
                                     : $"{r.Overrides.Count}건 적용, 문제 {r.Errors.Count}건:\n\n" + string.Join("\n", r.Errors),
@@ -221,6 +313,7 @@ public partial class App : System.Windows.Application
         menu.Items.Add(bulletMenu);
         AddToggle("완료된 항목 표시", s => s.ShowCompleted, (s, v) => s with { ShowCompleted = v });
         AddToggle("완료 효과음", s => s.CompleteSound, (s, v) => s with { CompleteSound = v });
+        AddToggle("알림음", s => s.ReminderSound, (s, v) => s with { ReminderSound = v });
 
         // toggles
         AddToggle("주차 표시", s => s.ShowWeekNumbers, (s, v) => s with { ShowWeekNumbers = v });
@@ -242,6 +335,36 @@ public partial class App : System.Windows.Application
         {
             _boardStore!.ResetToDefaults();
             board.ApplySettings(_boardStore.Load());
+        });
+
+        menu.Items.Add(new Forms.ToolStripSeparator());
+
+        // shortcuts and start-up
+        var hotkeysItem = new Forms.ToolStripMenuItem("전역 단축키 사용");
+        hotkeysItem.Click += (_, _) => ApplyPrefs(_prefs with { HotkeysEnabled = !_prefs.HotkeysEnabled });
+        menu.Items.Add(hotkeysItem);
+        refresh.Add(() => hotkeysItem.Checked = _prefs.HotkeysEnabled);
+        menu.Items.Add("단축키 설정…", null, (_, _) =>
+        {
+            if (HotkeyDialog.Edit(_prefs) is { } edited) ApplyPrefs(edited with { HotkeysEnabled = _prefs.HotkeysEnabled });
+        });
+
+        var startupItem = new Forms.ToolStripMenuItem("Windows 시작 시 자동 실행");
+        startupItem.Click += (_, _) =>
+        {
+            try
+            {
+                if (_startup.IsEnabled()) _startup.Disable(); else _startup.Enable(ExePath);
+            }
+            catch (Exception ex) { System.Windows.MessageBox.Show("자동 실행 설정을 바꾸지 못했습니다.\n\n" + ex.Message, "M-DeskCal"); }
+        };
+        menu.Items.Add(startupItem);
+        refresh.Add(() => { try { startupItem.Checked = _startup.IsEnabled(); } catch { startupItem.Checked = false; } });
+
+        menu.Items.Add("데이터 폴더 열기", null, (_, _) =>
+        {
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(DataDir) { UseShellExecute = true }); }
+            catch (Exception ex) { System.Windows.MessageBox.Show(ex.Message, "데이터 폴더"); }
         });
 
         menu.Items.Add(new Forms.ToolStripSeparator());
@@ -270,7 +393,12 @@ public partial class App : System.Windows.Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _trayTimer?.Stop();
+        _hotkeys?.Dispose();
+        _showWait?.Unregister(null);
+        _showSignal?.Dispose();
         if (_tray is not null) { _tray.Visible = false; _tray.Dispose(); }
+        _reminderService?.Dispose();
         _singleInstance?.Dispose();
         base.OnExit(e);
     }

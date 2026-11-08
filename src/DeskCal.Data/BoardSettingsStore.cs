@@ -21,6 +21,7 @@ public sealed class BoardSettingsStore(SettingsStore store)
             Bullet = Enum(store, "bullet", d.Bullet),
             ShowCompleted = store.GetBool(Prefix + "show_completed", d.ShowCompleted),
             CompleteSound = store.GetBool(Prefix + "complete_sound", d.CompleteSound),
+            ReminderSound = store.GetBool(Prefix + "reminder_sound", d.ReminderSound),
             Mode = Enum(store, "mode", d.Mode),
             FirstDayOfWeek = Enum(store, "first_dow", d.FirstDayOfWeek),
             MaxRows = store.GetInt(Prefix + "max_rows", d.MaxRows),
@@ -52,6 +53,7 @@ public sealed class BoardSettingsStore(SettingsStore store)
         store.SetString(Prefix + "bullet", s.Bullet.ToString());
         store.SetBool(Prefix + "show_completed", s.ShowCompleted);
         store.SetBool(Prefix + "complete_sound", s.CompleteSound);
+        store.SetBool(Prefix + "reminder_sound", s.ReminderSound);
         store.SetString(Prefix + "mode", s.Mode.ToString());
         store.SetString(Prefix + "first_dow", s.FirstDayOfWeek.ToString());
         store.SetInt(Prefix + "max_rows", s.MaxRows);
