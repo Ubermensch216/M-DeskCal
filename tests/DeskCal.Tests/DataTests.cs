@@ -50,14 +50,14 @@ public class MigrationTests
     public void Migrate_creates_schema_and_sets_version()
     {
         using var f = new DbFixture();
-        Assert.Equal(4, f.Db.SchemaVersion());
+        Assert.Equal(5, f.Db.SchemaVersion());
         using var c = f.Db.Open();
         using var cmd = c.CreateCommand();
         cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name";
         using var r = cmd.ExecuteReader();
         var tables = new List<string>();
         while (r.Read()) tables.Add(r.GetString(0));
-        Assert.Equal(["countdowns", "event_exceptions", "events", "history", "items", "notes", "reminders", "settings", "timetable_cells"], tables);
+        Assert.Equal(["countdowns", "event_exceptions", "events", "history", "items", "mcp_audit", "mcp_pending", "notes", "reminders", "settings", "sync_accounts", "sync_links", "timetable_cells"], tables);
     }
 
     [Fact]
@@ -345,7 +345,7 @@ public class BackupTests
 
         var copy = new DeskCalDb(dest);
         copy.Migrate();                                   // already current: no-op
-        Assert.Equal(4, copy.SchemaVersion());
+        Assert.Equal(5, copy.SchemaVersion());
         var items = new ItemRepository(copy, f.Clock);
         Assert.Equal("백업 대상", items.Get(item.Id)!.Content);
         Assert.Equal(1, new SettingsStore(copy).GetInt("k", 0));

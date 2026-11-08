@@ -191,6 +191,20 @@
         "runtime": {
           "bin/placeholder/DeskCal.Data.dll": {}
         }
+      },
+      "DeskCal.Sync/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v10.0",
+        "dependencies": {
+          "DeskCal.Core": "1.0.0",
+          "DeskCal.Data": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/DeskCal.Sync.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/DeskCal.Sync.dll": {}
+        }
       }
     },
     "net10.0-windows/win-x64": {
@@ -295,6 +309,20 @@
         },
         "runtime": {
           "bin/placeholder/DeskCal.Data.dll": {}
+        }
+      },
+      "DeskCal.Sync/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v10.0",
+        "dependencies": {
+          "DeskCal.Core": "1.0.0",
+          "DeskCal.Data": "1.0.0"
+        },
+        "compile": {
+          "bin/placeholder/DeskCal.Sync.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/DeskCal.Sync.dll": {}
         }
       }
     }
@@ -427,12 +455,18 @@
       "type": "project",
       "path": "../DeskCal.Data/DeskCal.Data.csproj",
       "msbuildProject": "../DeskCal.Data/DeskCal.Data.csproj"
+    },
+    "DeskCal.Sync/1.0.0": {
+      "type": "project",
+      "path": "../DeskCal.Sync/DeskCal.Sync.csproj",
+      "msbuildProject": "../DeskCal.Sync/DeskCal.Sync.csproj"
     }
   },
   "projectFileDependencyGroups": {
     "net10.0-windows": [
       "DeskCal.Core >= 1.0.0",
-      "DeskCal.Data >= 1.0.0"
+      "DeskCal.Data >= 1.0.0",
+      "DeskCal.Sync >= 1.0.0"
     ]
   },
   "packageFolders": {
@@ -466,6 +500,9 @@
             },
             "D:\\Dev\\M-DeskCal\\src\\DeskCal.Data\\DeskCal.Data.csproj": {
               "projectPath": "D:\\Dev\\M-DeskCal\\src\\DeskCal.Data\\DeskCal.Data.csproj"
+            },
+            "D:\\Dev\\M-DeskCal\\src\\DeskCal.Sync\\DeskCal.Sync.csproj": {
+              "projectPath": "D:\\Dev\\M-DeskCal\\src\\DeskCal.Sync\\DeskCal.Sync.csproj"
             }
           }
         }

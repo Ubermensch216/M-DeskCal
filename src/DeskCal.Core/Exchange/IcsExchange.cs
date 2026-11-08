@@ -20,7 +20,9 @@ public static partial class IcsExchange
 
     // ===================================================================== writing
 
-    public static string Write(ExchangeBundle bundle, DateTime utcNow, Func<DateOnly, bool>? isDayOff = null, DateOnly? horizon = null)
+    /// <param name="uids">UID to write for an event id when it must not be the default (an event that came from another program keeps that program's UID).</param>
+    public static string Write(ExchangeBundle bundle, DateTime utcNow, Func<DateOnly, bool>? isDayOff = null, DateOnly? horizon = null,
+                               IReadOnlyDictionary<string, string>? uids = null)
     {
         var lines = new List<string> { "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//M-DeskCal//KO", "CALSCALE:GREGORIAN" };
         string stamp = utcNow.ToString("yyyyMMdd'T'HHmmss'Z'", CultureInfo.InvariantCulture);
@@ -30,7 +32,7 @@ public static partial class IcsExchange
             if (!EventTime.TryParse(e.Start, out var d0, out var t0)) continue;
             bool allDay = t0 is null;
             lines.Add("BEGIN:VEVENT");
-            lines.Add("UID:" + e.Id + UidSuffix);
+            lines.Add("UID:" + (uids is not null && uids.TryGetValue(e.Id, out var ownUid) ? ownUid : e.Id + UidSuffix));
             lines.Add("DTSTAMP:" + stamp);
             lines.Add(allDay ? "DTSTART;VALUE=DATE:" + D(d0) : "DTSTART:" + DT(d0, t0!.Value));
             if (EventTime.TryParse(e.End, out var d1, out var t1))
@@ -307,6 +309,29 @@ public static partial class IcsExchange
 
     [GeneratedRegex(@"^([0-9A-Za-z_-]{1,64})@m-deskcal$")]
     private static partial Regex OwnUid();
+
+    /// <summary>The event id this program gives an event with the given UID (the same rule the reader uses).</summary>
+    public static string IdFromUid(string uid) => Id(uid, uid);
+
+    /// <summary>The UID this program writes for its own event.</summary>
+    public static string UidFromId(string id) => id + UidSuffix;
+
+    /// <summary>What a server resource is, without importing it.</summary>
+    /// <param name="Uid">UID of the main (non-exception) event, if there is one.</param>
+    /// <param name="OwnedByDeskCal">Written by this program (PRODID), so it holds nothing this program does not understand.</param>
+    /// <param name="EventCount">How many VEVENTs the resource holds (more than one = a repeating event with changed occurrences).</param>
+    public sealed record ResourceInfo(string? Uid, bool OwnedByDeskCal, int EventCount);
+
+    public static ResourceInfo Describe(string text)
+    {
+        var root = ParseComponents(text);
+        var cal = root.Children.FirstOrDefault(c => c.Name == "VCALENDAR");
+        if (cal is null) return new ResourceInfo(null, false, 0);
+        var events = cal.Children.Where(c => c.Name == "VEVENT").ToList();
+        var main = events.FirstOrDefault(e => e.Get("RECURRENCE-ID") is null && !string.IsNullOrWhiteSpace(e.Get("UID")?.Value));
+        bool own = cal.Get("PRODID")?.Value.Trim().StartsWith("-//M-DeskCal", StringComparison.Ordinal) == true;
+        return new ResourceInfo(main?.Get("UID")?.Value.Trim(), own, events.Count);
+    }
 
     private static ExEvent? ReadEvent(Comp c, Context ctx)
     {

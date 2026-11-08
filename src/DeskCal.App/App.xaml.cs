@@ -44,6 +44,13 @@ public partial class App : System.Windows.Application
     private SettingsStore? _settingsStore;
     private ContentLockStore? _lock;
     private TimetableWidgetWindow? _ttWidget;
+    private SyncCoordinator? _sync;
+    private System.Windows.Threading.DispatcherTimer? _syncTimer, _mcpTimer;
+    private McpAccess? _mcpAccess;
+    private McpRepository? _mcpRepo;
+    private McpChanges? _mcpChanges;
+    private int _mcpNotified;
+    private bool _mcpBalloon;
     private static string ExePath => Environment.ProcessPath ?? System.Reflection.Assembly.GetExecutingAssembly().Location;
 
     /// <summary>Tell the instance that is already running to bring its calendar forward (waits briefly while it is still starting).</summary>
@@ -102,6 +109,19 @@ public partial class App : System.Windows.Application
         _timetableRepo = new TimetableRepository(db, clock);
         _settingsStore = settings;
         _lock = new ContentLockStore(settings);
+        _sync = new SyncCoordinator(db, clock, isDayOff, new DpapiSecretProtector(), settings);
+        _mcpAccess = new McpAccess(settings);
+        _mcpRepo = new McpRepository(db, clock);
+        _mcpChanges = new McpChanges(db, clock, isDayOff);
+
+        if (dbArg is not null && e.Args.FirstOrDefault(a => a.StartsWith("--sync-check=")) is { } syncCheck)
+        {
+            // Dev aid (scratch DB only): --sync-check=<url>|<user>|<password>|<report file> runs one real sync through the
+            // same code the sync window uses (DPAPI-protected password included), writes what happened, and exits.
+            SyncCheck(_sync, syncCheck["--sync-check=".Length..].Split('|'));
+            Shutdown();
+            return;
+        }
 
         _board = new MainWindow();
         _board.SetItems(items);
@@ -199,6 +219,13 @@ public partial class App : System.Windows.Application
         _hotkeys.Pressed += action => Dispatcher.BeginInvoke(() => OnHotkey(action));
         UpdateTrayText(_hotkeys.Apply(_prefs));
 
+        StartBackgroundWork();
+        if (dbArg is not null)   // dev aids (scratch DB only): open a window at start-up so it can be looked at
+        {
+            if (e.Args.Contains("--open-sync")) OpenSync();
+            if (e.Args.Contains("--open-mcp")) OpenMcp(approvals: true);
+        }
+
         // Keep the Run entry pointing at the current exe if the program folder was moved.
         try { if (_startup.IsStale(ExePath)) _startup.Enable(ExePath); } catch { /* registry unavailable: leave it */ }
 
@@ -284,6 +311,96 @@ public partial class App : System.Windows.Application
             () => _board!.Refresh());
     }
 
+    // ---- external calendar sync and the AI connection ------------------------------------------------
+
+    private void StartBackgroundWork()
+    {
+        _sync!.Finished += (account, report, error) =>
+        {
+            if (report?.ChangedLocal == true) AfterImport();
+            if (error is not null && _syncUserVisible) _tray?.ShowBalloonTip(5000, "외부 캘린더 동기화", error, Forms.ToolTipIcon.Warning);
+        };
+
+        // sync a little after start-up, then at the chosen interval
+        _syncTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(45) };
+        _syncTimer.Tick += async (_, _) =>
+        {
+            int minutes = _sync.IntervalMinutes;
+            _syncTimer.Interval = TimeSpan.FromMinutes(minutes > 0 ? minutes : 5);   // when off, only look again for a changed setting
+            if (minutes <= 0 || _sync.Running || (_board?.ContentHidden ?? false)) return;
+            _syncUserVisible = false;
+            await _sync.RunAllAsync();
+        };
+        _syncTimer.Start();
+
+        // AI requests: tell the user when new ones arrive (without saying what they are: the calendar may be locked)
+        _mcpTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        _mcpTimer.Tick += (_, _) =>
+        {
+            if (!_mcpAccess!.Enabled) { _mcpNotified = 0; return; }
+            try
+            {
+                _mcpRepo!.ExpireOld();
+                int n = _mcpRepo.CountWaiting();
+                if (n > _mcpNotified && _tray is not null)
+                {
+                    _mcpBalloon = true;
+                    _tray.ShowBalloonTip(8000, "AI 요청", $"AI 가 보낸 변경 요청 {n}건이 승인을 기다립니다. 눌러서 확인하세요.", Forms.ToolTipIcon.Info);
+                }
+                _mcpNotified = n;
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException) { /* busy: try again in 5 s */ }
+        };
+        _mcpTimer.Start();
+        _tray!.BalloonTipClicked += (_, _) => { if (_mcpBalloon) { _mcpBalloon = false; OpenMcp(approvals: true); } };
+    }
+
+    private bool _syncUserVisible;
+
+    private static void SyncCheck(SyncCoordinator sync, string[] p)
+    {
+        var lines = new List<string>();
+        try
+        {
+            var secret = sync.Protector.Protect(p[2]);
+            lines.Add($"protected password stored as: {secret[..Math.Min(14, secret.Length)]}… (plain password absent: {!secret.Contains(p[2])})");
+            lines.Add("round trip ok: " + (sync.Protector.Unprotect(secret) == p[2]));
+            lines.Add("tampered value is refused: " + (sync.Protector.Unprotect(secret[..^4] + "AAAA") is null));
+            var account = sync.Accounts.AddAccount(SyncRepository.KindCalDav, "check", p[0], p[1], secret, twoWay: true);
+            var (report, error) = Task.Run(() => sync.RunAsync(account)).GetAwaiter().GetResult();   // off the UI thread, or the wait would block the continuation it needs
+            lines.Add("error: " + (error ?? "(none)"));
+            if (report is not null)
+            {
+                lines.Add("summary: " + report.Summary());
+                lines.AddRange(report.Notes.Select(n => "note: " + n)); lines.AddRange(report.Errors.Select(x => "ERROR: " + x));
+            }
+            lines.Add("stored result: " + sync.Accounts.GetAccount(account.Id)?.LastResult);
+        }
+        catch (Exception ex) { lines.Add("EXCEPTION: " + ex); }
+        File.WriteAllLines(p[3], lines);
+    }
+
+    private void OpenSync() { if (EnsureUnlocked()) SyncWindow.ShowOrActivate(_sync!); }
+
+    private async void SyncNow()
+    {
+        if (!EnsureUnlocked()) return;
+        var accounts = _sync!.Accounts.ListAccounts().Where(a => a.Enabled).ToList();
+        if (accounts.Count == 0) { SyncWindow.ShowOrActivate(_sync); return; }
+        _syncUserVisible = true;
+        foreach (var a in accounts)
+        {
+            var (report, error) = await _sync.RunAsync(a);
+            _tray?.ShowBalloonTip(4000, "외부 캘린더 동기화", error ?? report!.Summary(), error is null ? Forms.ToolTipIcon.Info : Forms.ToolTipIcon.Warning);
+        }
+    }
+
+    private void OpenMcp(bool approvals = false)
+    {
+        if (!EnsureUnlocked()) return;
+        McpWindow.ShowOrActivate(_mcpAccess!, _mcpRepo!, _mcpChanges!, AfterImport, approvals);
+    }
+
     private void OnHotkey(HotkeyAction action)
     {
         switch (action)
@@ -365,6 +482,17 @@ public partial class App : System.Windows.Application
         menu.Items.Add(ttWidget);
         refresh.Add(() => ttWidget.Checked = _settingsStore!.GetBool("timetable.widget", false));
         menu.Items.Add("인쇄… (현재 달)", null, (_, _) => PrintMonth());
+        menu.Items.Add("외부 캘린더 동기화…", null, (_, _) => OpenSync());
+        menu.Items.Add("지금 동기화", null, (_, _) => SyncNow());
+        var mcpItem = new Forms.ToolStripMenuItem("AI 연동…");
+        mcpItem.Click += (_, _) => OpenMcp();
+        menu.Items.Add(mcpItem);
+        refresh.Add(() =>
+        {
+            int n = 0;
+            try { n = _mcpAccess!.Enabled ? _mcpRepo!.CountWaiting() : 0; } catch (Microsoft.Data.Sqlite.SqliteException) { }
+            mcpItem.Text = n > 0 ? $"AI 연동… (승인 대기 {n}건)" : "AI 연동…";
+        });
 
         // content lock
         var lockMenu = new Forms.ToolStripMenuItem("콘텐츠 잠금");
@@ -585,6 +713,8 @@ public partial class App : System.Windows.Application
     protected override void OnExit(ExitEventArgs e)
     {
         _trayTimer?.Stop();
+        _syncTimer?.Stop();
+        _mcpTimer?.Stop();
         _hotkeys?.Dispose();
         _showWait?.Unregister(null);
         _showSignal?.Dispose();

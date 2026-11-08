@@ -52,3 +52,5 @@ D:\Dev\M-DeskCal\src\DeskCal.App\obj\Debug\net10.0-windows\DeskCal.App.csproj.As
 D:\Dev\M-DeskCal\src\DeskCal.App\obj\Debug\net10.0-windows\DeskCal..E4F7D3D8.Up2Date
 D:\Dev\M-DeskCal\src\DeskCal.App\obj\Debug\net10.0-windows\EventEditorWindow.baml
 D:\Dev\M-DeskCal\src\DeskCal.App\obj\Debug\net10.0-windows\EventEditorWindow.g.cs
+D:\Dev\M-DeskCal\src\DeskCal.App\bin\Debug\net10.0-windows\DeskCal.Sync.dll
+D:\Dev\M-DeskCal\src\DeskCal.App\bin\Debug\net10.0-windows\DeskCal.Sync.pdb

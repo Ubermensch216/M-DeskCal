@@ -142,5 +142,27 @@ internal static class Migrations
             subject TEXT NOT NULL, room TEXT NOT NULL DEFAULT '', color TEXT,
             PRIMARY KEY(dow, period));
         """,
+        // v5: external calendar sync (accounts, per-event links) and the AI (MCP) approval queue and audit log
+        """
+        CREATE TABLE sync_accounts(
+            id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, url TEXT NOT NULL, username TEXT NOT NULL,
+            secret TEXT NOT NULL, two_way INTEGER NOT NULL DEFAULT 0, enabled INTEGER NOT NULL DEFAULT 1,
+            last_sync_at INTEGER, last_result TEXT);
+
+        CREATE TABLE sync_links(
+            account_id TEXT NOT NULL, event_id TEXT NOT NULL, href TEXT NOT NULL, uid TEXT NOT NULL, etag TEXT,
+            local_stamp INTEGER NOT NULL, protected INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY(account_id, event_id));
+        CREATE UNIQUE INDEX ix_sync_links_href ON sync_links(account_id, href);
+
+        CREATE TABLE mcp_pending(
+            id TEXT PRIMARY KEY, created_at INTEGER NOT NULL, tool TEXT NOT NULL, args TEXT NOT NULL,
+            summary TEXT NOT NULL, status INTEGER NOT NULL DEFAULT 0, decided_at INTEGER, result TEXT);
+        CREATE INDEX ix_mcp_pending_status ON mcp_pending(status, created_at);
+
+        CREATE TABLE mcp_audit(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, tool TEXT NOT NULL,
+            args TEXT NOT NULL, outcome TEXT NOT NULL);
+        """,
     ];
 }

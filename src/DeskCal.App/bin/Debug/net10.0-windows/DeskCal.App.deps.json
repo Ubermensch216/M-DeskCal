@@ -9,7 +9,8 @@
       "DeskCal.App/1.0.0": {
         "dependencies": {
           "DeskCal.Core": "1.0.0",
-          "DeskCal.Data": "1.0.0"
+          "DeskCal.Data": "1.0.0",
+          "DeskCal.Sync": "1.0.0"
         },
         "runtime": {
           "DeskCal.App.dll": {}
@@ -197,6 +198,18 @@
             "fileVersion": "1.0.0.0"
           }
         }
+      },
+      "DeskCal.Sync/1.0.0": {
+        "dependencies": {
+          "DeskCal.Core": "1.0.0",
+          "DeskCal.Data": "1.0.0"
+        },
+        "runtime": {
+          "DeskCal.Sync.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
       }
     }
   },
@@ -254,6 +267,11 @@
       "sha512": ""
     },
     "DeskCal.Data/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "DeskCal.Sync/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

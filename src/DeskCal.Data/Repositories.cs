@@ -322,7 +322,36 @@ public sealed class EventRepository(DeskCalDb db, IClock clock) : RepoBase(db, c
         using var c = Db.Open();
         using var cmd = Cmd(c, "INSERT OR IGNORE INTO event_exceptions(event_id, day) VALUES($e,$d)", null,
             ("$e", eventId), ("$d", day.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)));
+        if (cmd.ExecuteNonQuery() > 0) Touch(c, eventId);
+    }
+
+    /// <summary>Skipping days changes what the event shows, so it counts as an edit (calendar sync looks at updated_at).</summary>
+    private void Touch(SqliteConnection c, string eventId)
+    {
+        using var cmd = Cmd(c, "UPDATE events SET updated_at=$u WHERE id=$i", null, ("$u", Clock.NowMs), ("$i", eventId));
         cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>Replace the skipped days of an event with exactly these.</summary>
+    public void ReplaceExceptions(string eventId, IEnumerable<DateOnly> days)
+    {
+        using var c = Db.Open();
+        using var tx = c.BeginTransaction();
+        using (var del = Cmd(c, "DELETE FROM event_exceptions WHERE event_id=$e", tx, ("$e", eventId))) del.ExecuteNonQuery();
+        foreach (var d in days.Distinct())
+        {
+            using var ins = Cmd(c, "INSERT INTO event_exceptions(event_id, day) VALUES($e,$d)", tx,
+                ("$e", eventId), ("$d", d.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)));
+            ins.ExecuteNonQuery();
+        }
+        tx.Commit();
+    }
+
+    public bool Undelete(string id)
+    {
+        using var c = Db.Open();
+        using var cmd = Cmd(c, "UPDATE events SET deleted=0, updated_at=$u WHERE id=$i", null, ("$u", Clock.NowMs), ("$i", id));
+        return cmd.ExecuteNonQuery() > 0;
     }
 
     /// <summary>Skipped days per event id, for all events at once.</summary>
@@ -347,7 +376,7 @@ public sealed class EventRepository(DeskCalDb db, IClock clock) : RepoBase(db, c
         using var c = Db.Open();
         using var cmd = Cmd(c, "DELETE FROM event_exceptions WHERE event_id=$e AND day >= $d", null,
             ("$e", eventId), ("$d", day.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)));
-        cmd.ExecuteNonQuery();
+        if (cmd.ExecuteNonQuery() > 0) Touch(c, eventId);
     }
 
     public bool SoftDelete(string id)

@@ -21,6 +21,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\DeskCal.Core\DeskCal.Core.csproj" />
     <ProjectReference Include="..\..\src\DeskCal.Data\DeskCal.Data.csproj" />
+    <ProjectReference Include="..\..\src\DeskCal.Sync\DeskCal.Sync.csproj" />
+    <ProjectReference Include="..\..\src\DeskCal.Mcp\DeskCal.Mcp.csproj" />
   </ItemGroup>
 
 </Project>

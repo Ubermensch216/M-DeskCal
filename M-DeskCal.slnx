@@ -3,6 +3,8 @@
     <Project Path="src/DeskCal.App/DeskCal.App.csproj" />
     <Project Path="src/DeskCal.Core/DeskCal.Core.csproj" />
     <Project Path="src/DeskCal.Data/DeskCal.Data.csproj" />
+    <Project Path="src/DeskCal.Sync/DeskCal.Sync.csproj" />
+    <Project Path="src/DeskCal.Mcp/DeskCal.Mcp.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/DeskCal.Tests/DeskCal.Tests.csproj" />

@@ -48,6 +48,17 @@ public sealed class ExchangeService(DeskCalDb db, IClock clock, Func<DateOnly, b
         return new ExchangeBundle(exItems, exEvents, countdowns, notes);
     }
 
+    /// <summary>One event (deleted or not) as an exchange record, with its reminders and skipped days; null if there is no such event.</summary>
+    public ExEvent? CollectEvent(string id)
+    {
+        var events = new EventRepository(db, clock);
+        if (events.Get(id) is not { } e) return null;
+        var skips = events.GetExceptions(e.Id);
+        var rems = new ReminderRepository(db, clock).GetByOwner(ReminderOwner.Event, e.Id).Select(r => new ExReminder(r.OffsetMinutes, r.CustomTime)).ToList();
+        return new ExEvent(e.Id, e.Title, e.Body, e.Start, e.End, e.AllDay, e.RRule, e.ExtRule, e.Color,
+            skips.OrderBy(d => d).Select(d => d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)).ToList(), rems);
+    }
+
     private bool InRange(EventEntry e, DateOnly? from, DateOnly? to)
     {
         if (from is null && to is null) return true;
