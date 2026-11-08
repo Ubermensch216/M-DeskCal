@@ -239,7 +239,7 @@ public partial class MainWindow : Window
     }
 
     public string Diagnostics() =>
-        $"attached={_attached} edit={_editMode}\nrect={_rect}\nanchor={_anchor} mode={_settings.Mode}\n{DesktopHost.LastDiagnostics}";
+        $"M-DeskCal {AppInfo.Version}\nattached={_attached} edit={_editMode}\nrect={_rect}\nanchor={_anchor} mode={_settings.Mode}\n{DesktopHost.LastDiagnostics}";
 
     // ---- desktop pinning ---------------------------------------------------
 

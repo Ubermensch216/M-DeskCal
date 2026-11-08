@@ -56,3 +56,11 @@ internal static class TrayIcon
 
     [DllImport("user32.dll")] private static extern bool DestroyIcon(nint handle);
 }
+
+/// <summary>The running program's version (from the assembly, so it always matches what was built).</summary>
+internal static class AppInfo
+{
+    public static string Version { get; } =
+        (System.Reflection.Assembly.GetExecutingAssembly().GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "0.0.0").Split('+')[0];
+}

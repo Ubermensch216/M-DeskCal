@@ -10,13 +10,14 @@
 using System;
 using System.Reflection;
 
-[assembly: System.Reflection.AssemblyCompanyAttribute("DeskCal.App")]
+[assembly: System.Reflection.AssemblyCompanyAttribute("M-DeskCal")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+a4149a008e23325bb9fa0f9fc0f4d0ec80282d4e")]
-[assembly: System.Reflection.AssemblyProductAttribute("DeskCal.App")]
+[assembly: System.Reflection.AssemblyCopyrightAttribute("Clean-room implementation; no code or assets from other products.")]
+[assembly: System.Reflection.AssemblyFileVersionAttribute("0.1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.0-beta.1")]
+[assembly: System.Reflection.AssemblyProductAttribute("M-DeskCal")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DeskCal.App")]
-[assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
+[assembly: System.Reflection.AssemblyVersionAttribute("0.1.0.0")]
 [assembly: System.Runtime.Versioning.TargetPlatformAttribute("Windows7.0")]
 [assembly: System.Runtime.Versioning.SupportedOSPlatformAttribute("Windows7.0")]
 

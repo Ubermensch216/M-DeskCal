@@ -66,6 +66,11 @@ public partial class App : System.Windows.Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        // The calendar is flat text on a translucent panel: software rendering is plenty. With hardware rendering the graphics driver
+        // reserved ~600 MB (8 x 64 MB write-combined pools) for the always-on widget; software rendering keeps it near 50 MB.
+        // DESKCAL_HARDWARE_RENDER=1 switches the old behaviour back on.
+        if (Environment.GetEnvironmentVariable("DESKCAL_HARDWARE_RENDER") != "1")
+            System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
 
         _singleInstance = new Mutex(true, "Local\\M-DeskCal-SingleInstance", out bool created);
         if (!created)

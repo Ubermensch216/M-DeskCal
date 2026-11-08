@@ -15,6 +15,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <RootNamespace>DeskCal.App</RootNamespace>
+    <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <!-- WinForms is only used for the tray icon; keep its types (Brushes, Color, FontFamily, KeyEventArgs...) out of the global usings

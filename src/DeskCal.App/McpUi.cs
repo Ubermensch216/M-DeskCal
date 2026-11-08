@@ -14,8 +14,10 @@ internal static class McpWindow
 {
     private static Window? _open;
 
-    /// <summary>Where the MCP server program is expected (next to the app, in a "mcp" folder).</summary>
-    public static string ServerPath => Path.Combine(AppContext.BaseDirectory, "mcp", "deskcal-mcp.exe");
+    /// <summary>Where the MCP server program is expected (next to the app).</summary>
+    public static string ServerPath =>
+        new[] { Path.Combine(AppContext.BaseDirectory, "deskcal-mcp.exe"), Path.Combine(AppContext.BaseDirectory, "mcp", "deskcal-mcp.exe") }
+            .FirstOrDefault(File.Exists) ?? Path.Combine(AppContext.BaseDirectory, "deskcal-mcp.exe");
 
     public static void ShowOrActivate(McpAccess access, McpRepository repo, McpChanges changes, Action changed, bool openOnApprovals = false)
     {

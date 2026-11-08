@@ -168,7 +168,7 @@
           "lib/net6.0-windows7.0/SQLitePCLRaw.provider.e_sqlite3.dll": {}
         }
       },
-      "DeskCal.Core/1.0.0": {
+      "DeskCal.Core/0.1.0-beta.1": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
         "compile": {
@@ -178,11 +178,11 @@
           "bin/placeholder/DeskCal.Core.dll": {}
         }
       },
-      "DeskCal.Data/1.0.0": {
+      "DeskCal.Data/0.1.0-beta.1": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
         "dependencies": {
-          "DeskCal.Core": "1.0.0",
+          "DeskCal.Core": "0.1.0-beta.1",
           "Microsoft.Data.Sqlite": "10.0.14"
         },
         "compile": {
@@ -192,12 +192,12 @@
           "bin/placeholder/DeskCal.Data.dll": {}
         }
       },
-      "DeskCal.Sync/1.0.0": {
+      "DeskCal.Sync/0.1.0-beta.1": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
         "dependencies": {
-          "DeskCal.Core": "1.0.0",
-          "DeskCal.Data": "1.0.0"
+          "DeskCal.Core": "0.1.0-beta.1",
+          "DeskCal.Data": "0.1.0-beta.1"
         },
         "compile": {
           "bin/placeholder/DeskCal.Sync.dll": {}
@@ -287,7 +287,7 @@
           "lib/net6.0-windows7.0/SQLitePCLRaw.provider.e_sqlite3.dll": {}
         }
       },
-      "DeskCal.Core/1.0.0": {
+      "DeskCal.Core/0.1.0-beta.1": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
         "compile": {
@@ -297,11 +297,11 @@
           "bin/placeholder/DeskCal.Core.dll": {}
         }
       },
-      "DeskCal.Data/1.0.0": {
+      "DeskCal.Data/0.1.0-beta.1": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
         "dependencies": {
-          "DeskCal.Core": "1.0.0",
+          "DeskCal.Core": "0.1.0-beta.1",
           "Microsoft.Data.Sqlite": "10.0.14"
         },
         "compile": {
@@ -311,12 +311,12 @@
           "bin/placeholder/DeskCal.Data.dll": {}
         }
       },
-      "DeskCal.Sync/1.0.0": {
+      "DeskCal.Sync/0.1.0-beta.1": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
         "dependencies": {
-          "DeskCal.Core": "1.0.0",
-          "DeskCal.Data": "1.0.0"
+          "DeskCal.Core": "0.1.0-beta.1",
+          "DeskCal.Data": "0.1.0-beta.1"
         },
         "compile": {
           "bin/placeholder/DeskCal.Sync.dll": {}
@@ -446,17 +446,17 @@
         "sqlitepclraw.provider.e_sqlite3.nuspec"
       ]
     },
-    "DeskCal.Core/1.0.0": {
+    "DeskCal.Core/0.1.0-beta.1": {
       "type": "project",
       "path": "../DeskCal.Core/DeskCal.Core.csproj",
       "msbuildProject": "../DeskCal.Core/DeskCal.Core.csproj"
     },
-    "DeskCal.Data/1.0.0": {
+    "DeskCal.Data/0.1.0-beta.1": {
       "type": "project",
       "path": "../DeskCal.Data/DeskCal.Data.csproj",
       "msbuildProject": "../DeskCal.Data/DeskCal.Data.csproj"
     },
-    "DeskCal.Sync/1.0.0": {
+    "DeskCal.Sync/0.1.0-beta.1": {
       "type": "project",
       "path": "../DeskCal.Sync/DeskCal.Sync.csproj",
       "msbuildProject": "../DeskCal.Sync/DeskCal.Sync.csproj"
@@ -464,16 +464,16 @@
   },
   "projectFileDependencyGroups": {
     "net10.0-windows": [
-      "DeskCal.Core >= 1.0.0",
-      "DeskCal.Data >= 1.0.0",
-      "DeskCal.Sync >= 1.0.0"
+      "DeskCal.Core >= 0.1.0-beta.1",
+      "DeskCal.Data >= 0.1.0-beta.1",
+      "DeskCal.Sync >= 0.1.0-beta.1"
     ]
   },
   "packageFolders": {
     "C:\\Users\\COMTREE\\.nuget\\packages\\": {}
   },
   "project": {
-    "version": "1.0.0",
+    "version": "0.1.0-beta.1",
     "restore": {
       "projectUniqueName": "D:\\Dev\\M-DeskCal\\src\\DeskCal.App\\DeskCal.App.csproj",
       "projectName": "DeskCal.App",
@@ -534,6 +534,20 @@
         ],
         "assetTargetFallback": true,
         "warn": true,
+        "downloadDependencies": [
+          {
+            "name": "Microsoft.AspNetCore.App.Runtime.win-x64",
+            "version": "[10.0.11, 10.0.11]"
+          },
+          {
+            "name": "Microsoft.NETCore.App.Runtime.win-x64",
+            "version": "[10.0.11, 10.0.11]"
+          },
+          {
+            "name": "Microsoft.WindowsDesktop.App.Runtime.win-x64",
+            "version": "[10.0.11, 10.0.11]"
+          }
+        ],
         "frameworkReferences": {
           "Microsoft.NETCore.App": {
             "privateAssets": "all"

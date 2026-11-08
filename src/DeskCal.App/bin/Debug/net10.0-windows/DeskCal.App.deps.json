@@ -6,11 +6,11 @@
   "compilationOptions": {},
   "targets": {
     ".NETCoreApp,Version=v10.0": {
-      "DeskCal.App/1.0.0": {
+      "DeskCal.App/0.1.0-beta.1": {
         "dependencies": {
-          "DeskCal.Core": "1.0.0",
-          "DeskCal.Data": "1.0.0",
-          "DeskCal.Sync": "1.0.0"
+          "DeskCal.Core": "0.1.0-beta.1",
+          "DeskCal.Data": "0.1.0-beta.1",
+          "DeskCal.Sync": "0.1.0-beta.1"
         },
         "runtime": {
           "DeskCal.App.dll": {}
@@ -179,42 +179,42 @@
           }
         }
       },
-      "DeskCal.Core/1.0.0": {
+      "DeskCal.Core/0.1.0-beta.1": {
         "runtime": {
           "DeskCal.Core.dll": {
-            "assemblyVersion": "1.0.0.0",
-            "fileVersion": "1.0.0.0"
+            "assemblyVersion": "0.1.0.0",
+            "fileVersion": "0.1.0.0"
           }
         }
       },
-      "DeskCal.Data/1.0.0": {
+      "DeskCal.Data/0.1.0-beta.1": {
         "dependencies": {
-          "DeskCal.Core": "1.0.0",
+          "DeskCal.Core": "0.1.0-beta.1",
           "Microsoft.Data.Sqlite": "10.0.14"
         },
         "runtime": {
           "DeskCal.Data.dll": {
-            "assemblyVersion": "1.0.0.0",
-            "fileVersion": "1.0.0.0"
+            "assemblyVersion": "0.1.0.0",
+            "fileVersion": "0.1.0.0"
           }
         }
       },
-      "DeskCal.Sync/1.0.0": {
+      "DeskCal.Sync/0.1.0-beta.1": {
         "dependencies": {
-          "DeskCal.Core": "1.0.0",
-          "DeskCal.Data": "1.0.0"
+          "DeskCal.Core": "0.1.0-beta.1",
+          "DeskCal.Data": "0.1.0-beta.1"
         },
         "runtime": {
           "DeskCal.Sync.dll": {
-            "assemblyVersion": "1.0.0.0",
-            "fileVersion": "1.0.0.0"
+            "assemblyVersion": "0.1.0.0",
+            "fileVersion": "0.1.0.0"
           }
         }
       }
     }
   },
   "libraries": {
-    "DeskCal.App/1.0.0": {
+    "DeskCal.App/0.1.0-beta.1": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
@@ -261,17 +261,17 @@
       "path": "sqlitepclraw.provider.e_sqlite3/2.1.13",
       "hashPath": "sqlitepclraw.provider.e_sqlite3.2.1.13.nupkg.sha512"
     },
-    "DeskCal.Core/1.0.0": {
+    "DeskCal.Core/0.1.0-beta.1": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "DeskCal.Data/1.0.0": {
+    "DeskCal.Data/0.1.0-beta.1": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "DeskCal.Sync/1.0.0": {
+    "DeskCal.Sync/0.1.0-beta.1": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
