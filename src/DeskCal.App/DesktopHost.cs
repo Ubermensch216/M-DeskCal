@@ -19,6 +19,8 @@ internal static class DesktopHost
     public static bool Pin(Window window, RectInt screenRect)
     {
         var hwnd = new WindowInteropHelper(window).EnsureHandle();
+        var state = Guard(window, hwnd);
+        state.Floating = false;
 
         long ex = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
         ex = (ex & ~WS_EX_TOPMOST) | WS_EX_TOOLWINDOW; // no taskbar button / Alt+Tab entry
@@ -34,6 +36,7 @@ internal static class DesktopHost
     public static void Repin(Window window)
     {
         var hwnd = new WindowInteropHelper(window).EnsureHandle();
+        Guard(window, hwnd).Floating = false;
         var progman = FindWindow("Progman", null);
         if (progman == 0) return;
         // Already directly above Progman? Nothing to do.
@@ -46,7 +49,35 @@ internal static class DesktopHost
     public static void Float(Window window)
     {
         var hwnd = new WindowInteropHelper(window).EnsureHandle();
+        Guard(window, hwnd).Floating = true;
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+    }
+
+    // ---- Z-order guard ------------------------------------------------------
+    // Clicking or activating a window makes Windows raise it above every other normal window. For a pinned
+    // board that is exactly the bug: after a click it would cover (and swallow clicks meant for) other apps.
+    // The hook rewrites every Z-order change of a pinned window back to "directly above the desktop".
+
+    private sealed class PinState { public volatile bool Floating; }
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Window, PinState> States = new();
+
+    private static PinState Guard(Window window, nint hwnd)
+    {
+        if (States.TryGetValue(window, out var s)) return s;
+        s = new PinState();
+        States.Add(window, s);
+        var state = s;
+        HwndSource.FromHwnd(hwnd)?.AddHook((nint h, int msg, nint wParam, nint lParam, ref bool handled) =>
+        {
+            if (msg != WM_WINDOWPOSCHANGING || state.Floating) return 0;
+            var pos = Marshal.PtrToStructure<WINDOWPOS>(lParam);
+            if ((pos.flags & SWP_NOZORDER) != 0) return 0;
+            pos.hwndInsertAfter = ZOrderAboveDesktop(h);
+            Marshal.StructureToPtr(pos, lParam, false);
+            return 0;
+        });
+        return s;
     }
 
     /// <summary>Current window rect in physical screen pixels.</summary>
@@ -74,9 +105,13 @@ internal static class DesktopHost
 
     [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WINDOWPOS { public nint hwnd, hwndInsertAfter; public int x, y, cx, cy; public uint flags; }
+
+    private const int WM_WINDOWPOSCHANGING = 0x0046;
     private const int GWL_EXSTYLE = -20;
     private const long WS_EX_TOPMOST = 0x8, WS_EX_TOOLWINDOW = 0x80;
-    private const uint SWP_NOSIZE = 0x1, SWP_NOMOVE = 0x2, SWP_NOACTIVATE = 0x10, SWP_SHOWWINDOW = 0x40;
+    private const uint SWP_NOSIZE = 0x1, SWP_NOMOVE = 0x2, SWP_NOZORDER = 0x4, SWP_NOACTIVATE = 0x10, SWP_SHOWWINDOW = 0x40;
     private const uint GW_HWNDNEXT = 2, GW_HWNDPREV = 3;
     private static readonly nint HWND_TOP = 0, HWND_BOTTOM = 1, HWND_TOPMOST = -1;
 
