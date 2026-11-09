@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -58,6 +59,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        System.Windows.DataObject.AddPastingHandler(EditorBox, EditorBox_Pasting);
         SourceInitialized += (_, _) =>
         {
             _taskbarCreated = RegisterWindowMessage("TaskbarCreated");
@@ -292,7 +294,7 @@ public partial class MainWindow : Window
         var t = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         t.Tick += (_, _) =>
         {
-            if (!_editMode && IsVisible && !IsActive) DesktopHost.Repin(this);
+            if (!_editMode && IsVisible && !IsActive && _busy == 0) DesktopHost.Repin(this);
             if (Today() != _renderedToday && _editingDay is null) Render();
             else ApplySkin();     // cheap unless the rotation moved on to the next picture
         };
@@ -303,6 +305,7 @@ public partial class MainWindow : Window
     protected override void OnDeactivated(EventArgs e)
     {
         base.OnDeactivated(e);
+        if (_busy > 0) return;                         // an option popup or dialog of the editor has the focus
         if (_editingDay is not null) CommitEditor();   // never lose typed text when focus moves away
         else if (!_editMode && _attached && IsVisible) DesktopHost.Repin(this);
     }
@@ -380,19 +383,20 @@ public partial class MainWindow : Window
         if (_editingDay is not null) CommitEditor();
         _editingDay = date;
 
-        var lines = _items.GetByDay(DayKey(date)).Select(i => i.Content);
         EditorTitle.Text = date.ToString("D", CultureInfo.CurrentCulture);
-        EditorBox.Text = string.Join("\r\n", lines);
+        EditorHint.Text = DefaultEditorHint;
         EditorBox.FontFamily = new FontFamily(_settings.FontFamily);
         EditorBox.FontSize = Math.Max(12, _settings.FontSize - 1);
+        LoadEditor(_items.GetByDay(DayKey(date)));
+        UpdateToolbar();
 
         Root.UpdateLayout();
         double rw = Root.ActualWidth, rh = Root.ActualHeight;
         var r = _cells.TryGetValue(date, out var cell) && cell.IsLoaded
             ? cell.TransformToAncestor(Root).TransformBounds(new Rect(0, 0, cell.ActualWidth, cell.ActualHeight))
             : new Rect(rw / 2 - 130, rh / 2 - 95, 260, 190);
-        double w = Math.Min(Math.Max(r.Width, 270), Math.Max(150, rw - 8));
-        double h = Math.Min(Math.Max(r.Height + 50, 200), Math.Max(120, rh - 8));
+        double w = Math.Min(Math.Max(r.Width, 290), Math.Max(150, rw - 8));      // wide enough for the five option buttons + save
+        double h = Math.Min(Math.Max(r.Height + 80, 250), Math.Max(120, rh - 8));
         EditorPanel.Width = w;
         EditorPanel.Height = h;
         EditorPanel.Margin = new Thickness(
@@ -402,17 +406,288 @@ public partial class MainWindow : Window
 
         Activate();
         EditorBox.Focus();
-        EditorBox.CaretIndex = EditorBox.Text.Length;
+        EditorBox.CaretPosition = EditorBox.Document.ContentEnd.GetInsertionPosition(LogicalDirection.Backward);
         Keyboard.Focus(EditorBox);
     }
 
+    // The editor is a RichTextBox with one paragraph per item. The option buttons under it act on the item of the line the caret is on:
+    // they first save the typed text (SyncEditor, the editor stays open), so that every line is a real item before an option is applied to it.
+
+    private const string DefaultEditorHint = "한 줄에 항목 하나 · Ctrl+Enter 저장 · Esc 취소";
+
+    private List<Item> _editorItems = [];               // the day's items in line order, as of the last load / sync
+    private readonly HashSet<Paragraph> _knownLines = [];
+    private int _busy;                                  // > 0 while an option popup/dialog has the focus: the board must not commit the editor then
+    private SettingsStore? _store;
+    private ItemSeriesRepository? _itemSeries;
+    private DateOnly _extendedOn;
+
+    internal void SetSettingsStore(SettingsStore store) => _store = store;
+    internal void SetItemSeries(ItemSeriesRepository series) { _itemSeries = series; Render(); }
+
+    /// <summary>Raised when the editor created, changed or removed a D-day, so the desktop cards can be redrawn.</summary>
+    internal event Action? CountdownsChanged;
+
+    private static string ParagraphText(Paragraph p) =>
+        new TextRange(p.ContentStart, p.ContentEnd).Text.Replace("\r\n", " ").Replace('\n', ' ').Replace('\r', ' ');
+
+    private List<Paragraph> Lines() => EditorBox.Document.Blocks.OfType<Paragraph>().ToList();
+
+    private List<string> ReadEditorLines() => Lines().Select(ParagraphText).ToList();
+
+    private void StyleLine(Paragraph p, Item? item)
+    {
+        if (item?.TextColor is { } tc) p.Foreground = Brush(tc, Colors.White); else p.ClearValue(TextElement.ForegroundProperty);
+        if (item?.Done == true) p.TextDecorations = TextDecorations.Strikethrough; else p.ClearValue(Paragraph.TextDecorationsProperty);
+        if (item?.BgColor is { } bg) p.Background = new SolidColorBrush(WithAlpha(ParseColor(bg, Colors.Transparent), 0x88)); else p.ClearValue(TextElement.BackgroundProperty);
+    }
+
+    private void ResetLine(Paragraph p)
+    {
+        p.ClearValue(TextElement.ForegroundProperty);
+        p.ClearValue(Paragraph.TextDecorationsProperty);
+        p.ClearValue(TextElement.BackgroundProperty);
+    }
+
+    private FlowDocument NewDocument() => new()
+    {
+        PagePadding = new Thickness(0), FontFamily = EditorBox.FontFamily, FontSize = EditorBox.FontSize, Foreground = EditorBox.Foreground,
+    };
+
+    private void ShowDocument(FlowDocument doc)
+    {
+        if (doc.Blocks.Count == 0) doc.Blocks.Add(new Paragraph());
+        foreach (var p in doc.Blocks.OfType<Paragraph>()) _knownLines.Add(p);
+        EditorBox.Document = doc;
+    }
+
+    /// <summary>Show the items as lines (colour, strike-through and cell colour included).</summary>
+    private void LoadEditor(IReadOnlyList<Item> items)
+    {
+        _editorItems = items.ToList();
+        _knownLines.Clear();
+        var doc = NewDocument();
+        foreach (var it in items)
+        {
+            var p = new Paragraph(new Run(it.Content));
+            StyleLine(p, it);
+            doc.Blocks.Add(p);
+        }
+        ShowDocument(doc);
+    }
+
     /// <summary>Dev aid (snapshot self-test): the editor's text, as if typed by the user.</summary>
-    internal string EditorText { get => EditorBox.Text; set => EditorBox.Text = value; }
+    internal string EditorText
+    {
+        get => string.Join("\r\n", ReadEditorLines());
+        set
+        {
+            _editorItems = [];
+            _knownLines.Clear();
+            var doc = NewDocument();
+            foreach (var line in value.Split('\n')) doc.Blocks.Add(new Paragraph(new Run(line.TrimEnd('\r'))));
+            ShowDocument(doc);
+        }
+    }
+
+    /// <summary>The item of the line the caret is on - only while the lines still match the loaded items one to one; null otherwise.</summary>
+    private Item? CurrentLineItem()
+    {
+        var lines = Lines();
+        if (lines.Count != _editorItems.Count) return null;
+        int i = EditorBox.CaretPosition.Paragraph is { } p ? lines.IndexOf(p) : -1;
+        return i >= 0 ? _editorItems[i] : null;
+    }
+
+    /// <summary>Light up the option buttons that are "on" for the current line.</summary>
+    private void UpdateToolbar()
+    {
+        if (_editingDay is null) return;
+        var it = CurrentLineItem();
+        void Tint(TextBlock glyph, bool on) => glyph.Foreground = on ? Brush("#6EA8FF", Colors.CornflowerBlue) : Brush("#B8C4D6", Colors.LightGray);
+        Tint(GlyphDone, it?.Done == true);
+        Tint(GlyphColor, it?.TextColor is not null || it?.BgColor is not null);
+        Tint(GlyphRepeat, it?.SeriesId is not null);
+        Tint(GlyphReminder, it is not null && _itemsWithReminder.Contains(it.Id));
+        Tint(GlyphCountdown, it?.CountdownId is not null);
+        BtnDone.ToolTip = it?.Done == true ? "작업 완료 해제" : "작업 완료 표시";
+    }
+
+    /// <summary>
+    /// Save the typed text now (the editor stays open, its lines are redrawn from the saved items) and return the item of the line the
+    /// caret was on; null (with a hint) when that line is empty.
+    /// </summary>
+    private Item? SyncEditor()
+    {
+        if (_editingDay is not { } day || _items is null) return null;
+        var lines = Lines();
+        var texts = lines.Select(ParagraphText).ToList();
+        var caretLine = EditorBox.CaretPosition.Paragraph;
+        int para = caretLine is null ? -1 : lines.IndexOf(caretLine);
+        int offset = para < 0 ? 0 : new TextRange(caretLine!.ContentStart, EditorBox.CaretPosition).Text.Length;
+        int lineNo = para >= 0 && texts[para].Trim().Length > 0 ? texts.Take(para).Count(t => t.Trim().Length > 0) : -1;
+
+        var items = _items.ReplaceDay(DayKey(day), texts);
+        LoadEditor(items);
+        if (lineNo < 0 || lineNo >= items.Count)
+        {
+            EditorBox.CaretPosition = EditorBox.Document.ContentEnd.GetInsertionPosition(LogicalDirection.Backward);
+            EditorHint.Text = "텍스트가 있는 줄에서 사용하세요.";
+            return null;
+        }
+        var target = Lines()[lineNo];
+        var start = target.ContentStart.GetInsertionPosition(LogicalDirection.Forward);
+        EditorBox.CaretPosition = start.GetPositionAtOffset(Math.Min(offset, items[lineNo].Content.Length)) ?? start;
+        EditorHint.Text = DefaultEditorHint;
+        return items[lineNo];
+    }
+
+    /// <summary>After an option changed an item: refresh its cached copy and line, redraw the board behind the editor, give the focus back.</summary>
+    private void AfterOption(string itemId, bool remindersChanged = false)
+    {
+        if (_items?.Get(itemId) is { } fresh)
+        {
+            int i = _editorItems.FindIndex(x => x.Id == itemId);
+            var lines = Lines();
+            if (i >= 0 && i < lines.Count && lines.Count == _editorItems.Count) { _editorItems[i] = fresh; StyleLine(lines[i], fresh); }
+        }
+        Render();
+        UpdateToolbar();
+        if (remindersChanged) RemindersChanged?.Invoke();
+        EditorBox.Focus();
+    }
+
+    private T Modal<T>(Func<T> show)
+    {
+        _busy++;
+        try { return show(); }
+        finally { _busy--; Dispatcher.BeginInvoke(() => { Activate(); EditorBox.Focus(); }); }
+    }
+
+    private static DateOnly ParseDay(string day) =>
+        DateOnly.TryParseExact(day, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : Today();
+
+    /// <summary>Pasted text is taken as plain text only (the lines carry no formatting of their own).</summary>
+    private void EditorBox_Pasting(object sender, System.Windows.DataObjectPastingEventArgs e)
+    {
+        if (!e.DataObject.GetDataPresent(System.Windows.DataFormats.UnicodeText)) { e.CancelCommand(); return; }
+        e.DataObject = new System.Windows.DataObject(System.Windows.DataFormats.UnicodeText, e.DataObject.GetData(System.Windows.DataFormats.UnicodeText));
+        e.FormatToApply = System.Windows.DataFormats.UnicodeText;
+    }
+
+    private void EditorSave_Click(object sender, MouseButtonEventArgs e) { e.Handled = true; CommitEditor(); }
+    private void EditorBox_SelectionChanged(object sender, RoutedEventArgs e) => UpdateToolbar();
+
+    // A line made by pressing Enter inherits the strike-through / colours of the one it was split from: show it plain until it is saved.
+    private void EditorBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_editingDay is null) return;
+        foreach (var p in Lines())
+            if (_knownLines.Add(p)) ResetLine(p);
+    }
+
+    private void OptDone_Click(object sender, MouseButtonEventArgs e) { e.Handled = true; DoneAtCaret(); }
+
+    private void DoneAtCaret()
+    {
+        if (SyncEditor() is not { } it) return;
+        bool now = !it.Done;
+        if (_items!.SetDone(it.Id, now) && now && _settings.CompleteSound) Sounds.PlayComplete();
+        AfterOption(it.Id);
+    }
+
+    // ---- dev hooks for the snapshot self-test (they run the same code the option buttons run) ----
+
+    internal void DevCaretToLine(int line)
+    {
+        var lines = Lines();
+        if (line >= 0 && line < lines.Count) EditorBox.CaretPosition = lines[line].ContentStart.GetInsertionPosition(LogicalDirection.Forward);
+    }
+
+    internal void DevDone() => DoneAtCaret();
+
+    /// <summary>Make the item repeat weekly and count down to its day (what the repeat and countdown dialogs do on "apply").</summary>
+    internal void DevMakeMarks(string itemId)
+    {
+        var item = _items!.Get(itemId)!;
+        _itemSeries!.SetRepeat(itemId, new RecurrenceRule { Kind = RepeatKind.Weekly }, Today());
+        var cd = new Countdown(Guid.NewGuid().ToString("N"), item.Content, item.Day, CountdownType.Exam, false, false, false);
+        _countdowns!.Upsert(cd);
+        _items.SetCountdown(itemId, cd.Id);
+        Render();
+    }
+
+    internal void DevColor(string? textHex, string? cellHex)
+    {
+        if (SyncEditor() is not { } it) return;
+        _items!.SetTextColor(it.Id, textHex);
+        _items.SetColor(it.Id, cellHex);
+        AfterOption(it.Id);
+    }
+
+    internal IReadOnlyList<(string Text, bool Struck, string? Foreground)> DevLines() =>
+        Lines().Select(p => (ParagraphText(p), p.TextDecorations is { Count: > 0 }, (p.Foreground as SolidColorBrush)?.Color.ToString())).ToList();
+
+    private void OptColor_Click(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        if (SyncEditor() is not { } it) return;
+        _busy++;
+        ColorPickerPopup.Show(BtnColor, _store, it.TextColor, it.BgColor,
+            hex => { _items!.SetTextColor(it.Id, hex); AfterOption(it.Id); },
+            hex => { _items!.SetColor(it.Id, hex); AfterOption(it.Id); },
+            () => { _busy--; Dispatcher.BeginInvoke(() => { Activate(); EditorBox.Focus(); }); });
+    }
+
+    private void OptRepeat_Click(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        if (_itemSeries is null || SyncEditor() is not { } it) return;
+        var current = it.SeriesId is { } sid ? _itemSeries.Get(sid)?.Rule ?? RecurrenceRule.None : RecurrenceRule.None;
+        var rule = Modal(() => RepeatDialog.Show(this, it.Content, ParseDay(it.Day), current));
+        if (rule is null) return;
+        if (rule.IsRepeating) _itemSeries.SetRepeat(it.Id, rule, Today()); else _itemSeries.ClearRepeat(it.Id);
+        AfterOption(it.Id, remindersChanged: true);
+    }
+
+    private void OptReminder_Click(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        if (_reminders is null || SyncEditor() is not { } it) return;
+        var specs = Modal(() => ReminderDialog.Show(this, it.Content, ParseDay(it.Day), _reminders.GetByOwner(ReminderOwner.Item, it.Id)));
+        if (specs is null) return;
+        _reminders.ReplaceForOwner(ReminderOwner.Item, it.Id, specs.Select(s => (s.OffsetMinutes, (string?)s.Time, (string?)null)));
+        AfterOption(it.Id, remindersChanged: true);
+    }
+
+    private void OptCountdown_Click(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        if (_countdowns is null || _items is null || SyncEditor() is not { } it) return;
+        var existing = it.CountdownId is { } cid ? _countdowns.List().FirstOrDefault(c => c.Id == cid) : null;
+        var choice = Modal(() => ItemCountdownDialog.Show(this, it.Content, ParseDay(it.Day), existing));
+        if (choice is null) return;
+        if (choice.Remove)
+        {
+            if (existing is not null) _countdowns.Delete(existing.Id);
+            _items.SetCountdown(it.Id, null);
+        }
+        else
+        {
+            // a lunar D-day made in the countdown manager keeps its own (lunar) date; otherwise the D-day is this item's day
+            var cd = new Countdown(existing?.Id ?? Guid.NewGuid().ToString("N"), it.Content, existing?.Lunar == true ? existing.Date : it.Day,
+                choice.Type, choice.ShowCard, choice.ShowBottom, existing?.Lunar ?? false);
+            _countdowns.Upsert(cd);
+            _items.SetCountdown(it.Id, cd.Id);
+        }
+        AfterOption(it.Id);
+        CountdownsChanged?.Invoke();
+    }
 
     internal void CommitEditor()
     {
         if (_editingDay is not { } day) return;
-        var lines = EditorBox.Text.Split('\n').Select(l => l.TrimEnd('\r')).ToList();
+        var lines = ReadEditorLines();
         _editingDay = null;
         EditorLayer.Visibility = Visibility.Collapsed;
         _items?.ReplaceDay(DayKey(day), lines);
@@ -440,6 +715,8 @@ public partial class MainWindow : Window
     {
         if (e.Key == Key.Escape) { e.Handled = true; CancelEditor(); }
         else if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) != 0) { e.Handled = true; CommitEditor(); }
+        // the editor holds plain lines: the word-processor shortcuts would only add formatting that is never saved
+        else if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key is Key.B or Key.I or Key.U or Key.E or Key.L or Key.R or Key.J) e.Handled = true;
     }
 
     // ---- rendering ---------------------------------------------------------
@@ -452,8 +729,10 @@ public partial class MainWindow : Window
         var s = _settings;
         var culture = CultureInfo.CurrentCulture;
         _renderedToday = Today();
+        ExtendRepeats();
         var grid = BoardLayout.Build(_anchor, _renderedToday, s);
         var byDay = _contentHidden ? [] : LoadItems(grid);
+        _countdownLabels = _contentHidden || _countdowns is null ? [] : CountdownLabels();
         var eventsByDay = _contentHidden ? [] : LoadEvents(grid);
         _itemsWithReminder = _contentHidden ? [] : LoadItemReminderIds();
         _cells.Clear();
@@ -522,6 +801,26 @@ public partial class MainWindow : Window
         }
 
         RenderCountdownBar(text, font, headerSize + 1);
+    }
+
+    private Dictionary<string, string> _countdownLabels = [];
+
+    /// <summary>"D-12" per countdown id, for the items that count down to a day.</summary>
+    private Dictionary<string, string> CountdownLabels()
+    {
+        var map = new Dictionary<string, string>();
+        foreach (var cd in _countdowns!.List())
+            if (CountdownCalc.Compute(cd, _renderedToday) is { } st) map[cd.Id] = st.Label;
+        return map;
+    }
+
+    /// <summary>Once a day: create the occurrences of repeating items that now fall inside the one-year window.</summary>
+    private void ExtendRepeats()
+    {
+        if (_itemSeries is null || _extendedOn == _renderedToday) return;
+        _extendedOn = _renderedToday;
+        try { if (_itemSeries.Extend(_renderedToday) > 0) RemindersChanged?.Invoke(); }
+        catch (Microsoft.Data.Sqlite.SqliteException ex) { Log("extend repeats: " + ex.Message); }
     }
 
     /// <summary>The strip under the grid: the countdowns that asked to be shown there, nearest first.</summary>
@@ -815,11 +1114,19 @@ public partial class MainWindow : Window
         };
         Grid.SetColumn(t, 1);
         row.Children.Add(t);
+
+        // small marks at the right end of the line: repeats (↻), D-day label, reminder (⏰)
+        var marks = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        if (item.SeriesId is not null)
+            marks.Children.Add(new TextBlock { Text = "↻", Foreground = fg, FontFamily = font, FontSize = size, Margin = new Thickness(3, 0, 0, 0), Opacity = 0.75, ToolTip = "반복 항목" });
+        if (item.CountdownId is { } cdId && _countdownLabels.TryGetValue(cdId, out var dday))
+            marks.Children.Add(new TextBlock { Text = dday, Foreground = fg, FontFamily = font, FontSize = size - 1, FontWeight = FontWeights.SemiBold, Margin = new Thickness(4, 0, 0, 0), ToolTip = "기념일까지 카운트다운" });
         if (s.ShowReminderMark && _itemsWithReminder.Contains(item.Id))
+            marks.Children.Add(new TextBlock { Text = "⏰", FontSize = size - 1, Margin = new Thickness(3, 0, 0, 0), Opacity = 0.85, ToolTip = "알림 설정됨" });
+        if (marks.Children.Count > 0)
         {
-            var bell = new TextBlock { Text = "⏰", FontSize = size - 1, Margin = new Thickness(3, 0, 0, 0), Opacity = 0.85, ToolTip = "알림 설정됨" };
-            Grid.SetColumn(bell, 2);
-            row.Children.Add(bell);
+            Grid.SetColumn(marks, 2);
+            row.Children.Add(marks);
         }
 
         row.ContextMenu = BuildItemMenu(item, date);

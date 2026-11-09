@@ -69,11 +69,11 @@ public sealed class HistoryRepository(DeskCalDb db, IClock clock) : RepoBase(db,
 // ---------------------------------------------------------------------------------------------
 public sealed class ItemRepository(DeskCalDb db, IClock clock) : RepoBase(db, clock)
 {
-    private const string Cols = "id, day, content, bg_color, sort, done, created_at, updated_at, deleted, text_color";
+    internal const string Cols = "id, day, content, bg_color, sort, done, created_at, updated_at, deleted, text_color, series_id, countdown_id";
 
-    private static Item Map(SqliteDataReader r) => new(
+    internal static Item Map(SqliteDataReader r) => new(
         r.GetString(0), r.GetString(1), r.GetString(2), Str(r, 3), r.GetInt32(4), r.GetInt32(5) != 0,
-        r.GetInt64(6), r.GetInt64(7), r.GetInt32(8) != 0, Str(r, 9));
+        r.GetInt64(6), r.GetInt64(7), r.GetInt32(8) != 0, Str(r, 9), Str(r, 10), Str(r, 11));
 
     public Item Add(string day, string content, string? bgColor = null)
     {
@@ -90,7 +90,7 @@ public sealed class ItemRepository(DeskCalDb db, IClock clock) : RepoBase(db, cl
     {
         long now = Clock.NowMs;
         var item = new Item(NewId(), day, content, bg, sort, false, now, now, false, text);
-        using var cmd = Cmd(c, $"INSERT INTO items({Cols}) VALUES($id,$day,$c,$bg,$s,0,$ca,$ua,0,$tc)", tx,
+        using var cmd = Cmd(c, $"INSERT INTO items({Cols}) VALUES($id,$day,$c,$bg,$s,0,$ca,$ua,0,$tc,NULL,NULL)", tx,
             ("$id", item.Id), ("$day", day), ("$c", content), ("$bg", bg), ("$s", sort), ("$ca", now), ("$ua", now), ("$tc", text));
         cmd.ExecuteNonQuery();
         return item;
@@ -122,6 +122,11 @@ public sealed class ItemRepository(DeskCalDb db, IClock clock) : RepoBase(db, cl
                 case LineOpKind.Update:
                     UpdateContent(c, tx, existing[op.OldIndex].Id, clean[op.NewIndex]);
                     SetSort(c, tx, existing[op.OldIndex], op.NewIndex);
+                    if (existing[op.OldIndex].CountdownId is { } linked)      // the D-day carries the item's text
+                    {
+                        using var title = Cmd(c, "UPDATE countdowns SET title=$t WHERE id=$i", tx, ("$t", clean[op.NewIndex]), ("$i", linked));
+                        title.ExecuteNonQuery();
+                    }
                     break;
                 case LineOpKind.Add:
                     Insert(c, tx, day, clean[op.NewIndex], op.NewIndex, null, null);
@@ -130,6 +135,7 @@ public sealed class ItemRepository(DeskCalDb db, IClock clock) : RepoBase(db, cl
                     using (var del = Cmd(c, "UPDATE items SET deleted=1, updated_at=$u WHERE id=$i", tx,
                                ("$u", Clock.NowMs), ("$i", existing[op.OldIndex].Id)))
                         del.ExecuteNonQuery();
+                    DropCountdown(c, tx, existing[op.OldIndex].CountdownId);
                     break;
             }
         }
@@ -221,9 +227,55 @@ public sealed class ItemRepository(DeskCalDb db, IClock clock) : RepoBase(db, cl
     public bool SetDone(string id, bool done) => Exec("UPDATE items SET done=$v, updated_at=$u WHERE id=$i AND deleted=0", id, done ? 1 : 0);
     public bool SetColor(string id, string? color) => Exec("UPDATE items SET bg_color=$v, updated_at=$u WHERE id=$i AND deleted=0", id, color);
     public bool SetTextColor(string id, string? color) => Exec("UPDATE items SET text_color=$v, updated_at=$u WHERE id=$i AND deleted=0", id, color);
-    public bool Move(string id, string newDay) => Exec("UPDATE items SET day=$v, updated_at=$u WHERE id=$i AND deleted=0", id, newDay);
-    public bool SoftDelete(string id) => Exec("UPDATE items SET deleted=1, updated_at=$u WHERE id=$i", id, null);
+    public bool Move(string id, string newDay)
+    {
+        if (!Exec("UPDATE items SET day=$v, updated_at=$u WHERE id=$i AND deleted=0", id, newDay)) return false;
+        using var c = Db.Open();
+        using var cmd = Cmd(c, "UPDATE countdowns SET date=$d WHERE id=(SELECT countdown_id FROM items WHERE id=$i)", null, ("$d", newDay), ("$i", id));
+        cmd.ExecuteNonQuery();      // the linked D-day follows the item to its new day
+        return true;
+    }
+    public bool SetCountdown(string id, string? countdownId) => Exec("UPDATE items SET countdown_id=$v, updated_at=$u WHERE id=$i AND deleted=0", id, countdownId);
+
+    public bool SoftDelete(string id)
+    {
+        using var c = Db.Open();
+        using var tx = c.BeginTransaction();
+        var item = Get(c, tx, id);
+        using var cmd = Cmd(c, "UPDATE items SET deleted=1, updated_at=$u WHERE id=$i", tx, ("$u", Clock.NowMs), ("$i", id));
+        bool changed = cmd.ExecuteNonQuery() > 0;
+        if (changed) DropCountdown(c, tx, item?.CountdownId);
+        tx.Commit();
+        return changed;
+    }
+
     public bool Undelete(string id) => Exec("UPDATE items SET deleted=0, updated_at=$u WHERE id=$i", id, null);
+
+    /// <summary>A deleted item takes the D-day it was counting down to with it (the link is left on the item, harmlessly).</summary>
+    private static void DropCountdown(SqliteConnection c, SqliteTransaction tx, string? countdownId)
+    {
+        if (countdownId is null) return;
+        using var cmd = Cmd(c, "DELETE FROM countdowns WHERE id=$i", tx, ("$i", countdownId));
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>The items with these ids (deleted ones included), in one query.</summary>
+    public IReadOnlyDictionary<string, Item> GetMany(IEnumerable<string> ids)
+    {
+        var wanted = ids.Distinct().ToList();
+        var map = new Dictionary<string, Item>();
+        if (wanted.Count == 0) return map;
+        using var c = Db.Open();
+        foreach (var chunk in wanted.Chunk(500))
+        {
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = $"SELECT {Cols} FROM items WHERE id IN ({string.Join(",", chunk.Select((_, i) => "$p" + i))})";
+            for (int i = 0; i < chunk.Length; i++) cmd.Parameters.AddWithValue("$p" + i, chunk[i]);
+            using var r = cmd.ExecuteReader();
+            while (r.Read()) { var item = Map(r); map[item.Id] = item; }
+        }
+        return map;
+    }
 
     private bool Exec(string sql, string id, object? value)
     {

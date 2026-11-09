@@ -8,10 +8,15 @@ public sealed class SystemClock : IClock
     public long NowMs => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 }
 
-/// <summary>Text/to-do entry that lives in a calendar day cell. <see cref="Day"/> is "yyyy-MM-dd".</summary>
+/// <summary>
+/// Text/to-do entry that lives in a calendar day cell. <see cref="Day"/> is "yyyy-MM-dd".
+/// <see cref="SeriesId"/> is set on items that were created by a repeat rule (every occurrence is an ordinary item of its own);
+/// <see cref="CountdownId"/> links the item to the D-day it counts down to.
+/// </summary>
 public sealed record Item(
     string Id, string Day, string Content, string? BgColor, int Sort, bool Done,
-    long CreatedAt, long UpdatedAt, bool Deleted = false, string? TextColor = null);
+    long CreatedAt, long UpdatedAt, bool Deleted = false, string? TextColor = null,
+    string? SeriesId = null, string? CountdownId = null);
 
 /// <summary>Event with optional recurrence. Start/End are ISO-8601 strings (UTC unless <see cref="AllDay"/>).</summary>
 public sealed record EventEntry(

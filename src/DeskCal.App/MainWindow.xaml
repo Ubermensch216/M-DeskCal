@@ -57,19 +57,74 @@
 
             <!-- Day editor: a click-away scrim plus the panel itself. Position/size are set in code. -->
             <Grid x:Name="EditorLayer" Grid.RowSpan="3" Visibility="Collapsed">
+                <Grid.Resources>
+                    <!-- the round-cornered icon buttons under the text (done, colours, repeat, reminder, countdown) -->
+                    <Style x:Key="OptBtn" TargetType="Border">
+                        <Setter Property="Width" Value="30"/>
+                        <Setter Property="Height" Value="28"/>
+                        <Setter Property="Margin" Value="0,0,2,0"/>
+                        <Setter Property="CornerRadius" Value="5"/>
+                        <Setter Property="Cursor" Value="Hand"/>
+                        <Setter Property="Background" Value="#01FFFFFF"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#33FFFFFF"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                    <Style x:Key="OptGlyph" TargetType="TextBlock">
+                        <Setter Property="FontFamily" Value="Segoe Fluent Icons, Segoe MDL2 Assets, Segoe UI Symbol"/>
+                        <Setter Property="FontSize" Value="16"/>
+                        <Setter Property="Foreground" Value="#FFB8C4D6"/>
+                        <Setter Property="HorizontalAlignment" Value="Center"/>
+                        <Setter Property="VerticalAlignment" Value="Center"/>
+                    </Style>
+                </Grid.Resources>
                 <Border x:Name="Scrim" Background="#01000000" MouseLeftButtonDown="Scrim_Down"/>
                 <Border x:Name="EditorPanel" HorizontalAlignment="Left" VerticalAlignment="Top"
                         Background="#F2182430" BorderBrush="#FF6EA8FF" BorderThickness="1.5"
                         CornerRadius="8" Padding="8">
                     <DockPanel>
-                        <TextBlock x:Name="EditorTitle" DockPanel.Dock="Top" Foreground="#FFBFD8FF"
-                                   FontWeight="SemiBold" Margin="0,0,0,4"/>
-                        <TextBlock DockPanel.Dock="Bottom" Foreground="#99FFFFFF" FontSize="11" Margin="0,4,0,0"
-                                   Text="한 줄에 항목 하나 · Ctrl+Enter 저장 · Esc 취소"/>
-                        <TextBox x:Name="EditorBox" AcceptsReturn="True" TextWrapping="Wrap"
-                                 VerticalScrollBarVisibility="Auto" Background="#33FFFFFF" Foreground="White"
-                                 CaretBrush="White" BorderThickness="0" Padding="4"
-                                 PreviewKeyDown="EditorBox_PreviewKeyDown"/>
+                        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                            <Border x:Name="EditorSave" DockPanel.Dock="Right" Style="{StaticResource OptBtn}" Margin="6,0,0,0"
+                                    ToolTip="저장 (Ctrl+Enter)" MouseLeftButtonUp="EditorSave_Click">
+                                <TextBlock Text="&#xE73E;" Style="{StaticResource OptGlyph}" Foreground="White"/>
+                            </Border>
+                            <Border DockPanel.Dock="Left" Width="3" Background="#FF3B82F6" CornerRadius="2" Margin="0,3,8,3"/>
+                            <TextBlock x:Name="EditorTitle" Foreground="#FFBFD8FF" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                        </DockPanel>
+                        <TextBlock x:Name="EditorHint" DockPanel.Dock="Bottom" Foreground="#99FFFFFF" FontSize="11" Margin="0,4,0,0"
+                                   TextTrimming="CharacterEllipsis"/>
+                        <StackPanel x:Name="EditorToolbar" DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,6,0,0">
+                            <Border x:Name="BtnDone" Style="{StaticResource OptBtn}" ToolTip="작업 완료 표시" MouseLeftButtonUp="OptDone_Click">
+                                <TextBlock x:Name="GlyphDone" Text="&#xE930;" Style="{StaticResource OptGlyph}"/>
+                            </Border>
+                            <Border x:Name="BtnColor" Style="{StaticResource OptBtn}" ToolTip="텍스트 색상 / 셀 색상" MouseLeftButtonUp="OptColor_Click">
+                                <TextBlock x:Name="GlyphColor" Text="&#xE790;" Style="{StaticResource OptGlyph}"/>
+                            </Border>
+                            <Border x:Name="BtnRepeat" Style="{StaticResource OptBtn}" ToolTip="작업 반복" MouseLeftButtonUp="OptRepeat_Click">
+                                <TextBlock x:Name="GlyphRepeat" Text="&#xE8EE;" Style="{StaticResource OptGlyph}"/>
+                            </Border>
+                            <Border x:Name="BtnReminder" Style="{StaticResource OptBtn}" ToolTip="알림" MouseLeftButtonUp="OptReminder_Click">
+                                <TextBlock x:Name="GlyphReminder" Text="&#xEA8F;" Style="{StaticResource OptGlyph}"/>
+                            </Border>
+                            <Border x:Name="BtnCountdown" Style="{StaticResource OptBtn}" ToolTip="기념일까지 카운트 다운" MouseLeftButtonUp="OptCountdown_Click">
+                                <TextBlock x:Name="GlyphCountdown" Text="&#xE916;" Style="{StaticResource OptGlyph}"/>
+                            </Border>
+                        </StackPanel>
+                        <!-- one paragraph per item: text colour, strike-through and cell colour show the item's state -->
+                        <RichTextBox x:Name="EditorBox" AcceptsReturn="True" AcceptsTab="False" SpellCheck.IsEnabled="False"
+                                     VerticalScrollBarVisibility="Auto" Background="#33FFFFFF" Foreground="White"
+                                     CaretBrush="White" BorderThickness="0" Padding="4"
+                                     PreviewKeyDown="EditorBox_PreviewKeyDown" SelectionChanged="EditorBox_SelectionChanged"
+                                     TextChanged="EditorBox_TextChanged">
+                            <RichTextBox.Resources>
+                                <Style TargetType="Paragraph">
+                                    <Setter Property="Margin" Value="0,0,0,1"/>
+                                </Style>
+                            </RichTextBox.Resources>
+                        </RichTextBox>
                     </DockPanel>
                 </Border>
             </Grid>

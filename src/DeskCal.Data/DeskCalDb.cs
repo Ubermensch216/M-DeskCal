@@ -164,5 +164,15 @@ internal static class Migrations
             id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, tool TEXT NOT NULL,
             args TEXT NOT NULL, outcome TEXT NOT NULL);
         """,
+        // v6: day-cell item options - repeating items (one real item per occurrence, tied by series_id) and the D-day an item counts down to
+        """
+        ALTER TABLE items ADD COLUMN series_id TEXT;
+        ALTER TABLE items ADD COLUMN countdown_id TEXT;
+        CREATE INDEX ix_items_series ON items(series_id, day) WHERE series_id IS NOT NULL;
+
+        CREATE TABLE item_series(
+            id TEXT PRIMARY KEY, rrule TEXT, ext_rule TEXT, start_day TEXT NOT NULL,
+            remind TEXT NOT NULL DEFAULT '', generated_until TEXT);
+        """,
     ];
 }

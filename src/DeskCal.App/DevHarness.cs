@@ -96,6 +96,8 @@ internal static class DevHarness
             report.AppendLine($"{(ok3 ? "PASS" : "FAIL")}: day editor -> {string.Join(" | ", after.Select(i => i.Content))}");
             board.SaveSnapshot(Path.Combine(dir, "m3-after-edit.png"));
 
+            ItemOptionChecks(board, items, settings, countdowns, today, dir, report);
+
             EventEditorSelfTests(series, events, reminders, today, dir, report);
             SearchHistoryCountdownChecks(board, items, search, history, countdowns, today, dir, report);
             ExchangeChecks(exchange, dir, report);
@@ -103,6 +105,57 @@ internal static class DevHarness
         }
 
         File.WriteAllText(Path.Combine(dir, "selftest.txt"), report.ToString());
+    }
+
+    /// <summary>The day editor's option buttons: done / colours through the editor, and the repeat, reminder, countdown dialogs and the palette as PNGs.</summary>
+    private static void ItemOptionChecks(MainWindow board, ItemRepository items, SettingsStore settings, CountdownRepository countdowns, DateOnly today, string dir, StringBuilder report)
+    {
+        string day = today.ToString("yyyy-MM-dd");
+        board.OpenEditor(today);
+        board.DevCaretToLine(1);
+        board.DevDone();                                    // "새 항목" -> done
+        board.DevCaretToLine(0);
+        board.DevColor("#E53935", "#FFE08A");               // first line: red text on a yellow cell
+        var stored = items.GetByDay(day);
+        bool ok = stored.Count == 3 && stored[1].Done && !stored[0].Done && !stored[2].Done
+                  && stored[0].TextColor == "#E53935" && stored[0].BgColor == "#FFE08A";
+        var lines = board.DevLines();
+        bool shown = lines.Count == 3 && lines[1].Struck && !lines[0].Struck && lines[0].Foreground == "#FFE53935" && lines[2].Foreground == "#FFFFFFFF";      // untouched lines keep the editor's white
+        report.AppendLine($"{(ok ? "PASS" : "FAIL")}: editor done/colour buttons -> {string.Join(" | ", stored.Select(i => $"{i.Content}[done={i.Done},fg={i.TextColor},bg={i.BgColor}]"))}");
+        report.AppendLine($"{(shown ? "PASS" : "FAIL")}: editor lines show the state -> {string.Join(" | ", lines.Select(l => $"{l.Text}[struck={l.Struck},fg={l.Foreground}]"))}");
+        board.SaveSnapshot(Path.Combine(dir, "opt-editor.png"));
+        board.DevCaretToLine(1);
+        board.DevDone();                                    // and back
+        bool undone = !items.GetByDay(day)[1].Done;
+        report.AppendLine($"{(undone ? "PASS" : "FAIL")}: editor done button toggles back");
+        board.CommitEditor();
+
+        var white = System.Windows.Media.Colors.White;
+        const string sample = "★2026 공공 AI 대전환 챌린지 (본 제출)";
+        void Snap(string file, Action show)
+        {
+            ItemDialog.Preview = win => RenderToPng((FrameworkElement)win.Content, Path.Combine(dir, file), win.Width, 0, white);
+            try { show(); } finally { ItemDialog.Preview = null; }
+        }
+        Snap("opt-repeat.png", () => RepeatDialog.Show(null, sample, today, new RecurrenceRule { Kind = RepeatKind.Weekly }));
+        Snap("opt-reminder.png", () => ReminderDialog.Show(null, sample, today, [new Reminder("r", ReminderOwner.Item, "i", 0, "09:15", null, null), new Reminder("r2", ReminderOwner.Item, "i", 1440, "09:15", null, null)]));
+        Snap("opt-countdown.png", () => ItemCountdownDialog.Show(null, sample, today.AddDays(30), null));
+
+        settings.SetString("editor.recent_text_colors", "#E53935,#4CAF50");
+        settings.SetString("editor.recent_cell_colors", "#FFE08A");
+        RenderToPng(ColorPickerPopup.BuildContent(settings, "#E53935", "#FFE08A", (_, _) => { }, _ => { }), Path.Combine(dir, "opt-colors.png"), 0, 0, white);
+        settings.Remove("editor.recent_text_colors");
+        settings.Remove("editor.recent_cell_colors");
+        report.AppendLine("PASS: option dialogs and palette rendered (opt-*.png)");
+
+        var third = items.GetByDay(day)[2];
+        board.DevMakeMarks(third.Id);
+        var nextWeek = items.GetByDay(today.AddDays(7).ToString("yyyy-MM-dd")).FirstOrDefault(i => i.Content == third.Content);
+        bool repeated = nextWeek is not null && nextWeek.SeriesId == items.Get(third.Id)!.SeriesId && items.Get(third.Id)!.CountdownId is not null;
+        board.SaveSnapshot(Path.Combine(dir, "opt-board-marks.png"));
+        report.AppendLine($"{(repeated ? "PASS" : "FAIL")}: repeat + countdown marks on the board (opt-board-marks.png)");
+        foreach (var cd in countdowns.List().Where(c => c.Id == items.Get(third.Id)!.CountdownId)) countdowns.Delete(cd.Id);   // the later countdown checks expect their own list
+        items.SetCountdown(third.Id, null);
     }
 
     /// <summary>The settings window, one PNG per tab, plus a check that a change made through it reaches the board and the database.</summary>

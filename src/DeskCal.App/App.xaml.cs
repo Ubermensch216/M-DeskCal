@@ -144,6 +144,9 @@ public partial class App : System.Windows.Application
         var loaded = HolidayOverrideFile.Load(HolidaysPath);
         _days = new KoreanDays(loaded.Overrides);
         _board.SetCalendar(_days);
+        _board.SetSettingsStore(settings);
+        _board.SetItemSeries(new ItemSeriesRepository(db, clock, isDayOff));      // repeating items: also creates the occurrences that came into range
+        _board.CountdownsChanged += CountdownsChanged;
         if (loaded.Errors.Count > 0 && !snapshotMode)
             System.Windows.MessageBox.Show("holidays.json 에 문제가 있어 해당 항목을 건너뛰었습니다.\n\n" + string.Join("\n", loaded.Errors),
                 "M-DeskCal 휴일 데이터");

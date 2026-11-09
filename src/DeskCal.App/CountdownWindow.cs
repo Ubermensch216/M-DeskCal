@@ -15,7 +15,7 @@ internal sealed class CountdownWindow : Window
 {
     private static CountdownWindow? _open;
 
-    private static readonly (CountdownType Type, string Label, string Hint)[] Types =
+    internal static readonly (CountdownType Type, string Label, string Hint)[] Types =
     [
         (CountdownType.Custom, "일반 D-day", "D-12 / D-Day / D+3"),
         (CountdownType.Exam, "시험", "D-12 / D-Day / D+3"),

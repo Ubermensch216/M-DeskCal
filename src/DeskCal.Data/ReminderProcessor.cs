@@ -75,6 +75,7 @@ public sealed class ReminderProcessor(DeskCalDb db, IClock clock, Func<DateOnly,
 
         var events = _events.GetAllActive().ToDictionary(e => e.Id);
         var skips = _events.GetExceptions();
+        var items = _items.GetMany(all.Where(r => r.OwnerType == ReminderOwner.Item).Select(r => r.OwnerId));    // one query, however many repeating items there are
 
         foreach (var r in all)
         {
@@ -86,8 +87,7 @@ public sealed class ReminderProcessor(DeskCalDb db, IClock clock, Func<DateOnly,
             }
             else
             {
-                var item = _items.Get(r.OwnerId);
-                if (item is null || item.Deleted || !DateOnly.TryParseExact(item.Day, "yyyy-MM-dd",
+                if (!items.TryGetValue(r.OwnerId, out var item) || item.Deleted ||!DateOnly.TryParseExact(item.Day, "yyyy-MM-dd",
                         System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var day)) continue;
                 result.Add(new Resolved(r, new ReminderSubject(day, null, RecurrenceRule.None, new HashSet<DateOnly>()), item.Content));
             }
