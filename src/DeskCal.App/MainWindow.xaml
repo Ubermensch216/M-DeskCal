@@ -32,6 +32,12 @@
                             MouseLeftButtonDown="Next_Click" ToolTip="다음">
                         <TextBlock x:Name="NextText" Text="▶" FontSize="14"/>
                     </Border>
+                    <!-- settings gear: icon only; opens the quick menu (see App.ShowQuickMenu) -->
+                    <Border x:Name="GearBtn" Padding="8,2,2,2" Margin="4,0,0,0" Cursor="Hand" Background="#01FFFFFF"
+                            MouseLeftButtonDown="Gear_Click" ToolTip="캘린더 설정">
+                        <TextBlock x:Name="GearText" Text="&#xE713;" FontSize="17" VerticalAlignment="Center"
+                                   FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets, Segoe UI Symbol"/>
+                    </Border>
                 </StackPanel>
                 <TextBlock x:Name="MonthTitle" FontWeight="SemiBold" VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis"/>

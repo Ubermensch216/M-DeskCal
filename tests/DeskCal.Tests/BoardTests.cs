@@ -255,9 +255,42 @@ public class BoardSettingsStoreTests
             ShowWeekNumbers = true, WeekRule = WeekNumberRule.FirstDayOfYear, OffDaysMask = 1 << (int)DayOfWeek.Sunday,
             ShowOffDays = false, FontFamily = "맑은 고딕", FontSize = 17.5, TextColor = "#EEEEEE", OffDayColor = "#FF0000",
             BackgroundColor = "#223344", BackgroundOpacity = 0.35, Shadow = false, CellGap = 5,
+            TermColor = "#33CC99", MoveDoneToBottom = true, ShowReminderMark = false, LineGap = 4, PastWeeks = 2,
         };
         store.Save(custom);
         Assert.Equal(custom, store.Load());
+    }
+
+    [Fact]
+    public void Settings_window_options_are_clamped_when_the_database_holds_nonsense()
+    {
+        using var f = new DbFixture();
+        f.Settings.SetInt("board.line_gap", 99);
+        f.Settings.SetInt("board.max_rows", 3);
+        f.Settings.SetInt("board.past_weeks", 9);
+        var s = new BoardSettingsStore(f.Settings).Load();
+        Assert.Equal(8, s.LineGap);
+        Assert.Equal(2, s.PastWeeks);   // never more past weeks than rows - 1: the current week must stay visible
+    }
+
+    [Fact]
+    public void Floating_month_shows_the_requested_number_of_past_weeks()
+    {
+        var anchor = new DateOnly(2026, 11, 11);   // a Wednesday
+        var s = new BoardSettings { Mode = DisplayMode.FloatingMonth, MaxRows = 5, PastWeeks = 2, FirstDayOfWeek = DayOfWeek.Sunday };
+        var g = BoardLayout.Build(anchor, anchor, s);
+        Assert.Equal(5, g.Rows.Count);
+        Assert.Equal(new DateOnly(2026, 10, 25), g.Rows[0].Cells[0].Date);                // two Sundays before the anchor's week
+        Assert.Contains(g.Rows[2].Cells, c => c.Date == anchor && c.IsToday);              // the current week is the third row
+        Assert.Equal(new DateOnly(2026, 11, 8), g.Rows[2].Cells[0].Date);
+    }
+
+    [Fact]
+    public void Past_weeks_default_keeps_the_old_floating_layout()
+    {
+        var anchor = new DateOnly(2026, 11, 11);
+        var g = BoardLayout.Build(anchor, anchor, new BoardSettings { Mode = DisplayMode.FloatingMonth });
+        Assert.Equal(new DateOnly(2026, 11, 8), g.Rows[0].Cells[0].Date);
     }
 
     [Fact]

@@ -50,10 +50,17 @@ public sealed record BoardSettings
     /// <summary>Memorial and traditional days that are not days off (어버이날, 정월대보름, ...).</summary>
     public bool ShowFestivals { get; init; } = true;
     public string HolidayColor { get; init; } = "#FF6B6B";
+    public string TermColor { get; init; } = "#8FD694";
 
     // ---- items ----
     public BulletStyle Bullet { get; init; } = BulletStyle.Dot;
     public bool ShowCompleted { get; init; } = true;
+    /// <summary>Show finished items after the unfinished ones of the same day.</summary>
+    public bool MoveDoneToBottom { get; init; }
+    /// <summary>Draw the bell next to items that have a reminder.</summary>
+    public bool ShowReminderMark { get; init; } = true;
+    /// <summary>Extra space above each item line in a day cell, in pixels (0-8).</summary>
+    public int LineGap { get; init; } = 1;
     public bool CompleteSound { get; init; } = true;
     public bool ReminderSound { get; init; } = true;
 
@@ -62,6 +69,8 @@ public sealed record BoardSettings
     public DayOfWeek FirstDayOfWeek { get; init; } = DayOfWeek.Sunday;
     /// <summary>Weeks shown by <see cref="DisplayMode.FloatingMonth"/> (2-8).</summary>
     public int MaxRows { get; init; } = 5;
+    /// <summary>Weeks before the anchor's week that <see cref="DisplayMode.FloatingMonth"/> also shows (0 to MaxRows-1).</summary>
+    public int PastWeeks { get; init; }
     /// <summary>Days shown by <see cref="DisplayMode.SingleLineFloating"/> (7-31).</summary>
     public int LineDays { get; init; } = 14;
     public bool ShowWeekNumbers { get; init; }
@@ -96,6 +105,8 @@ public sealed record BoardSettings
         Mode = Enum.IsDefined(Mode) ? Mode : DisplayMode.FixedMonth,
         FirstDayOfWeek = Enum.IsDefined(FirstDayOfWeek) ? FirstDayOfWeek : DayOfWeek.Sunday,
         MaxRows = Math.Clamp(MaxRows, 2, 8),
+        PastWeeks = Math.Clamp(PastWeeks, 0, Math.Clamp(MaxRows, 2, 8) - 1),
+        LineGap = Math.Clamp(LineGap, 0, 8),
         LineDays = Math.Clamp(LineDays, 7, 31),
         WeekRule = Enum.IsDefined(WeekRule) ? WeekRule : WeekNumberRule.Iso,
         Bullet = Enum.IsDefined(Bullet) ? Bullet : BulletStyle.Dot,

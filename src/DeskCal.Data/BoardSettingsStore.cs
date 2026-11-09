@@ -18,8 +18,13 @@ public sealed class BoardSettingsStore(SettingsStore store)
             ShowHolidays = store.GetBool(Prefix + "show_holidays", d.ShowHolidays),
             ShowFestivals = store.GetBool(Prefix + "show_festivals", d.ShowFestivals),
             HolidayColor = store.GetString(Prefix + "holiday_color") ?? d.HolidayColor,
+            TermColor = store.GetString(Prefix + "term_color") ?? d.TermColor,
             Bullet = Enum(store, "bullet", d.Bullet),
             ShowCompleted = store.GetBool(Prefix + "show_completed", d.ShowCompleted),
+            MoveDoneToBottom = store.GetBool(Prefix + "done_to_bottom", d.MoveDoneToBottom),
+            ShowReminderMark = store.GetBool(Prefix + "reminder_mark", d.ShowReminderMark),
+            LineGap = store.GetInt(Prefix + "line_gap", d.LineGap),
+            PastWeeks = store.GetInt(Prefix + "past_weeks", d.PastWeeks),
             CompleteSound = store.GetBool(Prefix + "complete_sound", d.CompleteSound),
             ReminderSound = store.GetBool(Prefix + "reminder_sound", d.ReminderSound),
             Mode = Enum(store, "mode", d.Mode),
@@ -53,8 +58,13 @@ public sealed class BoardSettingsStore(SettingsStore store)
         store.SetBool(Prefix + "show_holidays", s.ShowHolidays);
         store.SetBool(Prefix + "show_festivals", s.ShowFestivals);
         store.SetString(Prefix + "holiday_color", s.HolidayColor);
+        store.SetString(Prefix + "term_color", s.TermColor);
         store.SetString(Prefix + "bullet", s.Bullet.ToString());
         store.SetBool(Prefix + "show_completed", s.ShowCompleted);
+        store.SetBool(Prefix + "done_to_bottom", s.MoveDoneToBottom);
+        store.SetBool(Prefix + "reminder_mark", s.ShowReminderMark);
+        store.SetInt(Prefix + "line_gap", s.LineGap);
+        store.SetInt(Prefix + "past_weeks", s.PastWeeks);
         store.SetBool(Prefix + "complete_sound", s.CompleteSound);
         store.SetBool(Prefix + "reminder_sound", s.ReminderSound);
         store.SetString(Prefix + "mode", s.Mode.ToString());

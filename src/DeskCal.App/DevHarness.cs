@@ -68,6 +68,8 @@ internal static class DevHarness
         board.OpenEditor(today);
         board.SaveSnapshot(Path.Combine(dir, "m3-editor.png"));
 
+        SettingsSnapshots(board, settings, dir, report);
+
         // M6: the tray icon at 16 px (real size) and 64 px (to look at), over the taskbar colours.
         foreach (int px in new[] { 16, 64 })
         {
@@ -101,6 +103,38 @@ internal static class DevHarness
         }
 
         File.WriteAllText(Path.Combine(dir, "selftest.txt"), report.ToString());
+    }
+
+    /// <summary>The settings window, one PNG per tab, plus a check that a change made through it reaches the board and the database.</summary>
+    private static void SettingsSnapshots(MainWindow board, SettingsStore store, string dir, StringBuilder report)
+    {
+        var boardStore = new BoardSettingsStore(store);
+        var host = new SettingsHost(
+            Get: () => board.Settings,
+            Update: change => { board.ApplySettings(change(board.Settings)); boardStore.Save(board.Settings); },
+            ResetDefaults: () => { boardStore.ResetToDefaults(); board.ApplySettings(boardStore.Load()); },
+            GetPrefs: () => new AppPreferences(), SetPrefs: _ => { },
+            GetAutoStart: () => false, SetAutoStart: _ => { },
+            GetTimetableWidget: () => false, SetTimetableWidget: _ => { },
+            OpenNotes: () => { }, OpenCountdowns: () => { }, OpenTimetable: () => { },
+            EditHolidays: () => { }, ReloadHolidays: () => { }, OpenDataFolder: () => { }, ShowDiagnostics: () => { });
+
+        board.ApplySettings(new BoardSettings());
+        for (int tab = 0; tab < 6; tab++)
+        {
+            var win = SettingsWindow.CreateForSnapshot(host, tab);
+            RenderToPng(win.Surface, Path.Combine(dir, $"settings-{tab}.png"), 800, 680, System.Windows.Media.Color.FromRgb(0xEE, 0xF1, 0xF6));
+        }
+
+        var before = board.Settings;
+        host.Update(s => s with { Mode = DisplayMode.FloatingMonth, PastWeeks = 1, LineGap = 3, MoveDoneToBottom = true });
+        var saved = boardStore.Load();
+        bool ok = board.Settings.Mode == DisplayMode.FloatingMonth && saved.PastWeeks == 1 && saved.LineGap == 3 && saved.MoveDoneToBottom;
+        report.AppendLine($"{(ok ? "PASS" : "FAIL")}: settings window change reaches the board and the database");
+        board.SaveSnapshot(Path.Combine(dir, "settings-applied-floating.png"));
+        host.ResetDefaults();
+        report.AppendLine($"{(board.Settings == new BoardSettings() && before == new BoardSettings() ? "PASS" : "FAIL")}: settings reset to defaults");
+        board.ApplySettings(new BoardSettings { Mode = DisplayMode.FixedMonth });
     }
 
     /// <summary>Flat-background offscreen render of any element (the board's own snapshot has its own copy).</summary>

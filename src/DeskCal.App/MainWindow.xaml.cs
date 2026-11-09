@@ -355,6 +355,16 @@ public partial class MainWindow : Window
     private void Next_Click(object sender, MouseButtonEventArgs e) { e.Handled = true; Navigate(+1); }
     private void Today_Click(object sender, MouseButtonEventArgs e) { e.Handled = true; GoToday(); }
 
+    /// <summary>Raised when the gear is clicked; the app answers by opening its quick menu under <see cref="GearAnchor"/>.</summary>
+    internal event Action? GearClicked;
+    internal FrameworkElement GearAnchor => GearBtn;
+    private void Gear_Click(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        if (_editingDay is not null) CommitEditor();
+        GearClicked?.Invoke();
+    }
+
     private void Grip_DragDelta(object sender, DragDeltaEventArgs e)
     {
         Width = Math.Max(320, Width + e.HorizontalChange);
@@ -461,6 +471,7 @@ public partial class MainWindow : Window
         var font = new FontFamily(s.FontFamily);
 
         foreach (var tb in new[] { MonthTitle, PrevText, TodayText, NextText }) { tb.Foreground = text; tb.FontFamily = font; }
+        GearText.Foreground = text;   // keeps its own icon font
         MonthTitle.FontSize = s.FontSize + 7;
         MonthTitle.Text = FormatTitle(grid, culture) + (_contentHidden ? "  🔒" : "");
 
@@ -611,6 +622,7 @@ public partial class MainWindow : Window
         stack.Children.Add(!dense && info is not null ? WithAnnotations(head, info, s, text, holidayBrush, font, size) : head);
 
         var shown = s.ShowCompleted ? items : items.Where(i => !i.Done).ToList();
+        if (s.MoveDoneToBottom) shown = shown.OrderBy(i => i.Done).ToList();   // stable: keeps the written order inside each group
         if (dense)
         {
             if (shown.Count > 0 || events.Count > 0)
@@ -641,7 +653,6 @@ public partial class MainWindow : Window
         return border;
     }
 
-    private static readonly SolidColorBrush TermBrush = Brush("#8FD694", Colors.LightGreen);
     private static readonly SolidColorBrush FestivalBrush = Brush("#FFD27F", Colors.Orange);
 
     /// <summary>The head row of a cell: day number on the left, lunar date on the right, and one name in between
@@ -668,7 +679,7 @@ public partial class MainWindow : Window
 
         (string Text, WpfBrush Brush)? name =
             s.ShowHolidays && info.HolidayName is { } hn ? (hn, holidayBrush)
-            : s.ShowSolarTerms && info.Term is { } t ? (t.Name, TermBrush)
+            : s.ShowSolarTerms && info.Term is { } t ? (t.Name, Brush(s.TermColor, Colors.LightGreen))
             : s.ShowFestivals && info.FestivalName is { } fn ? (fn, FestivalBrush)
             : null;
         dock.LastChildFill = false;
@@ -694,7 +705,7 @@ public partial class MainWindow : Window
         string prefix = day > occ.Date ? "↳ " : occ.StartTime is { } t ? $"{t:HH:mm} " : "";
         var row = new Border
         {
-            Margin = new Thickness(4, 1, 2, 0), Padding = new Thickness(4, 0, 2, 0), CornerRadius = new CornerRadius(2),
+            Margin = new Thickness(4, _settings.LineGap, 2, 0), Padding = new Thickness(4, 0, 2, 0), CornerRadius = new CornerRadius(2),
             BorderBrush = color, BorderThickness = new Thickness(2.5, 0, 0, 0), Background = Brushes.Transparent,
             Cursor = System.Windows.Input.Cursors.Hand,
             Child = new TextBlock
@@ -768,7 +779,7 @@ public partial class MainWindow : Window
     {
         var row = new Grid
         {
-            Margin = new Thickness(4, 1, 2, 0),
+            Margin = new Thickness(4, s.LineGap, 2, 0),
             Background = item.BgColor is { } bgHex ? new SolidColorBrush(WithAlpha(ParseColor(bgHex, Colors.Transparent), 0x66)) : Brushes.Transparent,
         };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -804,7 +815,7 @@ public partial class MainWindow : Window
         };
         Grid.SetColumn(t, 1);
         row.Children.Add(t);
-        if (_itemsWithReminder.Contains(item.Id))
+        if (s.ShowReminderMark && _itemsWithReminder.Contains(item.Id))
         {
             var bell = new TextBlock { Text = "⏰", FontSize = size - 1, Margin = new Thickness(3, 0, 0, 0), Opacity = 0.85, ToolTip = "알림 설정됨" };
             Grid.SetColumn(bell, 2);

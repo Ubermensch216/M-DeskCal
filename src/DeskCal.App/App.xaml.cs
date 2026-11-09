@@ -6,6 +6,8 @@ using DeskCal.Core;
 using DeskCal.Core.Calendars;
 using DeskCal.Data;
 using Forms = System.Windows.Forms;
+using WpfMenu = System.Windows.Controls.ContextMenu;
+using WpfMenuItem = System.Windows.Controls.MenuItem;
 
 namespace DeskCal.App;
 
@@ -72,17 +74,23 @@ public partial class App : System.Windows.Application
         if (Environment.GetEnvironmentVariable("DESKCAL_HARDWARE_RENDER") != "1")
             System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
 
-        _singleInstance = new Mutex(true, "Local\\M-DeskCal-SingleInstance", out bool created);
-        if (!created)
+        // Dev aid: an offscreen snapshot run on a scratch database (--snapshot=DIR --db=FILE) never shows a window or touches the real
+        // data, so it may run next to the user's own running calendar instead of handing over to it.
+        bool offscreenDev = e.Args.Any(a => a.StartsWith("--snapshot=")) && e.Args.Any(a => a.StartsWith("--db="));
+        if (!offscreenDev)
         {
-            SignalRunningInstance();   // "I was launched again" = the user wants to see the calendar
-            Shutdown();
-            return;
+            _singleInstance = new Mutex(true, "Local\\M-DeskCal-SingleInstance", out bool created);
+            if (!created)
+            {
+                SignalRunningInstance();   // "I was launched again" = the user wants to see the calendar
+                Shutdown();
+                return;
+            }
+            _showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, ShowSignalName);
+            _showWait = ThreadPool.RegisterWaitForSingleObject(_showSignal,
+                (_, _) => Dispatcher.BeginInvoke(() => { if (_board is null) return; _board.BringToFront(); RememberVisibility(); }),
+                null, Timeout.Infinite, executeOnlyOnce: false);
         }
-        _showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, ShowSignalName);
-        _showWait = ThreadPool.RegisterWaitForSingleObject(_showSignal,
-            (_, _) => Dispatcher.BeginInvoke(() => { if (_board is null) return; _board.BringToFront(); RememberVisibility(); }),
-            null, Timeout.Infinite, executeOnlyOnce: false);
 
         Directory.CreateDirectory(DataDir);
 
@@ -141,6 +149,7 @@ public partial class App : System.Windows.Application
                 "M-DeskCal 휴일 데이터");
         _board.ApplySettings(_boardStore.Load());
         _board.EnsureUnlocked = EnsureUnlocked;
+        _board.GearClicked += ShowQuickMenu;
         if (_lock.Hidden) _board.SetContentHidden(true);      // a restart must not undo the lock
 
         // Restore the saved board rectangle (physical pixels), ignoring implausible values.
@@ -474,6 +483,135 @@ public partial class App : System.Windows.Application
         UpdateTrayText(_hotkeys?.Apply(_prefs) ?? []);
     }
 
+    // ---- settings: shared by the tray menu, the gear's quick menu and the settings window ----------
+
+    /// <summary>Apply a change to the board settings and save it; the desktop widgets follow the board's look.</summary>
+    private void UpdateSettings(Func<BoardSettings, BoardSettings> change)
+    {
+        var board = _board!;
+        board.ApplySettings(change(board.Settings));
+        _boardStore!.Save(board.Settings);
+        UpdateCards();
+    }
+
+    private void ResetBoardSettings()
+    {
+        _boardStore!.ResetToDefaults();
+        _board!.ApplySettings(_boardStore.Load());
+        UpdateCards();
+    }
+
+    private void OpenCountdowns() { if (EnsureUnlocked()) CountdownWindow.ShowOrActivate(_countdowns!, CountdownsChanged); }
+
+    private void EditHolidays()
+    {
+        try
+        {
+            HolidayOverrideFile.EnsureTemplate(HolidaysPath);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(HolidaysPath) { UseShellExecute = true });
+        }
+        catch (Exception ex) { System.Windows.MessageBox.Show(ex.Message, "휴일 데이터 편집"); }
+    }
+
+    private void ReloadHolidays()
+    {
+        var r = HolidayOverrideFile.Load(HolidaysPath);
+        _days = new KoreanDays(r.Overrides);
+        _board!.SetCalendar(_days);
+        System.Windows.MessageBox.Show(
+            r.Errors.Count == 0 ? $"사용자 휴일 {r.Overrides.Count}건을 적용했습니다."
+                                : $"{r.Overrides.Count}건 적용, 문제 {r.Errors.Count}건:\n\n" + string.Join("\n", r.Errors),
+            "M-DeskCal 휴일 데이터");
+    }
+
+    private static void OpenDataFolder()
+    {
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(DataDir) { UseShellExecute = true }); }
+        catch (Exception ex) { System.Windows.MessageBox.Show(ex.Message, "데이터 폴더"); }
+    }
+
+    private void SetEditMode(bool on) { if (EditItem.Checked != on) EditItem.Checked = on; }   // the tray item drives the board and the widgets
+
+    private SettingsHost MakeSettingsHost() => new(
+        Get: () => _board!.Settings,
+        Update: UpdateSettings,
+        ResetDefaults: ResetBoardSettings,
+        GetPrefs: () => _prefs,
+        SetPrefs: ApplyPrefs,
+        GetAutoStart: () => { try { return _startup.IsEnabled(); } catch { return false; } },
+        SetAutoStart: on =>
+        {
+            try { if (on) _startup.Enable(ExePath); else _startup.Disable(); }
+            catch (Exception ex) { System.Windows.MessageBox.Show("자동 실행 설정을 바꾸지 못했습니다.\n\n" + ex.Message, "M-DeskCal"); }
+        },
+        GetTimetableWidget: () => _settingsStore!.GetBool("timetable.widget", false),
+        SetTimetableWidget: on => { _settingsStore!.SetBool("timetable.widget", on); UpdateCards(); },
+        OpenNotes: OpenNotes,
+        OpenCountdowns: OpenCountdowns,
+        OpenTimetable: OpenTimetable,
+        EditHolidays: EditHolidays,
+        ReloadHolidays: ReloadHolidays,
+        OpenDataFolder: OpenDataFolder,
+        ShowDiagnostics: () => System.Windows.MessageBox.Show(_board!.Diagnostics(), "M-DeskCal 진단"));
+
+    private void OpenSettings(int tab = 0) => SettingsWindow.ShowOrActivate(MakeSettingsHost(), tab);
+
+    /// <summary>
+    /// The menu under the gear: the ten or so things used every day. Everything else lives in "캘린더 설정…".
+    /// Built fresh each time so the check marks always match the current state.
+    /// </summary>
+    private void ShowQuickMenu()
+    {
+        var board = _board!;
+        var s = board.Settings;
+        var menu = new WpfMenu
+        {
+            PlacementTarget = board.GearAnchor,
+            Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
+        };
+
+        WpfMenuItem Entry(string header, Action click, bool? check = null)
+        {
+            var mi = new WpfMenuItem { Header = header, IsChecked = check == true };
+            mi.Click += (_, _) => click();
+            return mi;
+        }
+        WpfMenuItem Toggle(string header, bool on, Func<BoardSettings, BoardSettings> flip) => Entry(header, () => UpdateSettings(flip), on);
+
+        menu.Items.Add(Entry("오늘로 이동", board.GoToday));
+        menu.Items.Add(Entry("새 일정 (오늘)…", () => OnHotkey(HotkeyAction.NewEvent)));
+        menu.Items.Add(Entry("검색…", OpenSearch));
+        menu.Items.Add(new System.Windows.Controls.Separator());
+
+        var modeMenu = new WpfMenuItem { Header = "표시 모드" };
+        foreach (var (mode, name) in new[]
+                 {
+                     (DisplayMode.FixedMonth, "고정 월"), (DisplayMode.FloatingMonth, "변동 월 (주 단위)"), (DisplayMode.FullMonth, "전체 월 (6줄 고정)"),
+                     (DisplayMode.SingleLine, "고정 단일 행"), (DisplayMode.SingleLineFloating, "변동 단일 행 (오늘부터)"),
+                 })
+            modeMenu.Items.Add(Entry(name, () => UpdateSettings(x => x with { Mode = mode }), s.Mode == mode));
+        menu.Items.Add(modeMenu);
+
+        menu.Items.Add(Toggle("음력 표시", s.ShowLunar, x => x with { ShowLunar = !x.ShowLunar }));
+        menu.Items.Add(Toggle("공휴일 표시", s.ShowHolidays, x => x with { ShowHolidays = !x.ShowHolidays }));
+        menu.Items.Add(Toggle("주 번호 표시", s.ShowWeekNumbers, x => x with { ShowWeekNumbers = !x.ShowWeekNumbers }));
+        menu.Items.Add(Toggle("완료한 항목 표시", s.ShowCompleted, x => x with { ShowCompleted = !x.ShowCompleted }));
+
+        var opacityMenu = new WpfMenuItem { Header = "배경 투명도" };
+        foreach (int pct in new[] { 0, 20, 40, 60, 80, 100 })
+            opacityMenu.Items.Add(Entry(pct == 0 ? "완전 투명" : $"{pct}%", () => UpdateSettings(x => x with { BackgroundOpacity = pct / 100.0 }),
+                Math.Abs(s.BackgroundOpacity - pct / 100.0) < 0.001));
+        menu.Items.Add(opacityMenu);
+
+        menu.Items.Add(new System.Windows.Controls.Separator());
+        menu.Items.Add(Entry("편집 모드 (위치/크기 조정)", () => SetEditMode(!EditItem.Checked), EditItem.Checked));
+        menu.Items.Add(Entry(board.ContentHidden ? "콘텐츠 잠금 해제…" : "콘텐츠 잠그기", () => { if (board.ContentHidden) EnsureUnlocked(); else SetLocked(true); }));
+        menu.Items.Add(new System.Windows.Controls.Separator());
+        menu.Items.Add(Entry("캘린더 설정…", () => OpenSettings()));
+
+        menu.IsOpen = true;
+    }
+
     // ---- tray menu -----------------------------------------------------------
 
     private Forms.ToolStripMenuItem EditItem = null!;
@@ -500,7 +638,7 @@ public partial class App : System.Windows.Application
             if (EnsureUnlocked()) ExchangeUi.Import(_exchange!, _db!, Path.Combine(DataDir, "backup"), AfterImport);
         });
         menu.Items.Add(exchangeMenu);
-        menu.Items.Add("디데이 관리…", null, (_, _) => { if (EnsureUnlocked()) CountdownWindow.ShowOrActivate(_countdowns!, CountdownsChanged); });
+        menu.Items.Add("디데이 관리…", null, (_, _) => OpenCountdowns());
         menu.Items.Add("메모…", null, (_, _) => OpenNotes());
         menu.Items.Add("시간표…", null, (_, _) => OpenTimetable());
         var ttWidget = new Forms.ToolStripMenuItem("바탕화면에 시간표 표시");
@@ -575,25 +713,8 @@ public partial class App : System.Windows.Application
         AddToggle("24절기 표시", s => s.ShowSolarTerms, (s, v) => s with { ShowSolarTerms = v });
         AddToggle("공휴일 표시", s => s.ShowHolidays, (s, v) => s with { ShowHolidays = v });
         AddToggle("기념일·명절 표시", s => s.ShowFestivals, (s, v) => s with { ShowFestivals = v });
-        menu.Items.Add("휴일 데이터 편집…", null, (_, _) =>
-        {
-            try
-            {
-                HolidayOverrideFile.EnsureTemplate(HolidaysPath);
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(HolidaysPath) { UseShellExecute = true });
-            }
-            catch (Exception ex) { System.Windows.MessageBox.Show(ex.Message, "휴일 데이터 편집"); }
-        });
-        menu.Items.Add("휴일 데이터 다시 읽기", null, (_, _) =>
-        {
-            var r = HolidayOverrideFile.Load(HolidaysPath);
-            _days = new KoreanDays(r.Overrides);
-            board.SetCalendar(_days);
-            System.Windows.MessageBox.Show(
-                r.Errors.Count == 0 ? $"사용자 휴일 {r.Overrides.Count}건을 적용했습니다."
-                                    : $"{r.Overrides.Count}건 적용, 문제 {r.Errors.Count}건:\n\n" + string.Join("\n", r.Errors),
-                "M-DeskCal 휴일 데이터");
-        });
+        menu.Items.Add("휴일 데이터 편집…", null, (_, _) => EditHolidays());
+        menu.Items.Add("휴일 데이터 다시 읽기", null, (_, _) => ReloadHolidays());
         menu.Items.Add(new Forms.ToolStripSeparator());
 
         // items
@@ -674,12 +795,7 @@ public partial class App : System.Windows.Application
         skinMenu.DropDownItems.Add(rotateMenu);
         menu.Items.Add(skinMenu);
 
-        menu.Items.Add("표시 설정 기본값으로", null, (_, _) =>
-        {
-            _boardStore!.ResetToDefaults();
-            board.ApplySettings(_boardStore.Load());
-            UpdateCards();
-        });
+        menu.Items.Add("표시 설정 기본값으로", null, (_, _) => ResetBoardSettings());
 
         menu.Items.Add(new Forms.ToolStripSeparator());
 
@@ -705,13 +821,10 @@ public partial class App : System.Windows.Application
         menu.Items.Add(startupItem);
         refresh.Add(() => { try { startupItem.Checked = _startup.IsEnabled(); } catch { startupItem.Checked = false; } });
 
-        menu.Items.Add("데이터 폴더 열기", null, (_, _) =>
-        {
-            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(DataDir) { UseShellExecute = true }); }
-            catch (Exception ex) { System.Windows.MessageBox.Show(ex.Message, "데이터 폴더"); }
-        });
+        menu.Items.Add("데이터 폴더 열기", null, (_, _) => OpenDataFolder());
 
         menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add("캘린더 설정…", null, (_, _) => OpenSettings());
         menu.Items.Add("진단 정보 보기", null, (_, _) =>
             System.Windows.MessageBox.Show(board.Diagnostics(), "M-DeskCal 진단"));
         menu.Items.Add("종료", null, (_, _) => Shutdown());
@@ -719,13 +832,7 @@ public partial class App : System.Windows.Application
         menu.Opening += (_, _) => { foreach (var r in refresh) r(); };
         return menu;
 
-        void Update(Func<BoardSettings, BoardSettings> change)
-        {
-            var next = change(board.Settings);
-            board.ApplySettings(next);
-            _boardStore!.Save(board.Settings);
-            UpdateCards();
-        }
+        void Update(Func<BoardSettings, BoardSettings> change) => UpdateSettings(change);
 
         void AddToggle(string name, Func<BoardSettings, bool> get, Func<BoardSettings, bool, BoardSettings> set)
         {

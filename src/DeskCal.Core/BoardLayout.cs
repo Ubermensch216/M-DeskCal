@@ -31,7 +31,7 @@ public static class BoardLayout
         var s = settings.Sanitized();
         return s.Mode switch
         {
-            DisplayMode.FloatingMonth => Weeks(anchor, today, s, StartOfWeek(anchor, s.FirstDayOfWeek), s.MaxRows, blankOutside: false, anchor),
+            DisplayMode.FloatingMonth => Weeks(anchor, today, s, StartOfWeek(anchor, s.FirstDayOfWeek).AddDays(-7 * s.PastWeeks), s.MaxRows, blankOutside: false, anchor),
             DisplayMode.FixedMonth => Month(anchor, today, s, rows: null, blankOutside: true),
             DisplayMode.FullMonth => Month(anchor, today, s, rows: 6, blankOutside: false),
             DisplayMode.SingleLine => Line(anchor, today, s,
