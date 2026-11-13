@@ -966,20 +966,9 @@ public partial class MainWindow : Window
         {
             Text = label, FontFamily = font, FontSize = size,
             Foreground = numberBrush,
-            FontWeight = cell.IsToday ? FontWeights.Bold : FontWeights.Normal,
+            Margin = new Thickness(6, 4, 0, 0),
         };
         UIElement head = number;
-        if (cell.IsToday && !dense)
-        {
-            number.Margin = new Thickness(5, 0, 5, 0);
-            head = new Border
-            {
-                Background = new SolidColorBrush(Color.FromArgb(0xC0, accent.R, accent.G, accent.B)),
-                CornerRadius = new CornerRadius(4), HorizontalAlignment = HorizontalAlignment.Left,
-                Margin = new Thickness(3, 3, 0, 1), Child = number,
-            };
-        }
-        else number.Margin = new Thickness(6, 4, 0, 0);
 
         var stack = new StackPanel { Opacity = cell.InAnchorMonth ? 1.0 : 0.42 };
         stack.Children.Add(!dense && info is not null ? WithAnnotations(head, info, s, text, holidayBrush, font, size) : head);
