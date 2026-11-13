@@ -50,6 +50,7 @@ public sealed record BoardSettings
     /// <summary>Memorial and traditional days that are not days off (어버이날, 정월대보름, ...).</summary>
     public bool ShowFestivals { get; init; } = true;
     public string HolidayColor { get; init; } = "#FF6B6B";
+    public string HolidayBgColor { get; init; } = "";
     public string TermColor { get; init; } = "#8FD694";
 
     // ---- items ----

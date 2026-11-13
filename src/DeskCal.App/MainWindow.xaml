@@ -50,10 +50,7 @@
             <TextBlock x:Name="EditHint" Grid.Row="1" Visibility="Collapsed"
                        HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,4"
                        Foreground="#FFFFC857" FontSize="13" Background="#AA000000" Padding="8,2"
-                       Text="편집 모드: 드래그로 이동 · 오른쪽 아래 모서리로 크기 조정 · 트레이에서 편집 모드 해제"/>
-            <Thumb x:Name="Grip" Grid.Row="1" Width="18" Height="18" Visibility="Collapsed"
-                   HorizontalAlignment="Right" VerticalAlignment="Bottom" Cursor="SizeNWSE"
-                   DragDelta="Grip_DragDelta"/>
+                       Text="위치/크기 조정: 드래그로 이동 · 테두리/모서리로 크기 조정 · 트레이에서 해제"/>
 
             <!-- Day editor: a click-away scrim plus the panel itself. Position/size are set in code. -->
             <Grid x:Name="EditorLayer" Grid.RowSpan="3" Visibility="Collapsed">
@@ -130,6 +127,30 @@
             </Grid>
         </Grid>
         </Border>
+        <!-- Position/size adjustment overlay: 4-sided dashed border + 8-way resize handles -->
+        <Grid x:Name="EditOverlay" Visibility="Collapsed" Margin="-1">
+            <Grid.Resources>
+                <Style TargetType="Thumb">
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="Thumb">
+                                <Border Background="Transparent"/>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </Grid.Resources>
+            <Rectangle IsHitTestVisible="False" Stroke="#E6FFFFFF" StrokeThickness="1.5"
+                       StrokeDashArray="3,2" RadiusX="13.5" RadiusY="13.5"/>
+            <Thumb VerticalAlignment="Top" Height="8" Cursor="SizeNS" Tag="N" DragDelta="Resize_DragDelta"/>
+            <Thumb VerticalAlignment="Bottom" Height="8" Cursor="SizeNS" Tag="S" DragDelta="Resize_DragDelta"/>
+            <Thumb HorizontalAlignment="Left" Width="8" Cursor="SizeWE" Tag="W" DragDelta="Resize_DragDelta"/>
+            <Thumb HorizontalAlignment="Right" Width="8" Cursor="SizeWE" Tag="E" DragDelta="Resize_DragDelta"/>
+            <Thumb HorizontalAlignment="Left" VerticalAlignment="Top" Width="14" Height="14" Cursor="SizeNWSE" Tag="NW" DragDelta="Resize_DragDelta"/>
+            <Thumb HorizontalAlignment="Right" VerticalAlignment="Top" Width="14" Height="14" Cursor="SizeNESW" Tag="NE" DragDelta="Resize_DragDelta"/>
+            <Thumb HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="14" Height="14" Cursor="SizeNESW" Tag="SW" DragDelta="Resize_DragDelta"/>
+            <Thumb HorizontalAlignment="Right" VerticalAlignment="Bottom" Width="14" Height="14" Cursor="SizeNWSE" Tag="SE" DragDelta="Resize_DragDelta"/>
+        </Grid>
       </Grid>
     </Border>
 </Window>

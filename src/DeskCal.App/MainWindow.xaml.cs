@@ -319,16 +319,14 @@ public partial class MainWindow : Window
         if (on)
         {
             DesktopHost.Float(this);
-            Frame.BorderBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0xC8, 0x57));
-            EditHint.Visibility = Grip.Visibility = Visibility.Visible;
+            EditHint.Visibility = EditOverlay.Visibility = Visibility.Visible;
             ShowActivated = true;
             Activate();
         }
         else
         {
             _rect = DesktopHost.GetScreenRect(this);
-            Frame.BorderBrush = Brushes.Transparent;
-            EditHint.Visibility = Grip.Visibility = Visibility.Collapsed;
+            EditHint.Visibility = EditOverlay.Visibility = Visibility.Collapsed;
             AttachToDesktop();
             RectCommitted?.Invoke(_rect);
         }
@@ -339,7 +337,7 @@ public partial class MainWindow : Window
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
     {
         base.OnMouseLeftButtonDown(e);
-        if (_editMode) DragMove();
+        if (_editMode && !e.Handled) DragMove();
     }
 
     protected override void OnMouseWheel(MouseWheelEventArgs e)
@@ -368,10 +366,28 @@ public partial class MainWindow : Window
         GearClicked?.Invoke();
     }
 
-    private void Grip_DragDelta(object sender, DragDeltaEventArgs e)
+    private void Resize_DragDelta(object sender, DragDeltaEventArgs e)
     {
-        Width = Math.Max(320, Width + e.HorizontalChange);
-        Height = Math.Max(240, Height + e.VerticalChange);
+        if (sender is not Thumb { Tag: string dir }) return;
+        const double minW = 320, minH = 240;
+
+        if (dir.Contains('E'))
+            Width = Math.Max(minW, Width + e.HorizontalChange);
+        else if (dir.Contains('W'))
+        {
+            double next = Math.Max(minW, Width - e.HorizontalChange);
+            Left += Width - next;
+            Width = next;
+        }
+
+        if (dir.Contains('S'))
+            Height = Math.Max(minH, Height + e.VerticalChange);
+        else if (dir.Contains('N'))
+        {
+            double next = Math.Max(minH, Height - e.VerticalChange);
+            Top += Height - next;
+            Height = next;
+        }
     }
 
     // ---- day editor --------------------------------------------------------
@@ -506,7 +522,7 @@ public partial class MainWindow : Window
         var it = CurrentLineItem();
         void Tint(TextBlock glyph, bool on) => glyph.Foreground = on ? Brush("#6EA8FF", Colors.CornflowerBlue) : Brush("#B8C4D6", Colors.LightGray);
         Tint(GlyphDone, it?.Done == true);
-        Tint(GlyphColor, it?.TextColor is not null || it?.BgColor is not null);
+        Tint(GlyphColor, it?.TextColor is not null || it?.BgColor is not null || (_editingDay is { } ed && GetCellBg(ed) is not null));
         Tint(GlyphRepeat, it?.SeriesId is not null);
         Tint(GlyphReminder, it is not null && _itemsWithReminder.Contains(it.Id));
         Tint(GlyphCountdown, it?.CountdownId is not null);
@@ -631,11 +647,26 @@ public partial class MainWindow : Window
     private void OptColor_Click(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
-        if (SyncEditor() is not { } it) return;
+        if (_editingDay is not { } day) return;
+        var it = Lines().Any(p => ParagraphText(p).Trim().Length > 0) ? SyncEditor() : null;
+        EditorHint.Text = DefaultEditorHint;
         _busy++;
-        ColorPickerPopup.Show(BtnColor, _store, it.TextColor, it.BgColor,
-            hex => { _items!.SetTextColor(it.Id, hex); AfterOption(it.Id); },
-            hex => { _items!.SetColor(it.Id, hex); AfterOption(it.Id); },
+        ColorPickerPopup.Show(BtnColor, _store, it?.TextColor, GetCellBg(day),
+            hex =>
+            {
+                var target = it ?? SyncEditor();
+                if (target is null) return;
+                _items!.SetTextColor(target.Id, hex);
+                it = _items.Get(target.Id);
+                AfterOption(target.Id);
+            },
+            hex =>
+            {
+                SetCellBg(day, hex);
+                Render();
+                UpdateToolbar();
+                EditorBox.Focus();
+            },
             () => { _busy--; Dispatcher.BeginInvoke(() => { Activate(); EditorBox.Focus(); }); });
     }
 
@@ -735,6 +766,7 @@ public partial class MainWindow : Window
         _countdownLabels = _contentHidden || _countdowns is null ? [] : CountdownLabels();
         var eventsByDay = _contentHidden ? [] : LoadEvents(grid);
         _itemsWithReminder = _contentHidden ? [] : LoadItemReminderIds();
+        _cellBgs = _contentHidden ? [] : LoadCellBgs();
         _cells.Clear();
         ApplySkin();
 
@@ -804,6 +836,29 @@ public partial class MainWindow : Window
     }
 
     private Dictionary<string, string> _countdownLabels = [];
+    private Dictionary<DateOnly, string> _cellBgs = [];
+    private const string CellBgPrefix = "cell.bg.";
+
+    private static string CellBgKey(DateOnly day) => CellBgPrefix + DayKey(day);
+
+    private string? GetCellBg(DateOnly day) => _store?.GetString(CellBgKey(day));
+
+    private void SetCellBg(DateOnly day, string? hex)
+    {
+        if (_store is null) return;
+        if (string.IsNullOrWhiteSpace(hex)) _store.Remove(CellBgKey(day));
+        else _store.SetString(CellBgKey(day), hex);
+    }
+
+    private Dictionary<DateOnly, string> LoadCellBgs()
+    {
+        var map = new Dictionary<DateOnly, string>();
+        if (_store is null) return map;
+        foreach (var (k, v) in _store.GetAll(CellBgPrefix))
+            if (DateOnly.TryParseExact(k.AsSpan(CellBgPrefix.Length), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d))
+                map[d] = v;
+        return map;
+    }
 
     /// <summary>"D-12" per countdown id, for the items that count down to a day.</summary>
     private Dictionary<string, string> CountdownLabels()
@@ -882,9 +937,21 @@ public partial class MainWindow : Window
         };
         if (cell.IsBlank) return border;
 
+        var info = _calendar?.Get(cell.Date);
+        var holidayBrush = Brush(s.HolidayColor, Color.FromRgb(0xFF, 0x6B, 0x6B));
+        bool isHoliday = s.ShowHolidays && info?.IsDayOff == true;
+        bool isDayOffCell = isHoliday || (s.ShowOffDays && cell.IsOffDay);
+
         var accent = Color.FromRgb(0x3B, 0x82, 0xF6);
-        if (cell.IsToday) border.Background = new SolidColorBrush(dense ? Color.FromArgb(0xB0, accent.R, accent.G, accent.B)
-                                                                         : Color.FromArgb(0x30, accent.R, accent.G, accent.B));
+        if (_cellBgs.TryGetValue(cell.Date, out var cellBgHex) && ParseColor(cellBgHex, Colors.Transparent) is { A: > 0 } cc)
+            border.Background = new SolidColorBrush(WithAlpha(cc, 0x66));
+        else if (cell.IsToday) border.Background = new SolidColorBrush(dense ? Color.FromArgb(0xB0, accent.R, accent.G, accent.B)
+                                                                              : Color.FromArgb(0x30, accent.R, accent.G, accent.B));
+        else if (isDayOffCell && !string.IsNullOrWhiteSpace(s.HolidayBgColor))
+        {
+            var hc = ParseColor(s.HolidayBgColor, Colors.Transparent);
+            if (hc.A > 0) border.Background = new SolidColorBrush(WithAlpha(hc, 0x44));
+        }
         if (dense || s.Mode is DisplayMode.SingleLine or DisplayMode.SingleLineFloating) border.MinHeight = size * 2.4;
 
         // "M/d" on the 1st only where the view can span months; a fixed month needs no label.
@@ -893,9 +960,6 @@ public partial class MainWindow : Window
             ? $"{cell.Date.Month}/{cell.Date.Day}"
             : cell.Date.Day.ToString(CultureInfo.InvariantCulture);
 
-        var info = _calendar?.Get(cell.Date);
-        var holidayBrush = Brush(s.HolidayColor, Color.FromRgb(0xFF, 0x6B, 0x6B));
-        bool isHoliday = s.ShowHolidays && info?.IsDayOff == true;
         WpfBrush numberBrush = isHoliday ? holidayBrush : s.ShowOffDays && cell.IsOffDay ? off : text;
 
         var number = new TextBlock
@@ -1148,6 +1212,8 @@ public partial class MainWindow : Window
         var menu = new ContextMenu();
         menu.Items.Add(MenuEntry("일정 추가…", () => NewEvent(date)));
         menu.Items.Add(MenuEntry("항목 추가/편집…", () => OpenEditor(date)));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(ColorMenu("셀 배경색", hex => SetCellBg(date, hex)));
         return menu;
     }
 

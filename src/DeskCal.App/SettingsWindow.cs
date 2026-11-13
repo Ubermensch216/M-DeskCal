@@ -263,6 +263,7 @@ internal sealed class SettingsWindow : Window
 
         page.Children.Add(Card("색상",
             RowColor("캘린더 배경", () => S.BackgroundColor, v => Apply(s => s with { BackgroundColor = v })),
+            RowColor("휴일 배경색", () => S.HolidayBgColor, v => Apply(s => s with { HolidayBgColor = v }), allowNone: true),
             RowColor("휴일 글자색", () => S.HolidayColor, v => Apply(s => s with { HolidayColor = v })),
             RowColor("쉬는 날 글자색", () => S.OffDayColor, v => Apply(s => s with { OffDayColor = v })),
             RowColor("24절기 글자색", () => S.TermColor, v => Apply(s => s with { TermColor = v }))));
@@ -474,7 +475,7 @@ internal sealed class SettingsWindow : Window
         "#3B82F6", "#B197FC", "#F783AC", "#101820", "#1E3A5F", "#3A5F7A",
     ];
 
-    private Border RowColor(string label, Func<string> get, Action<string> set)
+    private Border RowColor(string label, Func<string> get, Action<string> set, bool allowNone = false)
     {
         var swatch = new Border { Width = 18, Height = 18, CornerRadius = new CornerRadius(3), BorderBrush = Frozen(Color.FromRgb(0xB8, 0xBE, 0xC8)), BorderThickness = new Thickness(1) };
         var hex = new TextBlock { Margin = new Thickness(8, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center, Foreground = MutedBrush, MinWidth = 62 };
@@ -508,15 +509,30 @@ internal sealed class SettingsWindow : Window
             using var dlg = new System.Windows.Forms.ColorDialog { FullOpen = true, Color = System.Drawing.Color.FromArgb(p.R, p.G, p.B) };
             if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK) set($"#{dlg.Color.R:X2}{dlg.Color.G:X2}{dlg.Color.B:X2}");
         };
+        var footer = new DockPanel { Margin = new Thickness(0, 0, 4, 0) };
+        if (allowNone)
+        {
+            var clear = new TextBlock { Text = "없음", Foreground = MutedBrush, Cursor = Cursors.Hand, Margin = new Thickness(0, 6, 0, 2) };
+            clear.MouseLeftButtonUp += (_, _) => { popup.IsOpen = false; set(""); };
+            DockPanel.SetDock(clear, Dock.Right);
+            footer.Children.Add(clear);
+        }
+        footer.Children.Add(custom);
         popup.Child = new Border
         {
             Background = Brushes.White, BorderBrush = Frozen(Color.FromRgb(0xC9, 0xCE, 0xD6)), BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(6), Padding = new Thickness(6), Child = Stack(grid, custom),
+            CornerRadius = new CornerRadius(6), Padding = new Thickness(6), Child = Stack(grid, footer),
             Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 10, ShadowDepth = 2, Opacity = 0.3 },
         };
         button.MouseLeftButtonUp += (_, _) => popup.IsOpen = true;
 
-        _sync.Add(() => { swatch.Background = Frozen(Parse(get())); hex.Text = get().ToUpperInvariant(); });
+        _sync.Add(() =>
+        {
+            var v = get();
+            bool empty = string.IsNullOrWhiteSpace(v);
+            swatch.Background = empty ? Brushes.Transparent : Frozen(Parse(v));
+            hex.Text = empty ? "없음" : v.ToUpperInvariant();
+        });
         var wrap = new StackPanel { Orientation = Orientation.Horizontal };
         wrap.Children.Add(button);
         wrap.Children.Add(popup);

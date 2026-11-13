@@ -18,6 +18,7 @@ public sealed class BoardSettingsStore(SettingsStore store)
             ShowHolidays = store.GetBool(Prefix + "show_holidays", d.ShowHolidays),
             ShowFestivals = store.GetBool(Prefix + "show_festivals", d.ShowFestivals),
             HolidayColor = store.GetString(Prefix + "holiday_color") ?? d.HolidayColor,
+            HolidayBgColor = store.GetString(Prefix + "holiday_bg_color") ?? d.HolidayBgColor,
             TermColor = store.GetString(Prefix + "term_color") ?? d.TermColor,
             Bullet = Enum(store, "bullet", d.Bullet),
             ShowCompleted = store.GetBool(Prefix + "show_completed", d.ShowCompleted),
@@ -58,6 +59,7 @@ public sealed class BoardSettingsStore(SettingsStore store)
         store.SetBool(Prefix + "show_holidays", s.ShowHolidays);
         store.SetBool(Prefix + "show_festivals", s.ShowFestivals);
         store.SetString(Prefix + "holiday_color", s.HolidayColor);
+        store.SetString(Prefix + "holiday_bg_color", s.HolidayBgColor);
         store.SetString(Prefix + "term_color", s.TermColor);
         store.SetString(Prefix + "bullet", s.Bullet.ToString());
         store.SetBool(Prefix + "show_completed", s.ShowCompleted);

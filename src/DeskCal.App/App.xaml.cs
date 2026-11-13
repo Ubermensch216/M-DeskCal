@@ -607,7 +607,7 @@ public partial class App : System.Windows.Application
         menu.Items.Add(opacityMenu);
 
         menu.Items.Add(new System.Windows.Controls.Separator());
-        menu.Items.Add(Entry("편집 모드 (위치/크기 조정)", () => SetEditMode(!EditItem.Checked), EditItem.Checked));
+        menu.Items.Add(Entry("위치/크기 조정", () => SetEditMode(!EditItem.Checked), EditItem.Checked));
         menu.Items.Add(Entry(board.ContentHidden ? "콘텐츠 잠금 해제…" : "콘텐츠 잠그기", () => { if (board.ContentHidden) EnsureUnlocked(); else SetLocked(true); }));
         menu.Items.Add(new System.Windows.Controls.Separator());
         menu.Items.Add(Entry("캘린더 설정…", () => OpenSettings()));
@@ -623,45 +623,24 @@ public partial class App : System.Windows.Application
     {
         var board = _board!;
         var menu = new Forms.ContextMenuStrip();
-        var refresh = new List<Action>();   // re-sync check marks each time the menu opens
+        var refresh = new List<Action>();   // re-sync check marks and dynamic labels each time the menu opens
+
+        // 1. 검색 · 일정 탐색
+        menu.Items.Add("검색…", null, (_, _) => OpenSearch());
+        menu.Items.Add("새 일정 (오늘)…", null, (_, _) => OnHotkey(HotkeyAction.NewEvent));
+        menu.Items.Add("오늘로 이동", null, (_, _) => board.GoToday());
+        menu.Items.Add(new Forms.ToolStripSeparator());
+
+        // 2. 화면 · 잠금 · 데이터
+        EditItem = new Forms.ToolStripMenuItem("위치/크기 조정") { CheckOnClick = true };
+        EditItem.CheckedChanged += (_, _) => { board.SetEditMode(EditItem.Checked); _cards?.SetEditMode(EditItem.Checked); _ttWidget?.SetEditMode(EditItem.Checked); };
+        menu.Items.Add(EditItem);
 
         var showItem = new Forms.ToolStripMenuItem();
         showItem.Click += (_, _) => ToggleBoard();
         menu.Items.Add(showItem);
         refresh.Add(() => showItem.Text = board.BoardVisible ? "달력 숨기기" : "달력 보이기");
-        menu.Items.Add("새 일정 (오늘)…", null, (_, _) => OnHotkey(HotkeyAction.NewEvent));
-        menu.Items.Add("검색…", null, (_, _) => OpenSearch());
-        var exchangeMenu = new Forms.ToolStripMenuItem("가져오기 / 내보내기");
-        exchangeMenu.DropDownItems.Add("내보내기… (JSON·CSV·ICS·Excel)", null, (_, _) =>
-        {
-            if (EnsureUnlocked()) ExchangeUi.Export(_exchange!, d => _days.Holidays.IsDayOff(d), d => _days.Get(d).HolidayName, board.Settings.FirstDayOfWeek);
-        });
-        exchangeMenu.DropDownItems.Add("가져오기…", null, (_, _) =>
-        {
-            if (EnsureUnlocked()) ExchangeUi.Import(_exchange!, _db!, Path.Combine(DataDir, "backup"), AfterImport);
-        });
-        menu.Items.Add(exchangeMenu);
-        menu.Items.Add("디데이 관리…", null, (_, _) => OpenCountdowns());
-        menu.Items.Add("메모…", null, (_, _) => OpenNotes());
-        menu.Items.Add("시간표…", null, (_, _) => OpenTimetable());
-        var ttWidget = new Forms.ToolStripMenuItem("바탕화면에 시간표 표시");
-        ttWidget.Click += (_, _) => { _settingsStore!.SetBool("timetable.widget", !_settingsStore.GetBool("timetable.widget", false)); UpdateCards(); };
-        menu.Items.Add(ttWidget);
-        refresh.Add(() => ttWidget.Checked = _settingsStore!.GetBool("timetable.widget", false));
-        menu.Items.Add("인쇄… (현재 달)", null, (_, _) => PrintMonth());
-        menu.Items.Add("외부 캘린더 동기화…", null, (_, _) => OpenSync());
-        menu.Items.Add("지금 동기화", null, (_, _) => SyncNow());
-        var mcpItem = new Forms.ToolStripMenuItem("AI 연동…");
-        mcpItem.Click += (_, _) => OpenMcp();
-        menu.Items.Add(mcpItem);
-        refresh.Add(() =>
-        {
-            int n = 0;
-            try { n = _mcpAccess!.Enabled ? _mcpRepo!.CountWaiting() : 0; } catch (Microsoft.Data.Sqlite.SqliteException) { }
-            mcpItem.Text = n > 0 ? $"AI 연동… (승인 대기 {n}건)" : "AI 연동…";
-        });
 
-        // content lock
         var lockMenu = new Forms.ToolStripMenuItem("콘텐츠 잠금");
         var lockToggle = new Forms.ToolStripMenuItem();
         lockToggle.Click += (_, _) => { if (board.ContentHidden) EnsureUnlocked(); else SetLocked(true); };
@@ -677,173 +656,56 @@ public partial class App : System.Windows.Application
             lockSet.Text = _lock!.HasPassword ? "비밀번호 변경…" : "비밀번호 설정…";
             lockClear.Enabled = _lock.HasPassword;
         });
-        EditItem = new Forms.ToolStripMenuItem("편집 모드 (위치/크기 조정)") { CheckOnClick = true };
-        EditItem.CheckedChanged += (_, _) => { board.SetEditMode(EditItem.Checked); _cards?.SetEditMode(EditItem.Checked); _ttWidget?.SetEditMode(EditItem.Checked); };
-        menu.Items.Add(EditItem);
-        menu.Items.Add("오늘로 이동", null, (_, _) => board.GoToday());
-        menu.Items.Add(new Forms.ToolStripSeparator());
 
-        // display mode
-        var modeMenu = new Forms.ToolStripMenuItem("표시 모드");
-        (DisplayMode Mode, string Name)[] modes =
-        [
-            (DisplayMode.FixedMonth, "고정 월"), (DisplayMode.FloatingMonth, "떠다니는 월 (주 단위)"),
-            (DisplayMode.FullMonth, "전체 월 (6줄 고정)"), (DisplayMode.SingleLine, "한 줄 (월 전체)"),
-            (DisplayMode.SingleLineFloating, "한 줄 (오늘부터)"),
-        ];
-        foreach (var (mode, name) in modes)
+        var exchangeMenu = new Forms.ToolStripMenuItem("가져오기 / 내보내기");
+        exchangeMenu.DropDownItems.Add("내보내기… (JSON·CSV·ICS·Excel)", null, (_, _) =>
         {
-            var item = new Forms.ToolStripMenuItem(name);
-            item.Click += (_, _) => Update(s => s with { Mode = mode });
-            modeMenu.DropDownItems.Add(item);
-            refresh.Add(() => item.Checked = board.Settings.Mode == mode);
-        }
-        menu.Items.Add(modeMenu);
-
-        // first day of week
-        var dowMenu = new Forms.ToolStripMenuItem("주 시작 요일");
-        foreach (var (dow, name) in new[] { (DayOfWeek.Sunday, "일요일"), (DayOfWeek.Monday, "월요일"), (DayOfWeek.Saturday, "토요일") })
-        {
-            var item = new Forms.ToolStripMenuItem(name);
-            item.Click += (_, _) => Update(s => s with { FirstDayOfWeek = dow });
-            dowMenu.DropDownItems.Add(item);
-            refresh.Add(() => item.Checked = board.Settings.FirstDayOfWeek == dow);
-        }
-        menu.Items.Add(dowMenu);
-
-        // calendar annotations
-        AddToggle("음력 표시", s => s.ShowLunar, (s, v) => s with { ShowLunar = v });
-        AddToggle("24절기 표시", s => s.ShowSolarTerms, (s, v) => s with { ShowSolarTerms = v });
-        AddToggle("공휴일 표시", s => s.ShowHolidays, (s, v) => s with { ShowHolidays = v });
-        AddToggle("기념일·명절 표시", s => s.ShowFestivals, (s, v) => s with { ShowFestivals = v });
-        menu.Items.Add("휴일 데이터 편집…", null, (_, _) => EditHolidays());
-        menu.Items.Add("휴일 데이터 다시 읽기", null, (_, _) => ReloadHolidays());
-        menu.Items.Add(new Forms.ToolStripSeparator());
-
-        // items
-        var bulletMenu = new Forms.ToolStripMenuItem("항목 번호/기호");
-        foreach (var (style, name) in new[] { (BulletStyle.Dot, "점 (•)"), (BulletStyle.Number, "번호 (1. 2.)"), (BulletStyle.None, "없음") })
-        {
-            var item = new Forms.ToolStripMenuItem(name);
-            item.Click += (_, _) => Update(s => s with { Bullet = style });
-            bulletMenu.DropDownItems.Add(item);
-            refresh.Add(() => item.Checked = board.Settings.Bullet == style);
-        }
-        menu.Items.Add(bulletMenu);
-        AddToggle("완료된 항목 표시", s => s.ShowCompleted, (s, v) => s with { ShowCompleted = v });
-        AddToggle("완료 효과음", s => s.CompleteSound, (s, v) => s with { CompleteSound = v });
-        AddToggle("알림음", s => s.ReminderSound, (s, v) => s with { ReminderSound = v });
-
-        // toggles
-        AddToggle("주차 표시", s => s.ShowWeekNumbers, (s, v) => s with { ShowWeekNumbers = v });
-        AddToggle("쉬는 날 색상 표시", s => s.ShowOffDays, (s, v) => s with { ShowOffDays = v });
-        AddToggle("그림자", s => s.Shadow, (s, v) => s with { Shadow = v });
-
-        // opacity
-        var opMenu = new Forms.ToolStripMenuItem("배경 투명도");
-        foreach (int pct in new[] { 0, 20, 40, 60, 80, 100 })
-        {
-            var item = new Forms.ToolStripMenuItem(pct == 0 ? "완전 투명" : $"{pct}%");
-            item.Click += (_, _) => Update(s => s with { BackgroundOpacity = pct / 100.0 });
-            opMenu.DropDownItems.Add(item);
-            refresh.Add(() => item.Checked = Math.Abs(board.Settings.BackgroundOpacity - pct / 100.0) < 0.001);
-        }
-        menu.Items.Add(opMenu);
-
-        // background photo ("skin"): a folder of pictures, how to fit them, how often to change
-        var skinMenu = new Forms.ToolStripMenuItem("배경 사진");
-        skinMenu.DropDownItems.Add("사진 폴더 선택…", null, (_, _) =>
-        {
-            using var dlg = new Forms.FolderBrowserDialog
-            {
-                Description = "배경으로 쓸 사진이 들어 있는 폴더를 고르세요 (png, jpg, bmp, gif, tif).", UseDescriptionForTitle = true,
-                SelectedPath = board.Settings.SkinFolder,
-            };
-            if (dlg.ShowDialog() != Forms.DialogResult.OK) return;
-            if (SkinPicker.List(dlg.SelectedPath).Count == 0)
-            {
-                System.Windows.MessageBox.Show("이 폴더에는 사용할 수 있는 사진이 없습니다.", "배경 사진");
-                return;
-            }
-            Update(s => s with { SkinFolder = dlg.SelectedPath });
+            if (EnsureUnlocked()) ExchangeUi.Export(_exchange!, d => _days.Holidays.IsDayOff(d), d => _days.Get(d).HolidayName, board.Settings.FirstDayOfWeek);
         });
-        skinMenu.DropDownItems.Add("사진 끄기", null, (_, _) => Update(s => s with { SkinFolder = "" }));
-        skinMenu.DropDownItems.Add(new Forms.ToolStripSeparator());
-
-        var fitMenu = new Forms.ToolStripMenuItem("맞춤 방식");
-        foreach (var (fit, name) in new[]
-                 {
-                     (SkinFit.Fill, "채우기 (비율 유지, 넘치는 부분 잘림)"), (SkinFit.Fit, "맞추기 (전체가 보이게)"),
-                     (SkinFit.Stretch, "늘이기 (비율 무시)"), (SkinFit.Tile, "바둑판"), (SkinFit.Center, "가운데 (원래 크기)"),
-                 })
+        exchangeMenu.DropDownItems.Add("가져오기…", null, (_, _) =>
         {
-            var item = new Forms.ToolStripMenuItem(name);
-            item.Click += (_, _) => Update(s => s with { SkinFit = fit });
-            fitMenu.DropDownItems.Add(item);
-            refresh.Add(() => item.Checked = board.Settings.SkinFit == fit);
-        }
-        skinMenu.DropDownItems.Add(fitMenu);
-
-        var rotateMenu = new Forms.ToolStripMenuItem("사진 바꾸는 주기");
-        foreach (var (minutes, name) in new[]
-                 {
-                     (0, "바꾸지 않음 (첫 번째 사진)"), (5, "5분"), (15, "15분"), (30, "30분"), (60, "1시간"), (180, "3시간"), (720, "12시간"), (1440, "하루"),
-                 })
-        {
-            var item = new Forms.ToolStripMenuItem(name);
-            item.Click += (_, _) => Update(s => s with { SkinRotateMinutes = minutes });
-            rotateMenu.DropDownItems.Add(item);
-            refresh.Add(() => item.Checked = board.Settings.SkinRotateMinutes == minutes);
-        }
-        skinMenu.DropDownItems.Add(rotateMenu);
-        menu.Items.Add(skinMenu);
-
-        menu.Items.Add("표시 설정 기본값으로", null, (_, _) => ResetBoardSettings());
-
-        menu.Items.Add(new Forms.ToolStripSeparator());
-
-        // shortcuts and start-up
-        var hotkeysItem = new Forms.ToolStripMenuItem("전역 단축키 사용");
-        hotkeysItem.Click += (_, _) => ApplyPrefs(_prefs with { HotkeysEnabled = !_prefs.HotkeysEnabled });
-        menu.Items.Add(hotkeysItem);
-        refresh.Add(() => hotkeysItem.Checked = _prefs.HotkeysEnabled);
-        menu.Items.Add("단축키 설정…", null, (_, _) =>
-        {
-            if (HotkeyDialog.Edit(_prefs) is { } edited) ApplyPrefs(edited with { HotkeysEnabled = _prefs.HotkeysEnabled });
+            if (EnsureUnlocked()) ExchangeUi.Import(_exchange!, _db!, Path.Combine(DataDir, "backup"), AfterImport);
         });
-
-        var startupItem = new Forms.ToolStripMenuItem("Windows 시작 시 자동 실행");
-        startupItem.Click += (_, _) =>
-        {
-            try
-            {
-                if (_startup.IsEnabled()) _startup.Disable(); else _startup.Enable(ExePath);
-            }
-            catch (Exception ex) { System.Windows.MessageBox.Show("자동 실행 설정을 바꾸지 못했습니다.\n\n" + ex.Message, "M-DeskCal"); }
-        };
-        menu.Items.Add(startupItem);
-        refresh.Add(() => { try { startupItem.Checked = _startup.IsEnabled(); } catch { startupItem.Checked = false; } });
-
-        menu.Items.Add("데이터 폴더 열기", null, (_, _) => OpenDataFolder());
-
+        menu.Items.Add(exchangeMenu);
+        menu.Items.Add("인쇄… (현재 달)", null, (_, _) => PrintMonth());
         menu.Items.Add(new Forms.ToolStripSeparator());
+
+        // 3. 메모 · 디데이 · 시간표
+        menu.Items.Add("메모…", null, (_, _) => OpenNotes());
+        menu.Items.Add("디데이 관리…", null, (_, _) => OpenCountdowns());
+        var ttMenu = new Forms.ToolStripMenuItem("시간표");
+        ttMenu.DropDownItems.Add("시간표 편집…", null, (_, _) => OpenTimetable());
+        var ttWidget = new Forms.ToolStripMenuItem("바탕화면에 표시");
+        ttWidget.Click += (_, _) => { _settingsStore!.SetBool("timetable.widget", !_settingsStore.GetBool("timetable.widget", false)); UpdateCards(); };
+        ttMenu.DropDownItems.Add(ttWidget);
+        menu.Items.Add(ttMenu);
+        refresh.Add(() => ttWidget.Checked = _settingsStore!.GetBool("timetable.widget", false));
+        menu.Items.Add(new Forms.ToolStripSeparator());
+
+        // 4. 설정 · 연동
         menu.Items.Add("캘린더 설정…", null, (_, _) => OpenSettings());
-        menu.Items.Add("진단 정보 보기", null, (_, _) =>
-            System.Windows.MessageBox.Show(board.Diagnostics(), "M-DeskCal 진단"));
+        var syncMenu = new Forms.ToolStripMenuItem("외부 캘린더 동기화");
+        syncMenu.DropDownItems.Add("동기화 설정…", null, (_, _) => OpenSync());
+        syncMenu.DropDownItems.Add("지금 동기화", null, (_, _) => SyncNow());
+        menu.Items.Add(syncMenu);
+
+        var mcpItem = new Forms.ToolStripMenuItem("AI 연동…");
+        mcpItem.Click += (_, _) => OpenMcp();
+        menu.Items.Add(mcpItem);
+        refresh.Add(() =>
+        {
+            int n = 0;
+            try { n = _mcpAccess!.Enabled ? _mcpRepo!.CountWaiting() : 0; } catch (Microsoft.Data.Sqlite.SqliteException) { }
+            mcpItem.Text = n > 0 ? $"AI 연동… (승인 대기 {n}건)" : "AI 연동…";
+        });
+        menu.Items.Add(new Forms.ToolStripSeparator());
+
+        // 5. 정보 · 종료
+        menu.Items.Add("제품 정보…", null, (_, _) => OpenSettings(5));
         menu.Items.Add("종료", null, (_, _) => Shutdown());
 
         menu.Opening += (_, _) => { foreach (var r in refresh) r(); };
         return menu;
-
-        void Update(Func<BoardSettings, BoardSettings> change) => UpdateSettings(change);
-
-        void AddToggle(string name, Func<BoardSettings, bool> get, Func<BoardSettings, bool, BoardSettings> set)
-        {
-            var item = new Forms.ToolStripMenuItem(name);
-            item.Click += (_, _) => Update(s => set(s, !get(s)));
-            menu.Items.Add(item);
-            refresh.Add(() => item.Checked = get(board.Settings));
-        }
     }
 
     protected override void OnExit(ExitEventArgs e)
