@@ -4,7 +4,6 @@ using System.Windows.Media;
 using DeskCal.Ai;
 using DeskCal.Ai.Llm;
 using Brushes = System.Windows.Media.Brushes;
-using Button = System.Windows.Controls.Button;
 using Orientation = System.Windows.Controls.Orientation;
 
 namespace DeskCal.App;

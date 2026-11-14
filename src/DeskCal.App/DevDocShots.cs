@@ -1,7 +1,6 @@
 using System.IO;
 using System.Windows;
 using DeskCal.Core;
-using DeskCal.Data;
 using Forms = System.Windows.Forms;
 using WpfColor = System.Windows.Media.Color;
 

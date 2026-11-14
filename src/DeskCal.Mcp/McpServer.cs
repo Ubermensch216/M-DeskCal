@@ -242,7 +242,7 @@ public sealed partial class McpServer
                 "search" => Search(args),
                 "get_request_status" => RequestStatus(args),
                 _ when ReadExtra(name, args) is { } extra => extra,
-                _ when McpChanges.WriteTools.Contains(name) => Queue(name, args, argText),
+                _ when McpChanges.WriteTools.Contains(name) => Queue(name, argText),
                 _ => throw new McpArgumentException($"알 수 없는 도구입니다: {name}"),
             };
             outcome = "ok";
@@ -290,7 +290,7 @@ public sealed partial class McpServer
         ["end_date"] = o.IsMultiDay ? o.EndDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : null,
         ["end_time"] = o.EndTime?.ToString("HH\\:mm", CultureInfo.InvariantCulture),
         ["all_day"] = o.IsAllDay, ["repeats"] = RecurrenceRule.From(o.Event).IsRepeating,
-        ["body"] = o.Event.Body.Length > 500 ? o.Event.Body[..500] + "…" : o.Event.Body,
+        ["body"] = o.Event.Body.Ellipsize(500),
     };
 
     private string ListItems(JsonObject a)
@@ -331,7 +331,7 @@ public sealed partial class McpServer
         }.ToJsonString(Json);
     }
 
-    private string Queue(string tool, JsonObject a, string argText)
+    private string Queue(string tool, string argText)
     {
         using var doc = JsonDocument.Parse(argText);
         var (error, summary) = _changes.Validate(tool, doc.RootElement);

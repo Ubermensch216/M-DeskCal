@@ -224,7 +224,7 @@ public sealed partial class McpServer
             string flat = n.Content.ReplaceLineEndings(" ").Trim();
             return new JsonObject
             {
-                ["id"] = n.Id, ["title"] = n.Title, ["preview"] = flat.Length > 200 ? flat[..200] + "…" : flat, ["length"] = n.Content.Length,
+                ["id"] = n.Id, ["title"] = n.Title, ["preview"] = flat.Ellipsize(200), ["length"] = n.Content.Length,
                 ["updated"] = DateTimeOffset.FromUnixTimeMilliseconds(n.UpdatedAt).ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
             };
         });

@@ -1,5 +1,4 @@
 using System.Globalization;
-using DeskCal.Core.Calendars;
 
 namespace DeskCal.Core;
 
@@ -22,6 +21,13 @@ public enum RepeatKind
     LunarYearly,
     /// <summary>Review schedule after the Ebbinghaus forgetting curve: the day itself, +1, +2, +4, +7, +15 and +30 days.</summary>
     Ebbinghaus,
+}
+
+public static class RepeatKindExtensions
+{
+    /// <summary>Whether "every N days/weeks/months/years" applies to this kind (the editors show the interval box only then).</summary>
+    public static bool UsesInterval(this RepeatKind k) =>
+        k is RepeatKind.Daily or RepeatKind.Weekly or RepeatKind.Monthly or RepeatKind.Yearly or RepeatKind.MonthLastDay or RepeatKind.LunarYearly;
 }
 
 public enum MonthlyMode { ByDate = 0, ByWeekday = 1 }

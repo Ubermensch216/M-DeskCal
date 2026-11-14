@@ -8,7 +8,6 @@ using DeskCal.Core;
 using Brushes = System.Windows.Media.Brushes;
 using Color = System.Windows.Media.Color;
 using FontFamily = System.Windows.Media.FontFamily;
-using HorizontalAlignment = System.Windows.HorizontalAlignment;
 
 namespace DeskCal.App;
 
@@ -56,9 +55,9 @@ internal sealed class CountdownCardsWindow : Window
     {
         _stack.Children.Clear();
 
-        var bg = Parse(s.BackgroundColor, Color.FromRgb(0x10, 0x18, 0x20));
+        var bg = UiColors.Parse(s.BackgroundColor, Color.FromRgb(0x10, 0x18, 0x20));
         bg.A = (byte)Math.Round(Math.Max(0.35, s.BackgroundOpacity) * 255);   // keep cards readable even on a "transparent" board
-        var text = new SolidColorBrush(Parse(s.TextColor, Colors.White));
+        var text = new SolidColorBrush(UiColors.Parse(s.TextColor, Colors.White));
         var font = new FontFamily(s.FontFamily);
 
         foreach (var (cd, st) in cards)
@@ -129,10 +128,4 @@ internal sealed class CountdownCardsWindow : Window
         if (_editMode) DragMove();
     }
 
-    internal string Diagnostics() => $"cards visible={IsVisible} attached={_attached} pos=({_x},{_y})";
-
-    private static Color Parse(string hex, Color fallback)
-    {
-        try { return (Color)ColorConverter.ConvertFromString(hex); } catch { return fallback; }
-    }
-}
+    internal string Diagnostics() => $"cards visible={IsVisible} attached={_attached} pos=({_x},{_y})";}

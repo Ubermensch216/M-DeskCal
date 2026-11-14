@@ -211,7 +211,7 @@ public sealed class LlmEventParser(ILlmClient client)
 
     private static string? Str(JsonObject o, string key) => o[key] is JsonValue v && v.TryGetValue<string>(out var s) ? s : null;
     private static int? Int(JsonObject o, string key) => o[key] is JsonValue v && v.TryGetValue<int>(out var i) ? i : null;
-    private static string Clip(string s) => s.Length <= 20 ? s : s[..20] + "…";
+    private static string Clip(string s) => s.Ellipsize(20);
 
     private static DayOfWeek? Weekday(string? s) => s?.ToLowerInvariant() switch
     {

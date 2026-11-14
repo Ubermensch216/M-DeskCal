@@ -34,14 +34,6 @@ internal static class OcrReader
         return any;
     }
 
-    /// <summary>True when a Korean engine exists (otherwise the message says what to install).</summary>
-    public static bool HasKorean(out string message)
-    {
-        bool ok = OcrEngine.TryCreateFromLanguage(new Language("ko")) is not null;
-        message = ok ? "" : "한국어 OCR 을 쓰려면 Windows 의 한국어 언어 팩이 필요합니다 (설정 → 시간 및 언어 → 언어 및 지역 → 한국어 → 언어 옵션).";
-        return ok;
-    }
-
     public static async Task<OcrReading> ReadFileAsync(string path, CancellationToken ct = default)
     {
         var info = new FileInfo(path);

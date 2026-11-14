@@ -1,7 +1,6 @@
 using System.Text.Json.Nodes;
 using DeskCal.Ai;
 using DeskCal.Ai.Intent;
-using DeskCal.Ai.Llm;
 using DeskCal.Core;
 using DeskCal.Data;
 

@@ -69,7 +69,6 @@ public class SyncPlannerTests
 internal sealed class FakeCalDavServer : IDisposable
 {
     private readonly HttpListener _listener = new();
-    private readonly Task _loop;
     private int _counter;
     public string Url { get; }
     public Dictionary<string, (string Etag, string Data)> Store { get; } = [];
@@ -85,7 +84,7 @@ internal sealed class FakeCalDavServer : IDisposable
         Url = $"http://localhost:{port}/dav/cal/";
         _listener.Prefixes.Add(Url);
         _listener.Start();
-        _loop = Task.Run(Loop);
+        _ = Task.Run(Loop);
     }
 
     public string Put(string name, string data) { lock (Store) { Store[name] = ("\"v" + ++_counter + "\"", data); return Store[name].Etag; } }

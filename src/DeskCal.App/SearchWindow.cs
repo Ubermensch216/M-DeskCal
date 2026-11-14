@@ -7,7 +7,6 @@ using System.Windows.Threading;
 using DeskCal.Ai;
 using DeskCal.Core;
 using DeskCal.Data;
-using Button = System.Windows.Controls.Button;
 using Brushes = System.Windows.Media.Brushes;
 using CheckBox = System.Windows.Controls.CheckBox;
 using ComboBox = System.Windows.Controls.ComboBox;
@@ -68,7 +67,7 @@ internal sealed class SearchWindow : Window
         Fill(_kind, "할 일 + 일정", "할 일만", "일정만");
         Fill(_done, "완료 여부 무관", "완료만", "미완료만");
         _color.Items.Add("모든 글자색"); _color.Items.Add("기본 색");
-        foreach (var (name, hex) in MainWindow.Palette.Where(p => p.Hex is not null)) _color.Items.Add(new ComboBoxItem { Content = name, Tag = hex, Foreground = (SolidColorBrush)new BrushConverter().ConvertFrom(hex!)!, Background = Brushes.Black });
+        foreach (var (name, hex) in MainWindow.Palette.Where(p => p.Hex is not null)) _color.Items.Add(new ComboBoxItem { Content = name, Tag = hex, Foreground = UiColors.TryBrush(hex), Background = Brushes.Black });
         _color.SelectedIndex = 0;
         _from.SelectedDate = DateTime.Today.AddMonths(-1); _to.SelectedDate = DateTime.Today;
 
@@ -204,18 +203,13 @@ internal sealed class SearchWindow : Window
         var text = new TextBlock { Text = h.Text.ReplaceLineEndings(" "), TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
         if (h.Done || h.Deleted) text.TextDecorations = TextDecorations.Strikethrough;
         if (h.Done || h.Deleted) text.Opacity = 0.6;
-        if (h.TextColor is { Length: > 0 } hex && TryBrush(hex) is { } b) text.Foreground = b;
+        if (h.TextColor is { Length: > 0 } hex && UiColors.TryBrush(hex) is { } b) text.Foreground = b;
 
         var tail = new TextBlock { Foreground = Brushes.Gray, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
         tail.Text = h.Deleted ? "삭제됨" : h.Repeating ? "반복" : "";
         DockPanel.SetDock(date, Dock.Left); DockPanel.SetDock(kind, Dock.Left); DockPanel.SetDock(tail, Dock.Right);
         line.Children.Add(date); line.Children.Add(kind); line.Children.Add(tail); line.Children.Add(text);
         return line;
-    }
-
-    private static SolidColorBrush? TryBrush(string hex)
-    {
-        try { return (SolidColorBrush)new BrushConverter().ConvertFrom(hex)!; } catch { return null; }
     }
 
     private SearchHit? Selected => (_results.SelectedItem as DockPanel)?.Tag as SearchHit;

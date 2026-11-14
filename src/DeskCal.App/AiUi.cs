@@ -9,7 +9,6 @@ using DeskCal.Ai.Intent;
 using DeskCal.Ai.Llm;
 using DeskCal.Core;
 using DeskCal.Core.Exchange;
-using DeskCal.Data;
 using Brushes = System.Windows.Media.Brushes;
 using Button = System.Windows.Controls.Button;
 using DatePicker = System.Windows.Controls.DatePicker;

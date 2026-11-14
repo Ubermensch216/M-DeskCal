@@ -141,7 +141,7 @@ public static class ExchangeCleaner
 
     private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
-    private static string Short(string s) => s.Length <= 30 ? s : s[..30] + "…";
+    private static string Short(string s) => s.Ellipsize(30);
 
     private static List<ExReminder> CleanReminders(IReadOnlyList<ExReminder>? list)
     {

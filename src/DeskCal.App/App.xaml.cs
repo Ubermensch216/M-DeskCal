@@ -1,6 +1,4 @@
-﻿using System.Drawing;
-using System.IO;
-using System.Threading;
+﻿using System.IO;
 using System.Windows;
 using DeskCal.Core;
 using DeskCal.Core.Calendars;

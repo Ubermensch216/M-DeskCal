@@ -1,7 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
 using Button = System.Windows.Controls.Button;
-using Orientation = System.Windows.Controls.Orientation;
 
 namespace DeskCal.App;
 

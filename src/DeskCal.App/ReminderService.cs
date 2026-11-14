@@ -1,4 +1,3 @@
-using System.IO;
 using System.Windows.Threading;
 using DeskCal.Data;
 using Microsoft.Win32;
@@ -74,8 +73,5 @@ internal sealed class ReminderService : IDisposable
         _timer.Stop();
     }
 
-    private static void Log(string text)
-    {
-        try { File.AppendAllText(Path.Combine(App.DataDir, "m0.log"), $"[{DateTime.Now:s}] {text}\n"); } catch { }
-    }
+    private static void Log(string text) => AppLog.Write(text);
 }

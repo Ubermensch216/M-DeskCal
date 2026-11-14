@@ -11,7 +11,6 @@ using DeskCal.Ai.Llm;
 using DeskCal.Core;
 using Button = System.Windows.Controls.Button;
 using Color = System.Windows.Media.Color;
-using ColorConverter = System.Windows.Media.ColorConverter;
 using ComboBox = System.Windows.Controls.ComboBox;
 using FontFamily = System.Windows.Media.FontFamily;
 using HorizontalAlignment = System.Windows.HorizontalAlignment;
@@ -502,7 +501,7 @@ internal sealed class SettingsWindow : Window
 
     private static List<(string, int)> Range(int from, int to) => Enumerable.Range(from, to - from + 1).Select(i => (i.ToString(CultureInfo.InvariantCulture), i)).ToList();
 
-    private static SolidColorBrush Frozen(Color c) { var b = new SolidColorBrush(c); b.Freeze(); return b; }
+    private static SolidColorBrush Frozen(Color c) => UiColors.Frozen(c);
 
     private static StackPanel Stack(params UIElement[] items)
     {
@@ -634,7 +633,7 @@ internal sealed class SettingsWindow : Window
             var sw = new Border
             {
                 Width = 22, Height = 22, Margin = new Thickness(3), CornerRadius = new CornerRadius(3), Cursor = Cursors.Hand,
-                Background = Frozen(Parse(color)), BorderBrush = Frozen(Color.FromRgb(0xB8, 0xBE, 0xC8)), BorderThickness = new Thickness(1), ToolTip = color,
+                Background = Frozen(UiColors.Parse(color, Colors.White)), BorderBrush = Frozen(Color.FromRgb(0xB8, 0xBE, 0xC8)), BorderThickness = new Thickness(1), ToolTip = color,
             };
             sw.MouseLeftButtonUp += (_, _) => { popup.IsOpen = false; set(color); };
             grid.Children.Add(sw);
@@ -643,7 +642,7 @@ internal sealed class SettingsWindow : Window
         custom.MouseLeftButtonUp += (_, _) =>
         {
             popup.IsOpen = false;
-            var p = Parse(get());
+            var p = UiColors.Parse(get(), Colors.White);
             using var dlg = new System.Windows.Forms.ColorDialog { FullOpen = true, Color = System.Drawing.Color.FromArgb(p.R, p.G, p.B) };
             if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK) set($"#{dlg.Color.R:X2}{dlg.Color.G:X2}{dlg.Color.B:X2}");
         };
@@ -668,18 +667,13 @@ internal sealed class SettingsWindow : Window
         {
             var v = get();
             bool empty = string.IsNullOrWhiteSpace(v);
-            swatch.Background = empty ? Brushes.Transparent : Frozen(Parse(v));
+            swatch.Background = empty ? Brushes.Transparent : Frozen(UiColors.Parse(v, Colors.White));
             hex.Text = empty ? "없음" : v.ToUpperInvariant();
         });
         var wrap = new StackPanel { Orientation = Orientation.Horizontal };
         wrap.Children.Add(button);
         wrap.Children.Add(popup);
         return RowCustom(label, null, wrap);
-    }
-
-    private static Color Parse(string hex)
-    {
-        try { return (Color)ColorConverter.ConvertFromString(hex); } catch { return Colors.White; }
     }
 
     private Border SkinRow()

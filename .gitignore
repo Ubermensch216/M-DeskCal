@@ -2,6 +2,5 @@ bin/
 obj/
 .vs/
 *.user
-dist/
 release/
 .scratch/

@@ -12,7 +12,6 @@ using CheckBox = System.Windows.Controls.CheckBox;
 using Color = System.Windows.Media.Color;
 using ComboBox = System.Windows.Controls.ComboBox;
 using Cursors = System.Windows.Input.Cursors;
-using FontFamily = System.Windows.Media.FontFamily;
 using HorizontalAlignment = System.Windows.HorizontalAlignment;
 using Orientation = System.Windows.Controls.Orientation;
 using TextBox = System.Windows.Controls.TextBox;
@@ -55,7 +54,7 @@ internal static class ItemDialog
     public static TextBlock Caption(string text) => new() { Text = text, Margin = new Thickness(0, 8, 0, 3), FontWeight = FontWeights.SemiBold };
 
     /// <summary>Bottom row: an optional "remove" button on the left, cancel and apply on the right.</summary>
-    public static UIElement Buttons(Window win, string? removeText, Action remove, Action apply)
+    public static UIElement Buttons(string? removeText, Action remove, Action apply)
     {
         var dock = new DockPanel { Margin = new Thickness(0, 14, 0, 0), LastChildFill = false };
         if (removeText is not null)
@@ -83,9 +82,6 @@ internal static class ItemDialog
 internal static class RepeatDialog
 {
     private sealed record Choice(string Label, RepeatKind Kind, MonthlyMode Mode = MonthlyMode.ByDate);
-
-    private static bool UsesInterval(RepeatKind k) =>
-        k is RepeatKind.Daily or RepeatKind.Weekly or RepeatKind.Monthly or RepeatKind.Yearly or RepeatKind.MonthLastDay or RepeatKind.LunarYearly;
 
     /// <returns>Null when cancelled; <see cref="RecurrenceRule.None"/> when the user stopped the repetition.</returns>
     public static RecurrenceRule? Show(Window? owner, string itemText, DateOnly day, RecurrenceRule current)
@@ -142,7 +138,7 @@ internal static class RepeatDialog
         void Refresh()
         {
             var k = kind.SelectedIndex >= 0 ? choices[kind.SelectedIndex].Kind : RepeatKind.None;
-            intervalRow.Visibility = UsesInterval(k) ? Visibility.Visible : Visibility.Collapsed;
+            intervalRow.Visibility = k.UsesInterval() ? Visibility.Visible : Visibility.Collapsed;
             unit.Text = k switch
             {
                 RepeatKind.Daily => "일마다", RepeatKind.Weekly => "주마다", RepeatKind.Monthly => "개월마다", RepeatKind.Yearly => "년마다",
@@ -169,7 +165,7 @@ internal static class RepeatDialog
             if (choice.Kind != RepeatKind.None)
             {
                 int n = 1;
-                if (UsesInterval(choice.Kind) && (!int.TryParse(interval.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out n) || n < 1 || n > 999))
+                if (choice.Kind.UsesInterval() && (!int.TryParse(interval.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out n) || n < 1 || n > 999))
                 { error.Text = "반복 간격은 1~999 사이의 숫자여야 합니다."; return; }
 
                 int? cnt = null; DateOnly? end = null;
@@ -190,7 +186,7 @@ internal static class RepeatDialog
                 }
                 result = new RecurrenceRule
                 {
-                    Kind = choice.Kind, Interval = UsesInterval(choice.Kind) ? n : 1,
+                    Kind = choice.Kind, Interval = choice.Kind.UsesInterval() ? n : 1,
                     WeekdaysMask = choice.Kind == RepeatKind.Weekly ? mask : 0, Monthly = choice.Mode,
                     Nth = choice.Kind == RepeatKind.Monthly && choice.Mode == MonthlyMode.ByWeekday && current.Monthly == MonthlyMode.ByWeekday ? current.Nth : 0,
                     Count = cnt, Until = end,
@@ -200,7 +196,7 @@ internal static class RepeatDialog
             win.DialogResult = true;
         }
 
-        panel.Children.Add(ItemDialog.Buttons(win, current.IsRepeating ? "반복 해제" : null, () => { result = RecurrenceRule.None; win.DialogResult = true; }, Apply));
+        panel.Children.Add(ItemDialog.Buttons(current.IsRepeating ? "반복 해제" : null, () => { result = RecurrenceRule.None; win.DialogResult = true; }, Apply));
         win.Content = panel;
         ItemDialog.Open(win);
         return result;
@@ -269,7 +265,7 @@ internal static class ReminderDialog
             win.DialogResult = true;
         }
 
-        panel.Children.Add(ItemDialog.Buttons(win, current.Count > 0 ? "알림 제거" : null, () => { result = []; win.DialogResult = true; }, Apply));
+        panel.Children.Add(ItemDialog.Buttons(current.Count > 0 ? "알림 제거" : null, () => { result = []; win.DialogResult = true; }, Apply));
         win.Content = panel;
         ItemDialog.Open(win);
         return result;
@@ -312,7 +308,7 @@ internal static class ItemCountdownDialog
         type.SelectionChanged += (_, _) => Refresh();
         Refresh();
 
-        panel.Children.Add(ItemDialog.Buttons(win, current is not null ? "카운트다운 해제" : null,
+        panel.Children.Add(ItemDialog.Buttons(current is not null ? "카운트다운 해제" : null,
             () => { result = new CountdownChoice(CountdownType.Custom, false, false, true); win.DialogResult = true; },
             () =>
             {
@@ -417,7 +413,7 @@ internal static class ColorPickerPopup
     private static FrameworkElement Swatch(string? hex, string? current, bool text, Action<string?, bool> pick, bool cell)
     {
         bool selected = hex is null ? string.IsNullOrEmpty(current) : string.Equals(hex, current, StringComparison.OrdinalIgnoreCase);
-        var color = hex is null ? Colors.Transparent : (Color)System.Windows.Media.ColorConverter.ConvertFromString(hex);
+        var color = UiColors.Parse(hex, Colors.Transparent);
         var brush = new SolidColorBrush(color);
 
         var tile = new Border

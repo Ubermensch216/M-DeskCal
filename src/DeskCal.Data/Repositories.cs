@@ -20,6 +20,15 @@ public abstract class RepoBase(DeskCalDb db, IClock clock)
     }
 
     protected static string? Str(SqliteDataReader r, int i) => r.IsDBNull(i) ? null : r.GetString(i);
+
+    /// <summary>Runs the query and maps every row.</summary>
+    protected static List<T> ReadAll<T>(SqliteCommand cmd, Func<SqliteDataReader, T> map)
+    {
+        using var r = cmd.ExecuteReader();
+        var list = new List<T>();
+        while (r.Read()) list.Add(map(r));
+        return list;
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -38,10 +47,7 @@ public sealed class HistoryRepository(DeskCalDb db, IClock clock) : RepoBase(db,
         using var c = Db.Open();
         using var cmd = Cmd(c, "SELECT id, entity, entity_id, content, at FROM history WHERE entity=$e AND entity_id=$i ORDER BY at DESC, id DESC",
             null, ("$e", entity), ("$i", entityId));
-        using var r = cmd.ExecuteReader();
-        var list = new List<HistoryEntry>();
-        while (r.Read()) list.Add(new HistoryEntry(r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetString(3), r.GetInt64(4)));
-        return list;
+        return ReadAll(cmd, r => new HistoryEntry(r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetString(3), r.GetInt64(4)));
     }
 
     public HistoryEntry? Get(long historyId)
@@ -173,10 +179,7 @@ public sealed class ItemRepository(DeskCalDb db, IClock clock) : RepoBase(db, cl
         using var c = Db.Open();
         using var cmd = Cmd(c, $"SELECT {Cols} FROM items WHERE day BETWEEN $a AND $b AND deleted=0 ORDER BY day, sort, created_at",
             null, ("$a", fromDay), ("$b", toDay));
-        using var r = cmd.ExecuteReader();
-        var list = new List<Item>();
-        while (r.Read()) list.Add(Map(r));
-        return list;
+        return ReadAll(cmd, Map);
     }
 
     /// <summary>Items for the search: optionally limited to days in [from, to], optionally including soft-deleted ones.</summary>
@@ -186,10 +189,7 @@ public sealed class ItemRepository(DeskCalDb db, IClock clock) : RepoBase(db, cl
         using var cmd = Cmd(c,
             $"SELECT {Cols} FROM items WHERE ($a IS NULL OR day >= $a) AND ($b IS NULL OR day <= $b) AND ($d = 1 OR deleted = 0)",
             null, ("$a", fromDay), ("$b", toDay), ("$d", includeDeleted ? 1 : 0));
-        using var r = cmd.ExecuteReader();
-        var list = new List<Item>();
-        while (r.Read()) list.Add(Map(r));
-        return list;
+        return ReadAll(cmd, Map);
     }
 
     /// <summary>Change content; the previous content is saved to history when it differs.</summary>
@@ -344,29 +344,6 @@ public sealed class EventRepository(DeskCalDb db, IClock clock) : RepoBase(db, c
         return r.Read() ? Map(r) : null;
     }
 
-    /// <summary>Events whose (first) start lies in [from, to). Recurrence expansion is a later milestone.</summary>
-    public IReadOnlyList<EventEntry> GetStartingBetween(string from, string to)
-    {
-        using var c = Db.Open();
-        using var cmd = Cmd(c, $"SELECT {Cols} FROM events WHERE start >= $a AND start < $b AND deleted=0 ORDER BY start",
-            null, ("$a", from), ("$b", to));
-        using var r = cmd.ExecuteReader();
-        var list = new List<EventEntry>();
-        while (r.Read()) list.Add(Map(r));
-        return list;
-    }
-
-    /// <summary>Events that repeat (have an RRULE or extended rule) and are not deleted.</summary>
-    public IReadOnlyList<EventEntry> GetRecurring()
-    {
-        using var c = Db.Open();
-        using var cmd = Cmd(c, $"SELECT {Cols} FROM events WHERE deleted=0 AND (rrule IS NOT NULL OR ext_rule IS NOT NULL) ORDER BY start");
-        using var r = cmd.ExecuteReader();
-        var list = new List<EventEntry>();
-        while (r.Read()) list.Add(Map(r));
-        return list;
-    }
-
     /// <summary>Replace all editable fields. The previous body is saved to history when it changed.</summary>
     public bool Update(EventEntry e)
     {
@@ -391,10 +368,7 @@ public sealed class EventRepository(DeskCalDb db, IClock clock) : RepoBase(db, c
     {
         using var c = Db.Open();
         using var cmd = Cmd(c, $"SELECT {Cols} FROM events WHERE deleted=0 ORDER BY start");
-        using var r = cmd.ExecuteReader();
-        var list = new List<EventEntry>();
-        while (r.Read()) list.Add(Map(r));
-        return list;
+        return ReadAll(cmd, Map);
     }
 
     /// <summary>Remove one occurrence of a repeating event ("delete this one only").</summary>
@@ -493,10 +467,7 @@ public sealed class ReminderRepository(DeskCalDb db, IClock clock) : RepoBase(db
     {
         using var c = Db.Open();
         using var cmd = Cmd(c, "SELECT id, owner_type, owner_id, offset_minutes, custom_time, sound, fired_at FROM reminders ORDER BY owner_type, owner_id, offset_minutes DESC");
-        using var r = cmd.ExecuteReader();
-        var list = new List<Reminder>();
-        while (r.Read()) list.Add(Map(r));
-        return list;
+        return ReadAll(cmd, Map);
     }
 
     /// <summary>Replace an owner's reminders with the given ones (all armed now).</summary>
@@ -506,24 +477,12 @@ public sealed class ReminderRepository(DeskCalDb db, IClock clock) : RepoBase(db
         foreach (var (offset, custom, sound) in specs) Add(owner, ownerId, offset, custom, sound);
     }
 
-    /// <summary>Treat everything up to now as handled (after an event was edited, so old triggers do not replay).</summary>
-    public void RearmOwner(ReminderOwner owner, string ownerId)
-    {
-        using var c = Db.Open();
-        using var cmd = Cmd(c, "UPDATE reminders SET fired_at=$f WHERE owner_type=$o AND owner_id=$i", null,
-            ("$f", Clock.NowMs), ("$o", (int)owner), ("$i", ownerId));
-        cmd.ExecuteNonQuery();
-    }
-
     public IReadOnlyList<Reminder> GetByOwner(ReminderOwner owner, string ownerId)
     {
         using var c = Db.Open();
         using var cmd = Cmd(c, "SELECT id, owner_type, owner_id, offset_minutes, custom_time, sound, fired_at FROM reminders WHERE owner_type=$o AND owner_id=$i ORDER BY offset_minutes DESC",
             null, ("$o", (int)owner), ("$i", ownerId));
-        using var r = cmd.ExecuteReader();
-        var list = new List<Reminder>();
-        while (r.Read()) list.Add(Map(r));
-        return list;
+        return ReadAll(cmd, Map);
     }
 
     public bool MarkFired(string id, long firedAtMs)
@@ -571,10 +530,7 @@ public sealed class CountdownRepository(DeskCalDb db, IClock clock) : RepoBase(d
     {
         using var c = Db.Open();
         using var cmd = Cmd(c, "SELECT id, title, date, type, show_card, show_bottom, lunar FROM countdowns ORDER BY date, title");
-        using var r = cmd.ExecuteReader();
-        var list = new List<Countdown>();
-        while (r.Read()) list.Add(Map(r));
-        return list;
+        return ReadAll(cmd, Map);
     }
 
     public bool Delete(string id)
@@ -616,10 +572,7 @@ public sealed class NoteRepository(DeskCalDb db, IClock clock) : RepoBase(db, cl
     {
         using var c = Db.Open();
         using var cmd = Cmd(c, $"SELECT {Cols} FROM notes WHERE deleted=0 ORDER BY updated_at DESC");
-        using var r = cmd.ExecuteReader();
-        var list = new List<Note>();
-        while (r.Read()) list.Add(Map(r));
-        return list;
+        return ReadAll(cmd, Map);
     }
 
     public Note? Update(string id, string title, string content)
@@ -707,10 +660,7 @@ public sealed class TimetableRepository(DeskCalDb db, IClock clock) : RepoBase(d
     {
         using var c = Db.Open();
         using var cmd = Cmd(c, "SELECT dow, period, subject, room, color FROM timetable_cells ORDER BY period, dow");
-        using var r = cmd.ExecuteReader();
-        var list = new List<TimetableCell>();
-        while (r.Read()) list.Add(new TimetableCell((DayOfWeek)r.GetInt32(0), r.GetInt32(1), r.GetString(2), r.GetString(3), Str(r, 4)));
-        return list;
+        return ReadAll(cmd, r => new TimetableCell((DayOfWeek)r.GetInt32(0), r.GetInt32(1), r.GetString(2), r.GetString(3), Str(r, 4)));
     }
 
     /// <summary>Fill or change one square; an empty subject and room empties it.</summary>

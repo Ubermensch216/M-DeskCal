@@ -62,10 +62,7 @@ public sealed class SyncRepository(DeskCalDb db, IClock clock) : RepoBase(db, cl
     {
         using var c = Db.Open();
         using var cmd = Cmd(c, $"SELECT {AccountCols} FROM sync_accounts ORDER BY name, id");
-        using var r = cmd.ExecuteReader();
-        var list = new List<SyncAccount>();
-        while (r.Read()) list.Add(MapAccount(r));
-        return list;
+        return ReadAll(cmd, MapAccount);
     }
 
     /// <summary>Remove the account and forget its links. The events themselves stay.</summary>
@@ -97,10 +94,7 @@ public sealed class SyncRepository(DeskCalDb db, IClock clock) : RepoBase(db, cl
     {
         using var c = Db.Open();
         using var cmd = Cmd(c, "SELECT account_id, event_id, href, uid, etag, local_stamp, protected FROM sync_links WHERE account_id=$a", null, ("$a", accountId));
-        using var r = cmd.ExecuteReader();
-        var list = new List<SyncLink>();
-        while (r.Read()) list.Add(MapLink(r));
-        return list;
+        return ReadAll(cmd, MapLink);
     }
 
     public void UpsertLink(SyncLink l)

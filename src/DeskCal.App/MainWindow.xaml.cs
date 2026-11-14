@@ -14,14 +14,12 @@ using DeskCal.Core.Calendars;
 using DeskCal.Data;
 using Brushes = System.Windows.Media.Brushes;
 using Color = System.Windows.Media.Color;
-using ColorConverter = System.Windows.Media.ColorConverter;
 using ContextMenu = System.Windows.Controls.ContextMenu;
 using FontFamily = System.Windows.Media.FontFamily;
 using HorizontalAlignment = System.Windows.HorizontalAlignment;
 using MenuItem = System.Windows.Controls.MenuItem;
 using KeyEventArgs = System.Windows.Input.KeyEventArgs;
 using Orientation = System.Windows.Controls.Orientation;
-using TextBox = System.Windows.Controls.TextBox;
 using WpfBrush = System.Windows.Media.Brush;
 
 namespace DeskCal.App;
@@ -457,7 +455,7 @@ public partial class MainWindow : Window
     {
         if (item?.TextColor is { } tc) p.Foreground = Brush(tc, Colors.White); else p.ClearValue(TextElement.ForegroundProperty);
         if (item?.Done == true) p.TextDecorations = TextDecorations.Strikethrough; else p.ClearValue(Paragraph.TextDecorationsProperty);
-        if (item?.BgColor is { } bg) p.Background = new SolidColorBrush(WithAlpha(ParseColor(bg, Colors.Transparent), 0x88)); else p.ClearValue(TextElement.BackgroundProperty);
+        if (item?.BgColor is { } bg) p.Background = new SolidColorBrush(WithAlpha(UiColors.Parse(bg, Colors.Transparent), 0x88)); else p.ClearValue(TextElement.BackgroundProperty);
     }
 
     private void ResetLine(Paragraph p)
@@ -773,7 +771,7 @@ public partial class MainWindow : Window
         ApplySkin();
 
         // frame: background, opacity, shadow
-        var bg = ParseColor(s.BackgroundColor, Color.FromRgb(0x10, 0x18, 0x20));
+        var bg = UiColors.Parse(s.BackgroundColor, Color.FromRgb(0x10, 0x18, 0x20));
         bg.A = (byte)Math.Round(s.BackgroundOpacity * 255);
         Frame.Background = new SolidColorBrush(bg);
         Frame.Margin = new Thickness(s.Shadow ? 12 : 0);
@@ -945,13 +943,13 @@ public partial class MainWindow : Window
         bool isDayOffCell = isHoliday || (s.ShowOffDays && cell.IsOffDay);
 
         var accent = Color.FromRgb(0x3B, 0x82, 0xF6);
-        if (_cellBgs.TryGetValue(cell.Date, out var cellBgHex) && ParseColor(cellBgHex, Colors.Transparent) is { A: > 0 } cc)
+        if (_cellBgs.TryGetValue(cell.Date, out var cellBgHex) && UiColors.Parse(cellBgHex, Colors.Transparent) is { A: > 0 } cc)
             border.Background = new SolidColorBrush(WithAlpha(cc, 0x66));
         else if (cell.IsToday) border.Background = new SolidColorBrush(dense ? Color.FromArgb(0xB0, accent.R, accent.G, accent.B)
                                                                               : Color.FromArgb(0x30, accent.R, accent.G, accent.B));
         else if (isDayOffCell && !string.IsNullOrWhiteSpace(s.HolidayBgColor))
         {
-            var hc = ParseColor(s.HolidayBgColor, Colors.Transparent);
+            var hc = UiColors.Parse(s.HolidayBgColor, Colors.Transparent);
             if (hc.A > 0) border.Background = new SolidColorBrush(WithAlpha(hc, 0x44));
         }
         if (dense || s.Mode is DisplayMode.SingleLine or DisplayMode.SingleLineFloating) border.MinHeight = size * 2.4;
@@ -1155,7 +1153,7 @@ public partial class MainWindow : Window
         var row = new Grid
         {
             Margin = new Thickness(4, s.LineGap, 2, 0),
-            Background = item.BgColor is { } bgHex ? new SolidColorBrush(WithAlpha(ParseColor(bgHex, Colors.Transparent), 0x66)) : Brushes.Transparent,
+            Background = item.BgColor is { } bgHex ? new SolidColorBrush(WithAlpha(UiColors.Parse(bgHex, Colors.Transparent), 0x66)) : Brushes.Transparent,
         };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -1312,17 +1310,7 @@ public partial class MainWindow : Window
 
     private static Color WithAlpha(Color c, byte a) { c.A = a; return c; }
 
-    private static Color ParseColor(string hex, Color fallback)
-    {
-        try { return (Color)ColorConverter.ConvertFromString(hex); } catch { return fallback; }
-    }
-
-    private static SolidColorBrush Brush(string hex, Color fallback)
-    {
-        var b = new SolidColorBrush(ParseColor(hex, fallback));
-        b.Freeze();
-        return b;
-    }
+    private static SolidColorBrush Brush(string hex, Color fallback) => UiColors.Frozen(UiColors.Parse(hex, fallback));
 
     // Re-attach after Explorer restarts (TaskbarCreated is broadcast on restart).
     private nint WndProc(nint hwnd, int msg, nint wParam, nint lParam, ref bool handled)
@@ -1332,10 +1320,7 @@ public partial class MainWindow : Window
         return 0;
     }
 
-    private static void Log(string text)
-    {
-        try { File.AppendAllText(Path.Combine(App.DataDir, "m0.log"), $"[{DateTime.Now:s}] {text}\n"); } catch { }
-    }
+    private static void Log(string text) => AppLog.Write(text);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern uint RegisterWindowMessage(string name);
 }

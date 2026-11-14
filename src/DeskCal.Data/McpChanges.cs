@@ -250,7 +250,7 @@ public sealed class McpChanges(DeskCalDb db, IClock clock, Func<DateOnly, bool>?
     private static string Clip(string s)
     {
         s = s.ReplaceLineEndings(" ");
-        return s.Length <= 60 ? s : s[..60] + "…";
+        return s.Ellipsize(60);
     }
 }
 

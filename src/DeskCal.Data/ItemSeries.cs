@@ -172,11 +172,8 @@ public sealed class ItemSeriesRepository(DeskCalDb db, IClock clock, Func<DateOn
 
     private static List<ItemReminderSpec> Reminders(SqliteConnection c, SqliteTransaction tx, string itemId)
     {
-        var list = new List<ItemReminderSpec>();
         using var cmd = Cmd(c, "SELECT offset_minutes, custom_time FROM reminders WHERE owner_type=0 AND owner_id=$i ORDER BY offset_minutes DESC", tx, ("$i", itemId));
-        using var r = cmd.ExecuteReader();
-        while (r.Read()) list.Add(new ItemReminderSpec(r.GetInt32(0), Str(r, 1) ?? "09:00"));
-        return list;
+        return ReadAll(cmd, r => new ItemReminderSpec(r.GetInt32(0), Str(r, 1) ?? "09:00"));
     }
 
     private static string Format(IEnumerable<ItemReminderSpec> specs) =>

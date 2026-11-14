@@ -6,7 +6,6 @@ using System.Windows.Threading;
 using DeskCal.Core;
 using DeskCal.Data;
 using Brushes = System.Windows.Media.Brushes;
-using Button = System.Windows.Controls.Button;
 using CheckBox = System.Windows.Controls.CheckBox;
 using Orientation = System.Windows.Controls.Orientation;
 using TextBox = System.Windows.Controls.TextBox;
@@ -22,9 +21,9 @@ internal static class TimetableUi
 
     public static SolidColorBrush? Tint(string? hex, byte alpha = 0x66)
     {
-        if (hex is null) return null;
-        try { var c = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex); c.A = alpha; return new SolidColorBrush(c); }
-        catch { return null; }
+        if (UiColors.TryParse(hex) is not { } c) return null;
+        c.A = alpha;
+        return new SolidColorBrush(c);
     }
 }
 
@@ -280,9 +279,9 @@ internal sealed class TimetableWidgetWindow : Window
     internal void Rebuild(TimetableConfig config, IReadOnlyList<TimetableCell> cells, BoardSettings s)
     {
         (_config, _cells, _settings) = (config, cells, s);
-        var bg = Parse(s.BackgroundColor, System.Windows.Media.Color.FromRgb(0x10, 0x18, 0x20));
+        var bg = UiColors.Parse(s.BackgroundColor, System.Windows.Media.Color.FromRgb(0x10, 0x18, 0x20));
         bg.A = (byte)Math.Round(Math.Max(0.35, s.BackgroundOpacity) * 255);
-        var text = new SolidColorBrush(Parse(s.TextColor, Colors.White));
+        var text = new SolidColorBrush(UiColors.Parse(s.TextColor, Colors.White));
         var accent = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xFF, 0xC8, 0x57));
         var font = new FontFamily(s.FontFamily);
 
@@ -359,10 +358,4 @@ internal sealed class TimetableWidgetWindow : Window
         if (_editMode) DragMove();
     }
 
-    internal void SaveSnapshot(string path) => DevHarness.RenderToPng(_frame, path);
-
-    private static System.Windows.Media.Color Parse(string hex, System.Windows.Media.Color fallback)
-    {
-        try { return (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex); } catch { return fallback; }
-    }
-}
+    internal void SaveSnapshot(string path) => DevHarness.RenderToPng(_frame, path);}

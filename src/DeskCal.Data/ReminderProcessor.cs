@@ -32,7 +32,7 @@ public sealed class ReminderProcessor(DeskCalDb db, IClock clock, Func<DateOnly,
     public IReadOnlyList<ReminderMessage> CollectDue(DateTime nowLocal, TimeSpan missedWindow)
     {
         var messages = new List<ReminderMessage>();
-        foreach (var rs in Resolve(nowLocal))
+        foreach (var rs in Resolve())
         {
             var after = AfterOf(rs.Reminder, nowLocal);
             DateTime? lastHandled = null;
@@ -54,7 +54,7 @@ public sealed class ReminderProcessor(DeskCalDb db, IClock clock, Func<DateOnly,
     public DateTime? NextWake(DateTime nowLocal)
     {
         DateTime? best = null;
-        foreach (var rs in Resolve(nowLocal))
+        foreach (var rs in Resolve())
             if (ReminderPlanner.NextTrigger(rs.Subject, rs.Reminder, AfterOf(rs.Reminder, nowLocal), isDayOff) is { } t && (best is null || t < best))
                 best = t;
         return best;
@@ -67,7 +67,7 @@ public sealed class ReminderProcessor(DeskCalDb db, IClock clock, Func<DateOnly,
 
     private static long ToMs(DateTime local) => new DateTimeOffset(DateTime.SpecifyKind(local, DateTimeKind.Unspecified)).ToUnixTimeMilliseconds();
 
-    private List<Resolved> Resolve(DateTime nowLocal)
+    private List<Resolved> Resolve()
     {
         var all = _reminders.ListAll();
         var result = new List<Resolved>(all.Count);

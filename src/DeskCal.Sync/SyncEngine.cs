@@ -1,4 +1,3 @@
-using System.Globalization;
 using DeskCal.Core;
 using DeskCal.Core.Exchange;
 using DeskCal.Data;
@@ -14,8 +13,6 @@ public sealed class SyncReport
 
     /// <summary>The calendar on screen may need redrawing, and reminders re-planning.</summary>
     public bool ChangedLocal => PulledNew + PulledUpdated + DeletedLocal + Conflicts > 0;
-
-    public bool ChangedAny => ChangedLocal || PushedNew + PushedUpdated + DeletedRemote > 0;
 
     public string Summary()
     {
@@ -252,6 +249,6 @@ public sealed class SyncEngine(DeskCalDb db, IClock clock, Func<DateOnly, bool>?
     private static string Short(string s)
     {
         s = s.Replace('\n', ' ');
-        return s.Length <= 40 ? s : s[..40] + "…";
+        return s.Ellipsize(40);
     }
 }

@@ -31,12 +31,12 @@ public static class BoardLayout
         var s = settings.Sanitized();
         return s.Mode switch
         {
-            DisplayMode.FloatingMonth => Weeks(anchor, today, s, StartOfWeek(anchor, s.FirstDayOfWeek).AddDays(-7 * s.PastWeeks), s.MaxRows, blankOutside: false, anchor),
+            DisplayMode.FloatingMonth => Weeks(today, s, StartOfWeek(anchor, s.FirstDayOfWeek).AddDays(-7 * s.PastWeeks), s.MaxRows, blankOutside: false, anchor),
             DisplayMode.FixedMonth => Month(anchor, today, s, rows: null, blankOutside: true),
             DisplayMode.FullMonth => Month(anchor, today, s, rows: 5, blankOutside: false),
-            DisplayMode.SingleLine => Line(anchor, today, s,
+            DisplayMode.SingleLine => Line(today, s,
                 new DateOnly(anchor.Year, anchor.Month, 1), DateTime.DaysInMonth(anchor.Year, anchor.Month), anchor),
-            DisplayMode.SingleLineFloating => Line(anchor, today, s, anchor, s.LineDays, anchor),
+            DisplayMode.SingleLineFloating => Line(today, s, anchor, s.LineDays, anchor),
             _ => throw new InvalidOperationException(),
         };
     }
@@ -70,11 +70,11 @@ public static class BoardLayout
         int offset = first.DayNumber - start.DayNumber;
         int needed = (offset + days + 6) / 7;
         var last = first.AddDays(days - 1);
-        var grid = Weeks(anchor, today, s, start, rows ?? needed, blankOutside, anchor);
+        var grid = Weeks(today, s, start, rows ?? needed, blankOutside, anchor);
         return grid with { TitleStart = first, TitleEnd = last };
     }
 
-    private static BoardGrid Weeks(DateOnly anchor, DateOnly today, BoardSettings s, DateOnly start, int rowCount,
+    private static BoardGrid Weeks(DateOnly today, BoardSettings s, DateOnly start, int rowCount,
                                    bool blankOutside, DateOnly anchorForMonth)
     {
         bool floating = s.Mode == DisplayMode.FloatingMonth;
@@ -98,7 +98,7 @@ public static class BoardLayout
         return new BoardGrid(start, end, 7, header, rows, s.ShowWeekNumbers);
     }
 
-    private static BoardGrid Line(DateOnly anchor, DateOnly today, BoardSettings s, DateOnly start, int count, DateOnly anchorForMonth)
+    private static BoardGrid Line(DateOnly today, BoardSettings s, DateOnly start, int count, DateOnly anchorForMonth)
     {
         var cells = new List<BoardCell>(count);
         var header = new List<DayOfWeek>(count);

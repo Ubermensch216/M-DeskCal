@@ -198,14 +198,12 @@ public class ItemTests
 public class EventTests
 {
     [Fact]
-    public void Add_get_and_range_query()
+    public void Add_and_get()
     {
         using var f = new DbFixture();
         var e1 = f.Events.Add("스탠드업", "2026-11-08T00:00:00Z", "2026-11-08T00:30:00Z", tz: "Asia/Seoul", rrule: "FREQ=DAILY");
-        f.Events.Add("later", "2026-12-01T00:00:00Z");
         var got = f.Events.Get(e1.Id)!;
         Assert.Equal("스탠드업", got.Title); Assert.Equal("FREQ=DAILY", got.RRule); Assert.Equal("Asia/Seoul", got.Tz);
-        Assert.Equal([e1.Id], f.Events.GetStartingBetween("2026-11-01T00:00:00Z", "2026-12-01T00:00:00Z").Select(x => x.Id));
     }
 
     [Fact]
@@ -221,16 +219,14 @@ public class EventTests
     }
 
     [Fact]
-    public void Recurring_lists_only_repeating_non_deleted_events()
+    public void Active_list_skips_soft_deleted_events()
     {
         using var f = new DbFixture();
-        f.Events.Add("once", "2026-11-08T00:00:00Z");
-        var a = f.Events.Add("rrule", "2026-11-08T00:00:00Z", rrule: "FREQ=WEEKLY");
+        var a = f.Events.Add("once", "2026-11-08T00:00:00Z");
         var b = f.Events.Add("ext", "2026-11-09T00:00:00Z", extRule: "ebbinghaus");
         var d = f.Events.Add("deleted", "2026-11-10T00:00:00Z", rrule: "FREQ=DAILY");
         f.Events.SoftDelete(d.Id);
-        Assert.Equal([a.Id, b.Id], f.Events.GetRecurring().Select(x => x.Id));
-        Assert.Empty(f.Events.GetStartingBetween("2026-11-10T00:00:00Z", "2026-11-11T00:00:00Z"));
+        Assert.Equal([a.Id, b.Id], f.Events.GetAllActive().Select(x => x.Id));
     }
 }
 

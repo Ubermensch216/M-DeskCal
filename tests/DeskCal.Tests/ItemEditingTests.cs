@@ -1,6 +1,5 @@
 using DeskCal.Core;
 using DeskCal.Data;
-using Microsoft.Data.Sqlite;
 
 namespace DeskCal.Tests;
 

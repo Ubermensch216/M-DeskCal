@@ -1,7 +1,5 @@
 using System.Globalization;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using DeskCal.Ai.Llm;
 using DeskCal.Core;
@@ -147,7 +145,7 @@ public static class BriefingNarrator
         return null;
     }
 
-    private static string Short(string s) => s.Length <= 20 ? s : s[..20] + "…";
+    private static string Short(string s) => s.Ellipsize(20);
     private static string NormalizeClock(string t) => t.Length == 4 ? "0" + t : t;
     private static string Flat(string s) => new([.. s.Normalize(NormalizationForm.FormC).Where(c => !char.IsWhiteSpace(c) && c is not ('「' or '」'))]);
 

@@ -336,7 +336,7 @@ public static partial class IcsExchange
     private static ExEvent? ReadEvent(Comp c, Context ctx)
     {
         string title = Unescape(c.Get("SUMMARY")?.Value ?? "").Trim();
-        string label = title.Length > 0 ? $"'{(title.Length > 30 ? title[..30] + "…" : title)}'" : "(제목 없음)";
+        string label = title.Length > 0 ? $"'{title.Ellipsize(30)}'" : "(제목 없음)";
 
         if (string.Equals(c.Get("STATUS")?.Value.Trim(), "CANCELLED", StringComparison.OrdinalIgnoreCase)) { ctx.Warnings.Add($"일정 {label}: 취소된 일정이라 건너뜀"); return null; }
         if (c.Get("DTSTART") is not { } ds || ParseDt(ds, ctx) is not { } start) { ctx.Warnings.Add($"일정 {label}: DTSTART 를 읽을 수 없어 건너뜀"); return null; }
@@ -391,7 +391,7 @@ public static partial class IcsExchange
     private static ExItem? ReadTodo(Comp c, Context ctx)
     {
         string title = Unescape(c.Get("SUMMARY")?.Value ?? "").Trim();
-        string label = title.Length > 0 ? $"'{(title.Length > 30 ? title[..30] + "…" : title)}'" : "(제목 없음)";
+        string label = title.Length > 0 ? $"'{title.Ellipsize(30)}'" : "(제목 없음)";
         if (string.Equals(c.Get("STATUS")?.Value.Trim(), "CANCELLED", StringComparison.OrdinalIgnoreCase)) { ctx.Warnings.Add($"할 일 {label}: 취소됨 — 건너뜀"); return null; }
 
         var when = (c.Get("DUE") is { } due ? ParseDt(due, ctx) : null) ?? (c.Get("DTSTART") is { } st ? ParseDt(st, ctx) : null);

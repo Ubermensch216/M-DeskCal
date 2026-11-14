@@ -42,10 +42,7 @@ public sealed class ActivityRepository(DeskCalDb db, IClock clock) : RepoBase(db
         using var cmd = Cmd(c,
             "SELECT id, item_id, kind, at, day, to_day FROM item_activity WHERE at >= $f AND at < $t AND ($k IS NULL OR kind = $k) ORDER BY at, id LIMIT $l",
             null, ("$f", fromMs), ("$t", toMs), ("$k", kind), ("$l", limit));
-        using var r = cmd.ExecuteReader();
-        var list = new List<ActivityEntry>();
-        while (r.Read()) list.Add(new ActivityEntry(r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetInt64(3), Str(r, 4), Str(r, 5)));
-        return list;
+        return ReadAll(cmd, r => new ActivityEntry(r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetInt64(3), Str(r, 4), Str(r, 5)));
     }
 
     /// <summary>Counts per kind in [fromMs, toMs).</summary>

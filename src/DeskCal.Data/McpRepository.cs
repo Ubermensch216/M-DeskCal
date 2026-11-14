@@ -53,10 +53,7 @@ public sealed class McpRepository(DeskCalDb db, IClock clock, int maxAudit = Mcp
     {
         using var c = Db.Open();
         using var cmd = Cmd(c, $"SELECT {Cols} FROM mcp_pending WHERE status=0 ORDER BY created_at");
-        using var r = cmd.ExecuteReader();
-        var list = new List<PendingChange>();
-        while (r.Read()) list.Add(Map(r));
-        return list;
+        return ReadAll(cmd, Map);
     }
 
     public int CountWaiting()
@@ -91,7 +88,7 @@ public sealed class McpRepository(DeskCalDb db, IClock clock, int maxAudit = Mcp
         using var c = Db.Open();
         using var tx = c.BeginTransaction();
         using (var cmd = Cmd(c, "INSERT INTO mcp_audit(at, tool, args, outcome) VALUES($a,$t,$g,$o)", tx,
-            ("$a", Clock.NowMs), ("$t", tool), ("$g", Clip(args, 2000)), ("$o", Clip(outcome, 1000)))) cmd.ExecuteNonQuery();
+            ("$a", Clock.NowMs), ("$t", tool), ("$g", args.Ellipsize(2000)), ("$o", outcome.Ellipsize(1000)))) cmd.ExecuteNonQuery();
         using (var trim = Cmd(c, "DELETE FROM mcp_audit WHERE id <= (SELECT MAX(id) FROM mcp_audit) - $keep", tx, ("$keep", maxAudit))) trim.ExecuteNonQuery();
         tx.Commit();
     }
@@ -100,13 +97,8 @@ public sealed class McpRepository(DeskCalDb db, IClock clock, int maxAudit = Mcp
     {
         using var c = Db.Open();
         using var cmd = Cmd(c, "SELECT id, at, tool, args, outcome FROM mcp_audit ORDER BY id DESC LIMIT $n", null, ("$n", limit));
-        using var r = cmd.ExecuteReader();
-        var list = new List<AuditEntry>();
-        while (r.Read()) list.Add(new AuditEntry(r.GetInt64(0), r.GetInt64(1), r.GetString(2), r.GetString(3), r.GetString(4)));
-        return list;
+        return ReadAll(cmd, r => new AuditEntry(r.GetInt64(0), r.GetInt64(1), r.GetString(2), r.GetString(3), r.GetString(4)));
     }
-
-    private static string Clip(string s, int max) => s.Length <= max ? s : s[..max] + "…";
 }
 
 /// <summary>

@@ -116,7 +116,7 @@ internal sealed class NotesWindow : Window
         foreach (var n in _notes.List().Where(n => q.Length == 0 || (n.Title + "\n" + n.Content).Contains(q, StringComparison.OrdinalIgnoreCase)))
         {
             var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
-            var bar = new Border { Width = 4, Margin = new Thickness(0, 0, 6, 0), CornerRadius = new CornerRadius(2), Background = TryBrush(n.Color) ?? Brushes.Transparent };
+            var bar = new Border { Width = 4, Margin = new Thickness(0, 0, 6, 0), CornerRadius = new CornerRadius(2), Background = UiColors.TryBrush(n.Color) ?? Brushes.Transparent };
             DockPanel.SetDock(bar, Dock.Left);
             var info = new StackPanel();
             info.Children.Add(new TextBlock { Text = n.Title.Length > 0 ? n.Title : "(제목 없음)", FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
@@ -131,11 +131,6 @@ internal sealed class NotesWindow : Window
     }
 
     private static string FirstLine(string s) => s.Split('\n', 2)[0].Trim();
-
-    private static SolidColorBrush? TryBrush(string? hex)
-    {
-        try { return hex is null ? null : (SolidColorBrush)new BrushConverter().ConvertFrom(hex)!; } catch { return null; }
-    }
 
     private void Load(Note? n)
     {
@@ -209,7 +204,7 @@ internal sealed class NotesWindow : Window
             {
                 var sp = new StackPanel { Tag = h, Margin = new Thickness(0, 2, 0, 2) };
                 sp.Children.Add(new TextBlock { Text = Dlg.When(h.At), FontSize = 11, Foreground = Brushes.Gray });
-                sp.Children.Add(new TextBlock { Text = h.Content.Length > 300 ? h.Content[..300] + "…" : h.Content, TextWrapping = TextWrapping.Wrap });
+                sp.Children.Add(new TextBlock { Text = h.Content.Ellipsize(300), TextWrapping = TextWrapping.Wrap });
                 list.Items.Add(sp);
             }
             empty.Visibility = list.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;

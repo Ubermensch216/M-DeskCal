@@ -4,7 +4,6 @@ using System.Windows.Controls;
 using DeskCal.Core;
 using DeskCal.Data;
 using CheckBox = System.Windows.Controls.CheckBox;
-using ComboBox = System.Windows.Controls.ComboBox;
 using MessageBox = System.Windows.MessageBox;
 
 namespace DeskCal.App;
@@ -130,9 +129,6 @@ public partial class EventEditorWindow : Window
 
     private RepeatKind SelectedKind => RepeatBox.SelectedIndex >= 0 ? Repeats[RepeatBox.SelectedIndex].Kind : RepeatKind.None;
 
-    private static bool UsesInterval(RepeatKind k) =>
-        k is RepeatKind.Daily or RepeatKind.Weekly or RepeatKind.Monthly or RepeatKind.Yearly or RepeatKind.MonthLastDay or RepeatKind.LunarYearly;
-
     private void UpdateUi()
     {
         if (_loading) return;
@@ -140,7 +136,7 @@ public partial class EventEditorWindow : Window
         bool allDay = AllDayBox.IsChecked == true;
 
         StartTime.IsEnabled = EndTime.IsEnabled = !allDay;
-        IntervalRow.Visibility = UsesInterval(kind) ? Visibility.Visible : Visibility.Collapsed;
+        IntervalRow.Visibility = kind.UsesInterval() ? Visibility.Visible : Visibility.Collapsed;
         IntervalUnit.Text = kind switch
         {
             RepeatKind.Daily => "일마다", RepeatKind.Weekly => "주마다", RepeatKind.Monthly => "개월마다",
@@ -197,7 +193,7 @@ public partial class EventEditorWindow : Window
 
         var kind = SelectedKind;
         int interval = 1;
-        if (UsesInterval(kind) && (!int.TryParse(IntervalBox.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out interval) || interval < 1 || interval > 999))
+        if (kind.UsesInterval() && (!int.TryParse(IntervalBox.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out interval) || interval < 1 || interval > 999))
         { error = "반복 간격은 1~999 사이의 숫자여야 합니다."; return false; }
 
         int mask = 0;
@@ -221,7 +217,7 @@ public partial class EventEditorWindow : Window
 
         var rule = new RecurrenceRule
         {
-            Kind = kind, Interval = UsesInterval(kind) ? interval : 1,
+            Kind = kind, Interval = kind.UsesInterval() ? interval : 1,
             WeekdaysMask = kind == RepeatKind.Weekly ? mask : 0,
             Monthly = kind == RepeatKind.Monthly && MonthlyModeBox.SelectedIndex == 1 ? MonthlyMode.ByWeekday : MonthlyMode.ByDate,
             Count = count, Until = until,

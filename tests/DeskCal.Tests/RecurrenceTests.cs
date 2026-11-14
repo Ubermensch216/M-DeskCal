@@ -248,7 +248,7 @@ public class RecurrenceRuleTests
     {
         Assert.False(RecurrenceRule.TryParse(text, null, out var r));
         Assert.Equal(RecurrenceRule.None, r);
-        Assert.False(RecurrenceRule.TryParse(null, text, out r));
+        Assert.False(RecurrenceRule.TryParse(null, text, out _));
     }
 
     [Fact]
