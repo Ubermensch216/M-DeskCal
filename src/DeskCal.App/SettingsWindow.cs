@@ -6,6 +6,8 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Markup;
 using System.Windows.Media;
+using DeskCal.Ai;
+using DeskCal.Ai.Llm;
 using DeskCal.Core;
 using Button = System.Windows.Controls.Button;
 using Color = System.Windows.Media.Color;
@@ -35,10 +37,11 @@ internal sealed record SettingsHost(
     Action EditHolidays,
     Action ReloadHolidays,
     Action OpenDataFolder,
-    Action ShowDiagnostics);
+    Action ShowDiagnostics,
+    AiHost? Ai = null);
 
 /// <summary>
-/// "캘린더 설정": the full set of options, in six tabs. The gear's quick menu holds the handful used every day;
+/// "캘린더 설정": the full set of options, in seven tabs. The gear's quick menu holds the handful used every day;
 /// everything else is here.
 /// </summary>
 internal sealed class SettingsWindow : Window
@@ -91,6 +94,7 @@ internal sealed class SettingsWindow : Window
             ("글꼴 및 색상", "", FontTab),
             ("메모", "", MemoTab),
             ("고급", "", AdvancedTab),
+            ("AI", "\uE82F", AiTab),
             ("제품 정보", "", AboutTab),
         ];
 
@@ -197,7 +201,7 @@ internal sealed class SettingsWindow : Window
         {
             ("고정 월", DisplayMode.FixedMonth, () => Cells(7, 5, 6, 5, 2, i => i < 2 || i >= 32 ? 0 : 1)),
             ("변동 월", DisplayMode.FloatingMonth, () => WithArrows(Cells(7, 4, 6, 5, 2, _ => 1), vertical: true)),
-            ("전체 월", DisplayMode.FullMonth, () => Cells(7, 6, 6, 4, 2, i => i < 2 || i >= 32 ? 0.35 : 1)),
+            ("전체 월", DisplayMode.FullMonth, () => Cells(7, 5, 6, 5, 2, i => i < 2 || i >= 32 ? 0.35 : 1)),
             ("고정 단일 행", DisplayMode.SingleLine, () => Cells(12, 1, 3, 28, 2, _ => 1)),
             ("변동 단일 행", DisplayMode.SingleLineFloating, () => WithArrows(Cells(8, 1, 4, 28, 2, _ => 1, highlight: 2), vertical: false)),
         };
@@ -339,6 +343,140 @@ internal sealed class SettingsWindow : Window
             RowToggle("Windows 시작 시 자동 실행", null, _h.GetAutoStart, v => { if (!_syncing) _h.SetAutoStart(v); }),
             RowLink("휴일 데이터 편집", "공휴일을 직접 추가·수정하는 파일을 엽니다", "열기", _h.EditHolidays),
             RowLink("휴일 데이터 다시 읽기", null, "실행", _h.ReloadHolidays)));
+        return page;
+    }
+
+    private UIElement AiTab()
+    {
+        var page = new StackPanel();
+        if (_h.Ai is not { } ai)
+        {
+            page.Children.Add(Card("AI", RowText("AI", "이 화면에서는 AI 설정을 바꿀 수 없습니다.")));
+            return page;
+        }
+        AiSettings Cur() => ai.Get();
+        void Change(Func<AiSettings, AiSettings> f) { if (_syncing) return; ai.Set(f(Cur())); SyncAll(); }
+
+        page.Children.Add(Card("AI 기능",
+            RowToggle("AI 기능 사용", "꺼져 있으면 AI 는 아무것도 하지 않습니다. 켜면 '빠른 입력'에서 규칙으로 읽지 못한 문장을 AI 가 해석해 제안합니다.",
+                () => Cur().Enabled, v => Change(s => s with { Enabled = v })),
+            RowText("개인정보", "기본 설정에서는 이 PC 의 AI 서버(예: Ollama)에만 연결하므로 달력 내용이 PC 밖으로 나가지 않습니다. AI 는 제안만 하고, 일정은 항상 직접 확인한 뒤 추가됩니다.")));
+
+        // ---- the connection
+        var endpoint = new TextBox { Width = 260, MinHeight = 26, VerticalContentAlignment = VerticalAlignment.Center };
+        var endpointNote = new TextBlock { Foreground = Frozen(Color.FromRgb(0xC0, 0x39, 0x2B)), FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed, MaxWidth = 420, Margin = new Thickness(14, 0, 14, 8) };
+        void ApplyEndpoint()
+        {
+            if (_syncing) return;
+            string text = endpoint.Text.Trim();
+            if (!EndpointPolicy.TryParse(text, Cur().AllowRemote, out _, out string? error)) { endpointNote.Text = error; endpointNote.Visibility = Visibility.Visible; return; }
+            endpointNote.Visibility = Visibility.Collapsed;
+            if (text != Cur().Endpoint) Change(s => s with { Endpoint = text });
+        }
+        endpoint.LostFocus += (_, _) => ApplyEndpoint();
+        endpoint.KeyDown += (_, e) => { if (e.Key == Key.Enter) ApplyEndpoint(); };
+        _sync.Add(() => { if (!endpoint.IsKeyboardFocusWithin) endpoint.Text = Cur().Endpoint; });
+
+        var model = new ComboBox { Width = 230, MinHeight = 28, IsEditable = true, VerticalContentAlignment = VerticalAlignment.Center };
+        model.SelectionChanged += (_, _) => { if (!_syncing && model.SelectedItem is string m && m != Cur().Model) Change(s => s with { Model = m }); };
+        model.LostFocus += (_, _) => { if (!_syncing && model.Text.Trim() != Cur().Model) Change(s => s with { Model = model.Text.Trim() }); };
+        _sync.Add(() => { if (!model.IsKeyboardFocusWithin) model.Text = Cur().Model; });
+
+        var result = new TextBlock { Foreground = MutedBrush, TextWrapping = TextWrapping.Wrap, MaxWidth = 420, TextAlignment = TextAlignment.Right, Text = "아직 시험하지 않았습니다." };
+        async Task RunTest()
+        {
+            result.Text = "연결하는 중…"; result.Foreground = MutedBrush;
+            ConnectionReport report;
+            try { report = await ai.Test(Cur(), CancellationToken.None); }
+            catch (Exception ex) { report = new ConnectionReport(false, ex.Message, [], false); }
+            result.Text = report.Message + (report.DataLeavesPc ? "\n⚠ 이 주소는 다른 컴퓨터입니다. 일정 제목·메모가 그곳으로 전송됩니다." : "");
+            result.Foreground = report.Ok ? Frozen(Color.FromRgb(0x1E, 0x8E, 0x3E)) : report.Models.Count > 0 ? InkBrush : Frozen(Color.FromRgb(0xC0, 0x39, 0x2B));
+            if (report.Models.Count > 0)
+            {
+                string keep = Cur().Model;
+                model.Items.Clear();
+                foreach (var m in report.Models) model.Items.Add(m);
+                model.Text = keep;
+            }
+        }
+
+        page.Children.Add(Card("연결",
+            RowCombo("AI 서버 종류", "Ollama, 또는 LM Studio·llama.cpp 서버처럼 OpenAI 방식으로 말하는 서버",
+                [("Ollama", AiProvider.Ollama), ("OpenAI 호환 (LM Studio 등)", AiProvider.OpenAiCompatible)],
+                () => Cur().Provider,
+                v => Change(s => s with
+                {
+                    Provider = v, Model = "",
+                    Endpoint = s.Endpoint == AiSettings.DefaultEndpoint(s.Provider) ? AiSettings.DefaultEndpoint(v) : s.Endpoint,
+                }), width: 220),
+            RowCustom("서버 주소", "이 컴퓨터(127.0.0.1, localhost)만 쓸 수 있습니다", endpoint),
+            endpointNote,
+            RowCustom("모델", "목록에서 고르거나 이름을 직접 쓰세요 (예: gemma4:e2b). 작은 모델일수록 빠르지만 틀리기 쉬우므로 결과는 항상 확인하세요", model),
+            RowLink("연결 시험", "서버에 연결해 설치된 모델 목록을 가져옵니다", "시험하기", () => _ = RunTest()),
+            RowCustom("시험 결과", null, result)));
+
+        var keepRow = RowCombo("모델을 메모리에 유지", "마지막 사용 뒤 이만큼 지나면 AI 서버가 모델을 내립니다 (Ollama)",
+            [("바로 내림", "0"), ("5분", "5m"), ("30분", "30m"), ("2시간", "2h"), ("계속", "-1")], () => Cur().KeepAlive, v => Change(s => s with { KeepAlive = v }));
+        Gate(keepRow, () => Cur().Provider == AiProvider.Ollama);
+        page.Children.Add(Card("고급",
+            RowCombo("응답 기다리는 시간", "처음 모델을 불러올 때는 오래 걸릴 수 있습니다",
+                [("30초", 30), ("1분", 60), ("2분", 120), ("5분", 300)], () => Cur().TimeoutSeconds, v => Change(s => s with { TimeoutSeconds = v })),
+            keepRow,
+            RowToggle("다른 컴퓨터의 주소 허용", "⚠ 켜면 일정 제목·메모가 그 서버로 전송됩니다. https:// 주소만 쓸 수 있습니다. 잘 모르면 꺼 두세요.",
+                () => Cur().AllowRemote, v => Change(s => s with { AllowRemote = v }))));
+
+        if (ai.Plus is { } plus)
+        {
+            // ---- meaning search: a second model that turns each to-do and event into numbers, so that "병원 갔던 날" finds "치과 정기검진"
+            var embed = new ComboBox { Width = 230, MinHeight = 28, IsEditable = true, VerticalContentAlignment = VerticalAlignment.Center };
+            embed.SelectionChanged += (_, _) => { if (!_syncing && embed.SelectedItem is string m && m != Cur().EmbedModel) Change(s => s with { EmbedModel = m }); };
+            embed.LostFocus += (_, _) => { if (!_syncing && embed.Text.Trim() != Cur().EmbedModel) Change(s => s with { EmbedModel = embed.Text.Trim() }); };
+            _sync.Add(() => { if (!embed.IsKeyboardFocusWithin) embed.Text = Cur().EmbedModel; });
+            var indexState = new TextBlock { Foreground = MutedBrush, TextWrapping = TextWrapping.Wrap, MaxWidth = 420, TextAlignment = TextAlignment.Right };
+            _sync.Add(() => indexState.Text = plus.IndexStatus());
+            async Task Build()
+            {
+                indexState.Text = "색인을 만드는 중… (처음에는 모델을 불러오느라 시간이 걸립니다)";
+                string result;
+                try { result = await plus.BuildIndex(); } catch (Exception ex) { result = ex.Message; }
+                indexState.Text = result;
+            }
+            page.Children.Add(Card("의미 검색",
+                RowToggle("의미 검색 사용", "검색 창에서 '의미 검색'을 고를 수 있습니다. 켜면 할 일·일정의 글을 임베딩 모델에 보내 숫자로 바꾼 색인을 이 컴퓨터에 만듭니다 (AI 기능이 켜져 있어야 합니다).",
+                    () => Cur().SemanticSearch, v => Change(s => s with { SemanticSearch = v })),
+                RowCustom("임베딩 모델", "예: bge-m3 (한국어 지원). 위의 '연결 시험'으로 목록을 가져올 수 있습니다. 모델을 바꾸면 색인을 다시 만듭니다.", embed),
+                RowCustom("색인 상태", null, indexState),
+                RowLink("색인 만들기·갱신", "새로 쓰거나 고친 글만 다시 계산합니다", "실행", () => _ = Build()),
+                RowLink("색인 지우기", "색인은 글에서 만든 파생 데이터입니다. 지워도 일정은 그대로이고 언제든 다시 만들 수 있습니다", "지우기", () => { plus.ClearIndex(); SyncAll(); })));
+
+            // ---- the morning briefing (needs no AI; the model only rephrases it, if asked to)
+            var b = plus.GetBriefing;
+            void ChangeB(Func<BriefingSettings, BriefingSettings> f) { if (_syncing) return; plus.SetBriefing(f(b())); SyncAll(); }
+            page.Children.Add(Card("아침 브리핑",
+                RowToggle("브리핑을 자동으로 띄우기", "하루에 한 번, 정한 시각부터 18시 사이에 오늘의 일정·할 일·빈 시간을 작은 창으로 보여 줍니다. 트레이의 '오늘 브리핑…'으로 언제든 열 수 있습니다.",
+                    () => b().Auto, v => ChangeB(s => s with { Auto = v })),
+                RowCombo("띄우는 시각", "이 시각 이후 처음 앱이 켜져 있을 때", [("7시", 7), ("8시", 8), ("9시", 9), ("10시", 10), ("11시", 11), ("12시", 12)], () => b().Hour, v => ChangeB(s => s with { Hour = v })),
+                RowToggle("평일(공휴일 제외)에만", null, () => b().WorkdaysOnly, v => ChangeB(s => s with { WorkdaysOnly = v })),
+                RowToggle("AI 로 문장 다듬기", "자동으로 띄울 때 AI 에게 문장을 다듬게 합니다. 일정이 빠지거나 없는 시각이 들어간 답은 버리고 원본을 보여 줍니다. 실패하면 간격을 늘려 다시 시도합니다.",
+                    () => b().UseLlm, v => ChangeB(s => s with { UseLlm = v }))));
+        }
+
+        if (ai.Accuracy is { } accuracy)
+        {
+            // the user's own "맞음/틀림" marks on the quick-input cards: four counters kept on this computer, never any text
+            var rules = new TextBlock { Foreground = MutedBrush, TextAlignment = TextAlignment.Right };
+            var llm = new TextBlock { Foreground = MutedBrush, TextAlignment = TextAlignment.Right };
+            _sync.Add(() =>
+            {
+                var s = accuracy();
+                rules.Text = AccuracySummary.Describe(s.RulesOk, s.RulesBad);
+                llm.Text = AccuracySummary.Describe(s.LlmOk, s.LlmBad);
+            });
+            page.Children.Add(Card("정확도 기록 (내 컴퓨터에만 저장)",
+                RowCustom("규칙으로 읽은 것", "빠른 입력 카드에서 누른 '맞음/틀림'의 횟수입니다. 문장 내용은 저장하지 않습니다.", rules),
+                RowCustom("AI 가 읽은 것", null, llm),
+                RowLink("기록 지우기", null, "지우기", () => { ai.ResetAccuracy?.Invoke(); SyncAll(); })));
+        }
         return page;
     }
 
@@ -575,15 +713,20 @@ internal sealed class SettingsWindow : Window
 
     private UIElement ChoiceCards<T>(IReadOnlyList<(string Label, T Value, Func<UIElement> Glyph)> items, Func<T> get, Action<T> set)
     {
-        var wrap = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Center };
+        double cardW = items.Count >= 5 ? 78 : 84;
+        double cardH = items.Count >= 5 ? 58 : 62;
+        double marginX = items.Count >= 5 ? 4 : 8;
+        double viewboxMargin = items.Count >= 5 ? 8 : 10;
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
         var cards = new List<(Border Card, UIElement Check, T Value)>();
         foreach (var (label, value, glyph) in items)
         {
             var v = value;
             var box = new Border
             {
-                Width = 84, Height = 62, CornerRadius = new CornerRadius(7), Background = Frozen(Color.FromRgb(0xE7, 0xEA, 0xF0)),
-                Child = new Viewbox { Stretch = Stretch.Uniform, Margin = new Thickness(10), Child = glyph() },
+                Width = cardW, Height = cardH, CornerRadius = new CornerRadius(7), Background = Frozen(Color.FromRgb(0xE7, 0xEA, 0xF0)),
+                Child = new Viewbox { Stretch = Stretch.Uniform, Margin = new Thickness(viewboxMargin), Child = glyph() },
             };
             var check = new Border
             {
@@ -596,12 +739,12 @@ internal sealed class SettingsWindow : Window
                 CornerRadius = new CornerRadius(9), BorderThickness = new Thickness(2), BorderBrush = Brushes.Transparent, Padding = new Thickness(3),
                 Child = new Grid { Children = { box, check } },
             };
-            var card = new StackPanel { Margin = new Thickness(8, 2, 8, 2), Cursor = Cursors.Hand, Background = Brushes.Transparent };
+            var card = new StackPanel { Margin = new Thickness(marginX, 2, marginX, 2), Cursor = Cursors.Hand, Background = Brushes.Transparent };
             card.Children.Add(frame);
             card.Children.Add(new TextBlock { Text = label, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 6, 0, 0) });
             card.MouseLeftButtonUp += (_, _) => { if (!_syncing) set(v); };
             cards.Add((frame, check, value));
-            wrap.Children.Add(card);
+            row.Children.Add(card);
         }
         _sync.Add(() =>
         {
@@ -613,7 +756,7 @@ internal sealed class SettingsWindow : Window
                 check.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
             }
         });
-        return wrap;
+        return row;
     }
 
     /// <summary>A little grid of day cells (the display-mode pictures).</summary>

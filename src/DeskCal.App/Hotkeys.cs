@@ -79,6 +79,7 @@ internal sealed class HotkeyManager : IDisposable
         HotkeyAction.ToggleVisible => "달력 숨기기/보이기",
         HotkeyAction.NewEvent => "오늘 일정 추가",
         HotkeyAction.Search => "검색 창 열기",
+        HotkeyAction.QuickInput => "빠른 입력 (문장으로 추가)",
         _ => "콘텐츠 잠금/해제",
     };
 }

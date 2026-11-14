@@ -95,7 +95,7 @@ public readonly record struct Hotkey(HotkeyMods Mods, int VirtualKey)
     }
 }
 
-public enum HotkeyAction { BringToFront, ToggleVisible, NewEvent, Search, ToggleContent }
+public enum HotkeyAction { BringToFront, ToggleVisible, NewEvent, Search, ToggleContent, QuickInput }
 
 /// <summary>Application-level (non-appearance) preferences: global shortcuts and whether the board is shown.</summary>
 public sealed record AppPreferences
@@ -106,6 +106,7 @@ public sealed record AppPreferences
     public Hotkey NewEvent { get; init; } = new(HotkeyMods.Ctrl | HotkeyMods.Alt, 'E');
     public Hotkey Search { get; init; } = new(HotkeyMods.Ctrl | HotkeyMods.Alt, 'F');
     public Hotkey ToggleContent { get; init; } = new(HotkeyMods.Ctrl | HotkeyMods.Alt, 'L');
+    public Hotkey QuickInput { get; init; } = new(HotkeyMods.Ctrl | HotkeyMods.Alt, 'Q');
 
     /// <summary>Whether the board was visible when the app last ran (restored only for auto-start launches).</summary>
     public bool BoardVisible { get; init; } = true;
@@ -116,6 +117,7 @@ public sealed record AppPreferences
         HotkeyAction.ToggleVisible => ToggleVisible,
         HotkeyAction.NewEvent => NewEvent,
         HotkeyAction.Search => Search,
+        HotkeyAction.QuickInput => QuickInput,
         _ => ToggleContent,
     };
 
@@ -125,6 +127,7 @@ public sealed record AppPreferences
         HotkeyAction.ToggleVisible => this with { ToggleVisible = h },
         HotkeyAction.NewEvent => this with { NewEvent = h },
         HotkeyAction.Search => this with { Search = h },
+        HotkeyAction.QuickInput => this with { QuickInput = h },
         _ => this with { ToggleContent = h },
     };
 

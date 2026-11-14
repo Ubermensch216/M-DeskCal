@@ -56,6 +56,8 @@ public partial class MainWindow : Window
         ("초록", "#69DB7C"), ("파랑", "#74C0FC"), ("보라", "#B197FC"),
     ];
 
+    private static readonly FontFamily IconFont = new("Segoe Fluent Icons, Segoe MDL2 Assets, Segoe UI Symbol");
+
     public MainWindow()
     {
         InitializeComponent();
@@ -1055,16 +1057,37 @@ public partial class MainWindow : Window
     {
         var color = occ.Event.Color is { } hex ? Brush(hex, Colors.LightSkyBlue) : DefaultEventBrush;
         string prefix = day > occ.Date ? "↳ " : occ.StartTime is { } t ? $"{t:HH:mm} " : "";
+        bool repeating = RecurrenceRule.From(occ.Event).IsRepeating;
+
+        var tb = new TextBlock
+        {
+            Text = prefix + occ.Event.Title, Foreground = text, FontFamily = font, FontSize = size,
+            TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap,
+        };
+
+        UIElement child;
+        if (repeating)
+        {
+            var panel = new InlineTrailingPanel { Gap = 4 };
+            panel.Children.Add(tb);
+            panel.Children.Add(new TextBlock
+            {
+                Text = "\uE8EE", Foreground = text, FontFamily = IconFont,
+                FontSize = Math.Max(8.0, size - 2.0), Opacity = 0.75, ToolTip = "반복 일정",
+            });
+            child = panel;
+        }
+        else
+        {
+            child = tb;
+        }
+
         var row = new Border
         {
             Margin = new Thickness(4, _settings.LineGap, 2, 0), Padding = new Thickness(4, 0, 2, 0), CornerRadius = new CornerRadius(2),
             BorderBrush = color, BorderThickness = new Thickness(2.5, 0, 0, 0), Background = Brushes.Transparent,
             Cursor = System.Windows.Input.Cursors.Hand,
-            Child = new TextBlock
-            {
-                Text = prefix + occ.Event.Title, Foreground = text, FontFamily = font, FontSize = size,
-                TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap,
-            },
+            Child = child,
         };
         row.MouseLeftButtonDown += (_, e) => { e.Handled = true; if (e.ClickCount == 2 && !_editMode) EditEvent(occ); };
         row.ContextMenu = BuildEventMenu(occ);
@@ -1165,13 +1188,30 @@ public partial class MainWindow : Window
             TextDecorations = item.Done ? TextDecorations.Strikethrough : null,
             Opacity = item.Done ? 0.5 : 1.0,
         };
-        Grid.SetColumn(t, 1);
-        row.Children.Add(t);
 
-        // small marks at the right end of the line: repeats (↻), D-day label, reminder (⏰)
-        var marks = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        UIElement textCol;
         if (item.SeriesId is not null)
-            marks.Children.Add(new TextBlock { Text = "↻", Foreground = fg, FontFamily = font, FontSize = size, Margin = new Thickness(3, 0, 0, 0), Opacity = 0.75, ToolTip = "반복 항목" });
+        {
+            var p = new InlineTrailingPanel { Gap = 4 };
+            p.Children.Add(t);
+            p.Children.Add(new TextBlock
+            {
+                Text = "\uE8EE", Foreground = fg, FontFamily = IconFont,
+                FontSize = Math.Max(8.0, size - 2.0),
+                Opacity = item.Done ? 0.4 : 0.75,
+                ToolTip = "반복 항목",
+            });
+            textCol = p;
+        }
+        else
+        {
+            textCol = t;
+        }
+        Grid.SetColumn(textCol, 1);
+        row.Children.Add(textCol);
+
+        // small marks at the right end of the line: D-day label, reminder (⏰)
+        var marks = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         if (item.CountdownId is { } cdId && _countdownLabels.TryGetValue(cdId, out var dday))
             marks.Children.Add(new TextBlock { Text = dday, Foreground = fg, FontFamily = font, FontSize = size - 1, FontWeight = FontWeights.SemiBold, Margin = new Thickness(4, 0, 0, 0), ToolTip = "기념일까지 카운트다운" });
         if (s.ShowReminderMark && _itemsWithReminder.Contains(item.Id))

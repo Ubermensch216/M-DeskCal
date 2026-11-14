@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using DeskCal.Ai;
 using DeskCal.Core;
 using DeskCal.Data;
 using Button = System.Windows.Controls.Button;
@@ -28,29 +29,37 @@ internal sealed class SearchWindow : Window
     private readonly HistoryRepository _history;
     private readonly Action<DateOnly> _goTo;
     private readonly Action _changed;
+    private readonly SemanticSearchService? _semantic;
+    private readonly Func<Task>? _syncIndex;
+    private readonly Func<DayOfWeek> _weekStart;
+    private CancellationTokenSource? _meaningCts;
 
     private readonly TextBox _text = new() { Padding = new Thickness(5, 4, 5, 4), MinWidth = 200 };
     private readonly ComboBox _range = new(), _kind = new(), _done = new(), _color = new();
     private readonly DatePicker _from = new(), _to = new();
+    private readonly CheckBox _meaning = new() { Content = "의미 검색", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0), ToolTip = "글자가 달라도 뜻이 비슷한 항목을 찾습니다 (예: 병원 → 치과 검진). 설정 → AI 에서 켭니다." };
     private readonly CheckBox _deleted = new() { Content = "삭제된 할 일 포함", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
     private readonly ListBox _results = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch };
     private readonly TextBlock _status = new() { Margin = new Thickness(0, 0, 0, 6), Foreground = Brushes.Gray };
     private readonly DispatcherTimer _debounce = new() { Interval = TimeSpan.FromMilliseconds(250) };
     private bool _ready;
 
-    public static void ShowOrActivate(SearchService search, ItemRepository items, HistoryRepository history, Action<DateOnly> goTo, Action changed)
+    public static void ShowOrActivate(SearchService search, ItemRepository items, HistoryRepository history, Action<DateOnly> goTo, Action changed,
+                                      SemanticSearchService? semantic = null, Func<Task>? syncIndex = null, Func<DayOfWeek>? weekStart = null)
     {
         if (_open is { } w) { w.Show(); w.WindowState = WindowState.Normal; w.Activate(); w._text.Focus(); w._text.SelectAll(); return; }
-        _open = new SearchWindow(search, items, history, goTo, changed);
+        _open = new SearchWindow(search, items, history, goTo, changed, semantic, syncIndex, weekStart);
         _open.Closed += (_, _) => _open = null;
         _open.Show();
         _open.Activate();
         _open._text.Focus();
     }
 
-    private SearchWindow(SearchService search, ItemRepository items, HistoryRepository history, Action<DateOnly> goTo, Action changed)
+    private SearchWindow(SearchService search, ItemRepository items, HistoryRepository history, Action<DateOnly> goTo, Action changed,
+                         SemanticSearchService? semantic = null, Func<Task>? syncIndex = null, Func<DayOfWeek>? weekStart = null)
     {
         _search = search; _items = items; _history = history; _goTo = goTo; _changed = changed;
+        _semantic = semantic; _syncIndex = syncIndex; _weekStart = weekStart ?? (() => DayOfWeek.Monday);
         Title = "M-DeskCal 검색"; Width = 640; Height = 560; MinWidth = 520; MinHeight = 380;
         WindowStartupLocation = WindowStartupLocation.CenterScreen; ShowInTaskbar = true;
         FontFamily = new FontFamily("Segoe UI, Malgun Gothic"); FontSize = 13;
@@ -78,6 +87,7 @@ internal sealed class SearchWindow : Window
         _from.Margin = new Thickness(0, 0, 4, 4); _to.Margin = new Thickness(0, 0, 8, 4);
         filters.Children.Add(_from); filters.Children.Add(_to);
         filters.Children.Add(_deleted);
+        if (_semantic?.Available == true) filters.Children.Add(_meaning);
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
         actions.Children.Add(Dlg.Btn("달력에서 보기", (_, _) => GoToSelected()));
@@ -96,6 +106,12 @@ internal sealed class SearchWindow : Window
         _from.SelectedDateChanged += (_, _) => { if (_ready) Run(); };
         _to.SelectedDateChanged += (_, _) => { if (_ready) Run(); };
         _deleted.Click += (_, _) => Run();
+        _meaning.Click += (_, _) =>
+        {
+            _debounce.Interval = TimeSpan.FromMilliseconds(_meaning.IsChecked == true ? 600 : 250);       // each meaning search asks the embedding model
+            if (_meaning.IsChecked == true && _syncIndex is not null) _ = _syncIndex();                  // bring the index up to date in the background
+            Run();
+        };
         _results.MouseDoubleClick += (_, _) => GoToSelected();
         PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) Close(); };
 
@@ -142,8 +158,28 @@ internal sealed class SearchWindow : Window
 
     private const int Limit = 500;
 
+    private async void RunMeaning()
+    {
+        _meaningCts?.Cancel();
+        _meaningCts = new CancellationTokenSource();
+        var token = _meaningCts.Token;
+        var query = BuildQuery();
+        _status.Text = "의미로 찾는 중…";
+        try
+        {
+            var o = await _semantic!.SearchAsync(query, DateOnly.FromDateTime(DateTime.Today), _weekStart(), token, 100);
+            if (token.IsCancellationRequested) return;
+            _results.Items.Clear();
+            foreach (var h in o.Hits) _results.Items.Add(Row(h));
+            string head = o.Hits.Count == 0 ? "결과가 없습니다." : $"{o.Hits.Count}건 · 더블클릭하면 달력에서 해당 날짜로 이동합니다.";
+            _status.Text = head + (o.Period is { } p ? $"  (기간 '{p.Label}' 적용)" : "") + (o.UsedMeaning ? "  · 의미 검색" : "") + (o.Note is { } n ? "\n" + n : "");
+        }
+        catch (OperationCanceledException) { }
+    }
+
     private void Run()
     {
+        if (_meaning.IsChecked == true && _semantic is not null) { RunMeaning(); return; }
         var hits = _search.Run(BuildQuery(), Limit);
         _results.Items.Clear();
         foreach (var h in hits) _results.Items.Add(Row(h));

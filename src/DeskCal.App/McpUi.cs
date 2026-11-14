@@ -61,8 +61,10 @@ internal static class McpWindow
         var info = new TextBlock
         {
             TextWrapping = TextWrapping.Wrap, Foreground = System.Windows.Media.Brushes.Gray, FontSize = 11.5,
-            Text = "AI 프로그램은 일정·할 일을 읽고 검색할 수 있습니다. 추가·수정·삭제는 '요청'만 만들어지고, 아래 '승인 대기' 탭에서 직접 승인해야 반영됩니다. "
+            Text = "AI 프로그램은 일정·할 일·디데이·메모·시간표를 읽고 검색할 수 있고, 빈 시간·음력·공휴일 같은 계산도 이 앱에 맡길 수 있습니다. "
+                 + "추가·수정·삭제는 '요청'만 만들어지고, 아래 '승인 대기' 탭에서 직접 승인해야 반영됩니다. "
                  + "달력이 잠겨 있으면 아무것도 제공하지 않습니다. 모든 호출은 '기록' 탭에 남습니다.\n"
+                 + "※ AI 가 읽은 내용은 그 AI 프로그램으로 전달됩니다. 클라우드 AI(예: Claude Desktop)를 연결하면 달력 내용이 이 PC 밖으로 나갑니다.\n"
                  + "※ 일정 제목·메모에 AI 에게 말을 거는 글이 섞여 있을 수 있습니다. 승인할 때는 내용을 꼭 읽어 보세요.\n"
                  + (File.Exists(ServerPath) ? "" : "\n⚠ MCP 서버 프로그램을 찾을 수 없습니다: " + ServerPath),
         };

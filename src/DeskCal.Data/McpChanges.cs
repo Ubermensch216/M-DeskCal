@@ -11,24 +11,39 @@ namespace DeskCal.Data;
 /// </summary>
 public sealed class McpChanges(DeskCalDb db, IClock clock, Func<DateOnly, bool>? isDayOff = null)
 {
-    public static readonly IReadOnlyList<string> WriteTools = ["create_event", "update_event", "delete_event", "add_item", "set_item_done"];
+    public static readonly IReadOnlyList<string> WriteTools =
+        ["create_event", "update_event", "delete_event", "add_item", "set_item_done", "create_countdown", "add_note", "move_item"];
 
-    public const int MaxTitle = 500, MaxBody = 20000, MaxItem = 2000, MaxReminders = 5;
+    public const int MaxTitle = 500, MaxBody = 20000, MaxItem = 2000, MaxReminders = 5, MaxCountdownTitle = 200, MaxNoteTitle = 200;
+
+    /// <summary>The D-day kinds an AI client can ask for, by the name used in the tool arguments and the Korean word shown to the user.</summary>
+    public static readonly IReadOnlyList<(string Name, CountdownType Type, string Korean)> CountdownTypes =
+    [
+        ("custom", CountdownType.Custom, "일반"), ("birthday", CountdownType.Birthday, "생일"), ("memorial", CountdownType.Memorial, "기념일(만난 날)"),
+        ("festival", CountdownType.Festival, "명절"), ("exam", CountdownType.Exam, "시험"),
+    ];
+
+    public static string CountdownTypeName(CountdownType type) => CountdownTypes.FirstOrDefault(t => t.Type == type).Name ?? "custom";
 
     private readonly EventRepository _events = new(db, clock);
     private readonly ItemRepository _items = new(db, clock);
+    private readonly CountdownRepository _countdowns = new(db, clock);
+    private readonly NoteRepository _notes = new(db, clock);
     private readonly EventSeriesService _series = new(db, clock, isDayOff);
 
     /// <summary>Is this a request that can be queued? <c>Summary</c> is the sentence the user reads when deciding.</summary>
     public (string? Error, string Summary) Validate(string tool, JsonElement args)
     {
-        try { return (null, Plan(tool, args, apply: false)); }
+        try { return (null, Plan(tool, args, apply: false).Summary); }
         catch (McpArgumentException ex) { return (ex.Message, ""); }
     }
 
     /// <summary>Carry the request out. Returns a sentence describing what happened.</summary>
     /// <exception cref="McpArgumentException">The request is invalid or no longer applies (the event was deleted meanwhile).</exception>
-    public string Apply(string tool, string argsJson)
+    public string Apply(string tool, string argsJson) => ApplyWithTrace(tool, argsJson).Summary;
+
+    /// <summary>Like <see cref="Apply"/>, and also says what was created (so that it can be undone with <see cref="Revert"/>).</summary>
+    public AppliedChange ApplyWithTrace(string tool, string argsJson)
     {
         JsonElement args;
         try { args = JsonDocument.Parse(argsJson).RootElement.Clone(); }
@@ -36,7 +51,23 @@ public sealed class McpChanges(DeskCalDb db, IClock clock, Func<DateOnly, bool>?
         return Plan(tool, args, apply: true);
     }
 
-    private string Plan(string tool, JsonElement a, bool apply)
+    /// <summary>Take back something <see cref="ApplyWithTrace"/> created (an event, to-do, D-day or note). False when it is already gone.</summary>
+    public bool Revert(string kind, string id)
+    {
+        switch (kind)
+        {
+            case "event":
+                if (_events.Get(id) is not { Deleted: false }) return false;
+                _series.DeleteAll(id);
+                return true;
+            case "item": return _items.Get(id) is { Deleted: false } && _items.SoftDelete(id);
+            case "countdown": return _countdowns.Delete(id);
+            case "note": return _notes.Get(id) is { Deleted: false } && _notes.SoftDelete(id);
+            default: return false;
+        }
+    }
+
+    private AppliedChange Plan(string tool, JsonElement a, bool apply)
     {
         if (a.ValueKind != JsonValueKind.Object) throw new McpArgumentException("인자가 객체가 아닙니다.");
         switch (tool)
@@ -45,8 +76,8 @@ public sealed class McpChanges(DeskCalDb db, IClock clock, Func<DateOnly, bool>?
             {
                 var draft = DraftFrom(a, null);
                 string summary = $"일정 추가: {Clip(draft.Title)} ({Describe(draft)})";
-                if (apply) _series.Create(draft);
-                return summary;
+                var created = apply ? _series.Create(draft) : null;
+                return new(summary, created is null ? null : "event", created?.Id);
             }
             case "update_event":
             {
@@ -54,14 +85,14 @@ public sealed class McpChanges(DeskCalDb db, IClock clock, Func<DateOnly, bool>?
                 var draft = DraftFrom(a, EventDraft.From(e, new ReminderRepository(db, clock).GetByOwner(ReminderOwner.Event, e.Id)));
                 string summary = $"일정 수정: {Clip(e.Title)} → {Clip(draft.Title)} ({Describe(draft)})";
                 if (apply) _series.UpdateAll(e.Id, draft);
-                return summary;
+                return new(summary);
             }
             case "delete_event":
             {
                 var e = Existing(a);
                 string summary = $"일정 삭제: {Clip(e.Title)} ({e.Start}{(RecurrenceRule.From(e).IsRepeating ? ", 반복 일정 전체" : "")})";
                 if (apply) _series.DeleteAll(e.Id);
-                return summary;
+                return new(summary);
             }
             case "add_item":
             {
@@ -69,8 +100,8 @@ public sealed class McpChanges(DeskCalDb db, IClock clock, Func<DateOnly, bool>?
                 if (!CountdownCalc.TryParseDate(day, out var d)) throw new McpArgumentException("day 는 yyyy-MM-dd 형식이어야 합니다.");
                 string content = Text(a, "content", required: true, MaxItem)!.ReplaceLineEndings(" ").Trim();
                 if (content.Length == 0) throw new McpArgumentException("content 가 비어 있습니다.");
-                if (apply) _items.Add(CountdownCalc.Format(d), content);
-                return $"할 일 추가: {CountdownCalc.Format(d)} — {Clip(content)}";
+                var added = apply ? _items.Add(CountdownCalc.Format(d), content) : null;
+                return new($"할 일 추가: {CountdownCalc.Format(d)} — {Clip(content)}", added is null ? null : "item", added?.Id);
             }
             case "set_item_done":
             {
@@ -81,11 +112,55 @@ public sealed class McpChanges(DeskCalDb db, IClock clock, Func<DateOnly, bool>?
                 if (item is null || item.Deleted) throw new McpArgumentException("해당 할 일을 찾을 수 없습니다.");
                 bool done = doneEl.GetBoolean();
                 if (apply) _items.SetDone(id, done);
-                return $"할 일 {(done ? "완료" : "완료 취소")}: {item.Day} — {Clip(item.Content)}";
+                return new($"할 일 {(done ? "완료" : "완료 취소")}: {item.Day} — {Clip(item.Content)}");
+            }
+            case "move_item":
+            {
+                string id = Text(a, "id", required: true, 64)!;
+                string day = Text(a, "day", required: true, 10)!;
+                if (!CountdownCalc.TryParseDate(day, out var target)) throw new McpArgumentException("day 는 yyyy-MM-dd 형식이어야 합니다.");
+                var item = _items.Get(id);
+                if (item is null || item.Deleted) throw new McpArgumentException("해당 할 일을 찾을 수 없습니다.");
+                if (item.CountdownId is not null) throw new McpArgumentException("D-day 에 묶인 할 일은 옮기면 D-day 날짜도 함께 바뀌므로 이 방법으로 옮길 수 없습니다.");
+                if (item.SeriesId is not null) throw new McpArgumentException("반복 항목의 할 일은 옮길 수 없습니다.");
+                string to = CountdownCalc.Format(target);
+                if (item.Day == to) throw new McpArgumentException("이미 그 날짜에 있는 할 일입니다.");
+                if (apply) _items.Move(id, to);
+                return new($"할 일 이동: {item.Day} → {to} — {Clip(item.Content)}");
+            }
+            case "create_countdown":
+            {
+                string title = Text(a, "title", required: true, MaxCountdownTitle)!.ReplaceLineEndings(" ").Trim();
+                string date = Text(a, "date", required: true, 10)!.Trim();
+                bool lunar = OptionalBool(a, "lunar");
+                string typeName = Text(a, "type", required: false, 20)?.Trim().ToLowerInvariant() ?? "custom";
+                var kind = CountdownTypes.FirstOrDefault(t => t.Name == typeName);
+                if (kind.Name is null) throw new McpArgumentException($"type 은 {string.Join(", ", CountdownTypes.Select(t => t.Name))} 중 하나여야 합니다.");
+                bool showCard = OptionalBool(a, "show_card"), showBottom = OptionalBool(a, "show_bottom");
+                if (CountdownCalc.Validate(title, date, lunar) is { } problem) throw new McpArgumentException(problem);
+                string summary = $"디데이 추가: {Clip(title)} ({date}{(lunar ? ", 음력" : "")}, {kind.Korean})";
+                var cd = apply ? _countdowns.Add(title, date, kind.Type, showCard, showBottom, lunar) : null;
+                return new(summary, cd is null ? null : "countdown", cd?.Id);
+            }
+            case "add_note":
+            {
+                string title = Text(a, "title", required: false, MaxNoteTitle)?.ReplaceLineEndings(" ").Trim() ?? "";
+                string content = Text(a, "content", required: false, MaxBody) ?? "";
+                if (title.Length == 0 && content.Trim().Length == 0) throw new McpArgumentException("title 과 content 가 모두 비어 있습니다.");
+                string shown = title.Length > 0 ? title : content.Trim().Split('\n', 2)[0].Trim();
+                string summary = $"메모 추가: {Clip(shown)} ({content.Length}자)";
+                var note = apply ? _notes.Add(title, content) : null;
+                return new(summary, note is null ? null : "note", note?.Id);
             }
             default:
                 throw new McpArgumentException($"알 수 없는 변경 종류입니다: {tool}");
         }
+    }
+
+    private static bool OptionalBool(JsonElement a, string name)
+    {
+        if (!a.TryGetProperty(name, out var el) || el.ValueKind == JsonValueKind.Null) return false;
+        return el.ValueKind is JsonValueKind.True or JsonValueKind.False ? el.GetBoolean() : throw new McpArgumentException($"{name} 는 true 또는 false 여야 합니다.");
     }
 
     private EventEntry Existing(JsonElement a)
@@ -178,6 +253,9 @@ public sealed class McpChanges(DeskCalDb db, IClock clock, Func<DateOnly, bool>?
         return s.Length <= 60 ? s : s[..60] + "…";
     }
 }
+
+/// <summary>What a change did: the sentence for the user, and (for something newly created) its kind and id, so that it can be taken back.</summary>
+public sealed record AppliedChange(string Summary, string? CreatedKind = null, string? CreatedId = null);
 
 /// <summary>A request that cannot be carried out; the message is meant for the AI client and the user.</summary>
 public sealed class McpArgumentException(string message) : Exception(message);

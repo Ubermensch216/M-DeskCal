@@ -33,7 +33,7 @@ public static class BoardLayout
         {
             DisplayMode.FloatingMonth => Weeks(anchor, today, s, StartOfWeek(anchor, s.FirstDayOfWeek).AddDays(-7 * s.PastWeeks), s.MaxRows, blankOutside: false, anchor),
             DisplayMode.FixedMonth => Month(anchor, today, s, rows: null, blankOutside: true),
-            DisplayMode.FullMonth => Month(anchor, today, s, rows: 6, blankOutside: false),
+            DisplayMode.FullMonth => Month(anchor, today, s, rows: 5, blankOutside: false),
             DisplayMode.SingleLine => Line(anchor, today, s,
                 new DateOnly(anchor.Year, anchor.Month, 1), DateTime.DaysInMonth(anchor.Year, anchor.Month), anchor),
             DisplayMode.SingleLineFloating => Line(anchor, today, s, anchor, s.LineDays, anchor),

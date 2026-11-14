@@ -173,7 +173,7 @@ internal static class DevHarness
             EditHolidays: () => { }, ReloadHolidays: () => { }, OpenDataFolder: () => { }, ShowDiagnostics: () => { });
 
         board.ApplySettings(new BoardSettings());
-        for (int tab = 0; tab < 6; tab++)
+        for (int tab = 0; tab < 7; tab++)
         {
             var win = SettingsWindow.CreateForSnapshot(host, tab);
             RenderToPng(win.Surface, Path.Combine(dir, $"settings-{tab}.png"), 800, 680, System.Windows.Media.Color.FromRgb(0xEE, 0xF1, 0xF6));

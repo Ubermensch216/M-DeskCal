@@ -51,6 +51,22 @@ public partial class App : System.Windows.Application
     private McpAccess? _mcpAccess;
     private McpRepository? _mcpRepo;
     private McpChanges? _mcpChanges;
+    private DeskCal.Ai.AiSettingsStore? _aiStore;
+    private DeskCal.Ai.QuickInputService? _quickInput;
+    private DeskCal.Ai.AiBatchService? _batch;
+    private DeskCal.Ai.Intent.ExtractionService? _extraction;
+    private DeskCal.Ai.Intent.QueryService? _query;
+    private DeskCal.Data.EmbeddingRepository? _embedRepo;
+    private DeskCal.Ai.EmbeddingSync? _embedSync;
+    private DeskCal.Ai.SemanticSearchService? _semantic;
+    private DeskCal.Ai.BriefingSettingsStore? _briefStore;
+    private DeskCal.Ai.BriefingBackoff? _backoff;
+    private DeskCal.Ai.WeeklyReviewBuilder? _reviewBuilder;
+    private DeskCal.Ai.RolloverService? _rollover;
+    private System.Windows.Threading.DispatcherTimer? _aiTimer;
+    private int _aiTick;
+    private DeskCal.Ai.AccuracyStore? _accuracy;
+    private DeskCal.Ai.ConflictService? _conflicts;
     private int _mcpNotified;
     private bool _mcpBalloon;
     private static string ExePath => Environment.ProcessPath ?? System.Reflection.Assembly.GetExecutingAssembly().Location;
@@ -126,12 +142,41 @@ public partial class App : System.Windows.Application
         _mcpAccess = new McpAccess(settings);
         _mcpRepo = new McpRepository(db, clock);
         _mcpChanges = new McpChanges(db, clock, isDayOff);
+        _aiStore = new DeskCal.Ai.AiSettingsStore(settings);
+        _conflicts = new DeskCal.Ai.ConflictService(events, isDayOff);
+        _quickInput = new DeskCal.Ai.QuickInputService(_aiStore, new DeskCal.Ai.AiGate(settings), _mcpChanges, _mcpRepo, conflicts: _conflicts);
+        _batch = new DeskCal.Ai.AiBatchService(db, _mcpChanges, settings, clock, Path.Combine(DataDir, "backup"));
+        _extraction = new DeskCal.Ai.Intent.ExtractionService(_mcpChanges, _conflicts, items);
+        _query = new DeskCal.Ai.Intent.QueryService(events, items, isDayOff, _timetableRepo, settings);
+        var aiGate = new DeskCal.Ai.AiGate(settings);
+        _embedRepo = new DeskCal.Data.EmbeddingRepository(db, clock);
+        _embedSync = new DeskCal.Ai.EmbeddingSync(_embedRepo, items, events, _aiStore, aiGate);
+        _semantic = new DeskCal.Ai.SemanticSearchService(_embedRepo, items, events, _searchService!, _aiStore, aiGate);
+        _briefStore = new DeskCal.Ai.BriefingSettingsStore(settings);
+        _backoff = new DeskCal.Ai.BriefingBackoff(settings, clock);
+        _reviewBuilder = new DeskCal.Ai.WeeklyReviewBuilder(events, items, new DeskCal.Data.ActivityRepository(db, clock), isDayOff);
+        _accuracy = new DeskCal.Ai.AccuracyStore(settings);
+        _rollover = new DeskCal.Ai.RolloverService(items, new DeskCal.Data.ActivityRepository(db, clock), settings, clock, isDayOff, day =>
+            DeskCal.Core.FreeTimeFinder.BusyFromEvents(DeskCal.Core.EventOccurrences.Expand(events.GetAllActive(), events.GetExceptions(), day, day, isDayOff))
+                .Where(b => b.Date == day).Sum(b => b.EndMinute - b.StartMinute));
+        // a notice in the event editor when the new event overlaps or repeats another (not in the scripted snapshot runs: they must never wait for a click)
+        if (!snapshotMode)
+            EventEditorWindow.ClashCheck = (day, title, start, end, ownId) => _conflicts!.Check(day, title, start, end, ownId).Select(c => c.Describe()).ToList();
 
         if (dbArg is not null && e.Args.FirstOrDefault(a => a.StartsWith("--sync-check=")) is { } syncCheck)
         {
             // Dev aid (scratch DB only): --sync-check=<url>|<user>|<password>|<report file> runs one real sync through the
             // same code the sync window uses (DPAPI-protected password included), writes what happened, and exits.
             SyncCheck(_sync, syncCheck["--sync-check=".Length..].Split('|'));
+            Shutdown();
+            return;
+        }
+
+        if (dbArg is not null && e.Args.FirstOrDefault(a => a.StartsWith("--ocr-check=")) is { } ocrCheck)
+        {
+            // Dev aid (scratch DB only): --ocr-check=<picture>|<report file>|<base day yyyy-MM-dd> reads the picture with the same OCR code the
+            // extraction window uses, runs the text through the same extractor, writes both, and exits.
+            OcrCheck(ocrCheck["--ocr-check=".Length..].Split('|'));
             Shutdown();
             return;
         }
@@ -181,6 +226,7 @@ public partial class App : System.Windows.Application
             // Dev aid: render the UI offscreen and run editor self-tests, then exit.
             var dir = e.Args.First(a => a.StartsWith("--snapshot="))["--snapshot=".Length..];
             DevHarness.Run(_board, items, series, events, reminders, _days, dir, e.Args.Contains("--seed"), _countdowns!, _searchService!, history, _exchange!, _noteRepo!, _timetableRepo!, settings);
+            if (e.Args.Contains("--docshots")) DocShots(dir);
             Shutdown();
             return;
         }
@@ -325,7 +371,95 @@ public partial class App : System.Windows.Application
         if (!EnsureUnlocked()) return;
         SearchWindow.ShowOrActivate(_searchService!, _itemRepo!, _historyRepo!,
             day => { _board!.GoTo(day); _board.BringToFront(); RememberVisibility(); },
-            () => _board!.Refresh());
+            () => _board!.Refresh(), _semantic, SyncIndexAsync, () => _board!.Settings.FirstDayOfWeek);
+    }
+
+    // ---- meaning search index, morning briefing -----------------------------------------------------
+
+    private void OcrCheck(string[] a)
+    {
+        var sb = new System.Text.StringBuilder();
+        try
+        {
+            var baseDay = a.Length > 2 && DateOnly.TryParse(a[2], out var d) ? d : DateOnly.FromDateTime(DateTime.Today);
+            var r = Task.Run(() => OcrReader.ReadFileAsync(a[0])).GetAwaiter().GetResult();
+            sb.AppendLine($"language={r.Language} lines={r.Lines} elapsed={r.Elapsed.TotalSeconds:F2}s");
+            sb.AppendLine("--- raw"); sb.AppendLine(r.Raw);
+            sb.AppendLine("--- cleaned"); sb.AppendLine(r.Text);
+            sb.AppendLine("--- extracted (base day " + baseDay + ")");
+            foreach (var row in _extraction!.Analyze(r.Text, baseDay, DayOfWeek.Monday))
+                sb.AppendLine($"{row.Candidate.Kind} | {row.Candidate.Title} | {(row.Proposal is null ? "-" : row.Proposal.Summary)} | {row.Candidate.Reason}");
+        }
+        catch (Exception ex) { sb.AppendLine("ERROR " + ex.GetType().Name + ": " + ex.Message); }
+        File.WriteAllText(a.Length > 1 ? a[1] : "ocr-check.txt", sb.ToString(), new System.Text.UTF8Encoding(false));
+    }
+
+    private async Task SyncIndexAsync()
+    {
+        try { if (_embedSync!.Enabled) await _embedSync.SyncAsync(CancellationToken.None); }
+        catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or DeskCal.Ai.Llm.LlmException) { /* the next round tries again */ }
+    }
+
+    private string IndexStatus()
+    {
+        var ai = _aiStore!.Load();
+        if (!ai.SemanticSearch) return "의미 검색이 꺼져 있습니다.";
+        if (ai.EmbedModel.Length == 0) return "임베딩 모델을 고르세요.";
+        try { return $"색인 {_embedRepo!.Count()}건 · 새로 계산할 글 {_embedSync!.Pending()}건"; }
+        catch (Microsoft.Data.Sqlite.SqliteException) { return "색인 상태를 읽을 수 없습니다."; }
+    }
+
+    private async Task<string> BuildIndexAsync()
+    {
+        if (!_embedSync!.Enabled) return "AI 기능과 의미 검색을 켜고 임베딩 모델을 고른 뒤(달력이 잠겨 있지 않을 때) 만들 수 있습니다.";
+        var r = await _embedSync.SyncAsync(CancellationToken.None, 2000);
+        return $"{r.Embedded}건을 계산했습니다 (지운 것 {r.Removed}건, 남은 것 {r.Pending}건)." + (r.Error is { } e ? " 오류: " + e : "") + " " + IndexStatus();
+    }
+
+    private BriefingHost MakeBriefingHost() => new(
+        () => DateOnly.FromDateTime(DateTime.Today),
+        (day, today) => new DeskCal.Ai.BriefingBuilder(_eventRepo!, _itemRepo!, _countdowns!, _timetableRepo!, _settingsStore!, _days, d => _days.Holidays.IsDayOff(d)).Build(day, today),
+        last => _reviewBuilder!.Build(last), () => _aiStore!.Load(), s => DeskCal.Ai.Llm.LlmClientFactory.Create(s), _backoff!,
+        day => { _board!.GoTo(day); _board.BringToFront(); RememberVisibility(); },
+        () => _rollover!.Find(DateOnly.FromDateTime(DateTime.Today)).Count, OpenRollover);
+
+    /// <summary>Unfinished to-dos of past days: move them to today, or spread them over the next working days.</summary>
+    private void OpenRollover()
+    {
+        if (!EnsureUnlocked()) return;
+        RolloverWindow.ShowOrActivate(new RolloverHost(
+            _rollover!, () => DateOnly.FromDateTime(DateTime.Today), d => _days.Holidays.IsDayOff(d), AfterImport, day => _board!.GoTo(day)));
+    }
+
+    private void OpenBriefing(bool auto = false)
+    {
+        if (auto ? _board!.ContentHidden : !EnsureUnlocked()) return;
+        var ai = _aiStore!.Load();
+        BriefingWindow.Show(MakeBriefingHost(), auto, polishAutomatically: auto && _briefStore!.Load().UseLlm && ai.Enabled && ai.Model.Length > 0);
+    }
+
+    /// <summary>Once a minute: show the morning briefing when it is due, and keep the meaning-search index up to date (every ten minutes).</summary>
+    private void StartAiWork()
+    {
+        _aiTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(20) };
+        _aiTimer.Tick += (_, _) =>
+        {
+            _aiTimer!.Interval = TimeSpan.FromMinutes(1);
+            if (_board is null) return;
+            try
+            {
+                var now = DateTime.Now;
+                var s = _briefStore!.Load();
+                if (s.ShouldShow(now, _days.Holidays.IsDayOff(DateOnly.FromDateTime(now))) && !_board.ContentHidden)
+                {
+                    _briefStore.MarkShown(DateOnly.FromDateTime(now));
+                    OpenBriefing(auto: true);
+                }
+                if (_aiTick++ % 10 == 1) _ = SyncIndexAsync();
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException) { /* try again next minute */ }
+        };
+        _aiTimer.Start();
     }
 
     // ---- external calendar sync and the AI connection ------------------------------------------------
@@ -353,6 +487,7 @@ public partial class App : System.Windows.Application
     private void StartBackgroundWork()
     {
         StartMaintenance();
+        StartAiWork();
         _sync!.Finished += (account, report, error) =>
         {
             if (report?.ChangedLocal == true) AfterImport();
@@ -459,6 +594,9 @@ public partial class App : System.Windows.Application
             case HotkeyAction.ToggleContent:
                 if (_board!.ContentHidden) EnsureUnlocked(); else SetLocked(true);
                 break;
+            case HotkeyAction.QuickInput:
+                OpenQuickInput();
+                break;
         }
     }
 
@@ -555,9 +693,46 @@ public partial class App : System.Windows.Application
         EditHolidays: EditHolidays,
         ReloadHolidays: ReloadHolidays,
         OpenDataFolder: OpenDataFolder,
-        ShowDiagnostics: () => System.Windows.MessageBox.Show(_board!.Diagnostics(), "M-DeskCal 진단"));
+        ShowDiagnostics: () => System.Windows.MessageBox.Show(_board!.Diagnostics(), "M-DeskCal 진단"),
+        Ai: new AiHost(() => _aiStore!.Load(), s => _aiStore!.Save(s), (s, ct) => DeskCal.Ai.Llm.LlmClientFactory.TestAsync(s, ct),
+                       () => _accuracy!.Summary(), () => _accuracy!.Reset(),
+                       new AiPlusHost(() => _briefStore!.Load(), b => _briefStore!.Save(b), IndexStatus, BuildIndexAsync, () => _embedRepo!.Clear())));
 
     private void OpenSettings(int tab = 0) => SettingsWindow.ShowOrActivate(MakeSettingsHost(), tab);
+
+    /// <summary>"Type one sentence, get an event": the rules read it at once, the AI (if switched on) only helps with what they cannot.</summary>
+    private void OpenQuickInput()
+    {
+        if (!EnsureUnlocked()) return;
+        QuickInputWindow.ShowOrActivate(new QuickInputHost(
+            _quickInput!, _batch!, _query!, _accuracy!, () => DateOnly.FromDateTime(DateTime.Today), () => _board!.Settings.FirstDayOfWeek,
+            AfterImport, day => _board!.GoTo(day), day => _board!.NewEvent(day)));
+    }
+
+    /// <summary>Paste a notice or a conversation and tick the dates worth adding.</summary>
+    private void OpenExtract()
+    {
+        if (!EnsureUnlocked()) return;
+        ExtractWindow.ShowOrActivate(new ExtractHost(
+            _extraction!, _batch!, () => DateOnly.FromDateTime(DateTime.Today), () => _board!.Settings.FirstDayOfWeek, AfterImport, day => _board!.GoTo(day)));
+    }
+
+    /// <summary>A topic and a day become a row of review to-dos on growing intervals.</summary>
+    private void OpenReviewPlan()
+    {
+        if (!EnsureUnlocked()) return;
+        ReviewPlanWindow.ShowOrActivate(new ReviewPlanHost(
+            _mcpChanges!, _batch!, () => DateOnly.FromDateTime(DateTime.Today), d => _days!.Holidays.IsDayOff(d),
+            () => _countdowns!.List().Where(c => !c.Lunar && DeskCal.Core.CountdownCalc.TryParseDate(c.Date, out var d) && d >= DateOnly.FromDateTime(DateTime.Today))
+                .Select(c => { DeskCal.Core.CountdownCalc.TryParseDate(c.Date, out var d); return (c.Title, d); }).OrderBy(x => x.d).ToList(),
+            AfterImport, day => _board!.GoTo(day)));
+    }
+
+    private void UndoLastAi()
+    {
+        if (!EnsureUnlocked()) return;
+        AiUndo.Run(null, _batch!, AfterImport);
+    }
 
     /// <summary>
     /// The menu under the gear: the ten or so things used every day. Everything else lives in "캘린더 설정…".
@@ -565,13 +740,17 @@ public partial class App : System.Windows.Application
     /// </summary>
     private void ShowQuickMenu()
     {
+        var menu = BuildQuickMenu();
+        menu.PlacementTarget = _board!.GearAnchor;
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        menu.IsOpen = true;
+    }
+
+    private WpfMenu BuildQuickMenu()
+    {
         var board = _board!;
         var s = board.Settings;
-        var menu = new WpfMenu
-        {
-            PlacementTarget = board.GearAnchor,
-            Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
-        };
+        var menu = new WpfMenu();
 
         WpfMenuItem Entry(string header, Action click, bool? check = null)
         {
@@ -583,13 +762,18 @@ public partial class App : System.Windows.Application
 
         menu.Items.Add(Entry("오늘로 이동", board.GoToday));
         menu.Items.Add(Entry("새 일정 (오늘)…", () => OnHotkey(HotkeyAction.NewEvent)));
+        menu.Items.Add(Entry("빠른 입력…", OpenQuickInput));
+        menu.Items.Add(Entry("텍스트에서 일정 추출…", OpenExtract));
+        menu.Items.Add(Entry("복습 계획 만들기…", OpenReviewPlan));
+        menu.Items.Add(Entry("미완료 정리…", OpenRollover));
+        menu.Items.Add(Entry("오늘 브리핑…", () => OpenBriefing()));
         menu.Items.Add(Entry("검색…", OpenSearch));
         menu.Items.Add(new System.Windows.Controls.Separator());
 
         var modeMenu = new WpfMenuItem { Header = "표시 모드" };
         foreach (var (mode, name) in new[]
                  {
-                     (DisplayMode.FixedMonth, "고정 월"), (DisplayMode.FloatingMonth, "변동 월 (주 단위)"), (DisplayMode.FullMonth, "전체 월 (6줄 고정)"),
+                     (DisplayMode.FixedMonth, "고정 월"), (DisplayMode.FloatingMonth, "변동 월 (주 단위)"), (DisplayMode.FullMonth, "전체 월 (5줄 고정)"),
                      (DisplayMode.SingleLine, "고정 단일 행"), (DisplayMode.SingleLineFloating, "변동 단일 행 (오늘부터)"),
                  })
             modeMenu.Items.Add(Entry(name, () => UpdateSettings(x => x with { Mode = mode }), s.Mode == mode));
@@ -611,8 +795,7 @@ public partial class App : System.Windows.Application
         menu.Items.Add(Entry(board.ContentHidden ? "콘텐츠 잠금 해제…" : "콘텐츠 잠그기", () => { if (board.ContentHidden) EnsureUnlocked(); else SetLocked(true); }));
         menu.Items.Add(new System.Windows.Controls.Separator());
         menu.Items.Add(Entry("캘린더 설정…", () => OpenSettings()));
-
-        menu.IsOpen = true;
+        return menu;
     }
 
     // ---- tray menu -----------------------------------------------------------
@@ -628,6 +811,21 @@ public partial class App : System.Windows.Application
         // 1. 검색 · 일정 탐색
         menu.Items.Add("검색…", null, (_, _) => OpenSearch());
         menu.Items.Add("새 일정 (오늘)…", null, (_, _) => OnHotkey(HotkeyAction.NewEvent));
+        menu.Items.Add("빠른 입력…", null, (_, _) => OpenQuickInput());
+        menu.Items.Add("텍스트에서 일정 추출…", null, (_, _) => OpenExtract());
+        menu.Items.Add("복습 계획 만들기…", null, (_, _) => OpenReviewPlan());
+        menu.Items.Add("미완료 정리…", null, (_, _) => OpenRollover());
+        menu.Items.Add("오늘 브리핑 · 지난 7일…", null, (_, _) => OpenBriefing());
+        var undoAi = new Forms.ToolStripMenuItem("마지막 AI 추가 되돌리기…");
+        undoAi.Click += (_, _) => UndoLastAi();
+        menu.Items.Add(undoAi);
+        refresh.Add(() =>
+        {
+            DeskCal.Ai.LastBatch? last = null;
+            try { last = _batch!.Last(); } catch (Microsoft.Data.Sqlite.SqliteException) { }
+            undoAi.Enabled = last is not null;
+            undoAi.Text = last is null ? "마지막 AI 추가 되돌리기…" : $"마지막 추가 되돌리기… ({last.Entries.Count}건)";
+        });
         menu.Items.Add("오늘로 이동", null, (_, _) => board.GoToday());
         menu.Items.Add(new Forms.ToolStripSeparator());
 
@@ -701,7 +899,7 @@ public partial class App : System.Windows.Application
         menu.Items.Add(new Forms.ToolStripSeparator());
 
         // 5. 정보 · 종료
-        menu.Items.Add("제품 정보…", null, (_, _) => OpenSettings(5));
+        menu.Items.Add("제품 정보…", null, (_, _) => OpenSettings(6));
         menu.Items.Add("종료", null, (_, _) => Shutdown());
 
         menu.Opening += (_, _) => { foreach (var r in refresh) r(); };

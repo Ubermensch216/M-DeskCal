@@ -7,7 +7,7 @@ public enum DisplayMode
     FloatingMonth = 0,
     /// <summary>The anchor's month; days outside it are left blank. Row count follows the month (4-6).</summary>
     FixedMonth = 1,
-    /// <summary>The anchor's month on a constant 6 rows, neighbouring months' days shown dimmed.</summary>
+    /// <summary>The anchor's month on a constant 5 rows, neighbouring months' days shown dimmed.</summary>
     FullMonth = 2,
     /// <summary>One row with every day of the anchor's month.</summary>
     SingleLine = 3,

@@ -93,6 +93,7 @@ public sealed class ItemRepository(DeskCalDb db, IClock clock) : RepoBase(db, cl
         using var cmd = Cmd(c, $"INSERT INTO items({Cols}) VALUES($id,$day,$c,$bg,$s,0,$ca,$ua,0,$tc,NULL,NULL)", tx,
             ("$id", item.Id), ("$day", day), ("$c", content), ("$bg", bg), ("$s", sort), ("$ca", now), ("$ua", now), ("$tc", text));
         cmd.ExecuteNonQuery();
+        ActivityLog.Record(c, tx, item.Id, ActivityKind.Created, now, day);
         return item;
     }
 
@@ -135,6 +136,7 @@ public sealed class ItemRepository(DeskCalDb db, IClock clock) : RepoBase(db, cl
                     using (var del = Cmd(c, "UPDATE items SET deleted=1, updated_at=$u WHERE id=$i", tx,
                                ("$u", Clock.NowMs), ("$i", existing[op.OldIndex].Id)))
                         del.ExecuteNonQuery();
+                    ActivityLog.Record(c, tx, existing[op.OldIndex].Id, ActivityKind.Deleted, Clock.NowMs, existing[op.OldIndex].Day);
                     DropCountdown(c, tx, existing[op.OldIndex].CountdownId);
                     break;
             }
@@ -224,15 +226,31 @@ public sealed class ItemRepository(DeskCalDb db, IClock clock) : RepoBase(db, cl
         return item;
     }
 
-    public bool SetDone(string id, bool done) => Exec("UPDATE items SET done=$v, updated_at=$u WHERE id=$i AND deleted=0", id, done ? 1 : 0);
+    public bool SetDone(string id, bool done)
+    {
+        using var c = Db.Open();
+        using var tx = c.BeginTransaction();
+        var before = Get(c, tx, id);
+        using var cmd = Cmd(c, "UPDATE items SET done=$v, updated_at=$u WHERE id=$i AND deleted=0", tx, ("$v", done ? 1 : 0), ("$u", Clock.NowMs), ("$i", id));
+        bool changed = cmd.ExecuteNonQuery() > 0;
+        if (changed && before is { Deleted: false } && before.Done != done)
+            ActivityLog.Record(c, tx, id, done ? ActivityKind.Done : ActivityKind.Undone, Clock.NowMs, before.Day);      // ticking an already ticked item records nothing
+        tx.Commit();
+        return changed;
+    }
     public bool SetColor(string id, string? color) => Exec("UPDATE items SET bg_color=$v, updated_at=$u WHERE id=$i AND deleted=0", id, color);
     public bool SetTextColor(string id, string? color) => Exec("UPDATE items SET text_color=$v, updated_at=$u WHERE id=$i AND deleted=0", id, color);
     public bool Move(string id, string newDay)
     {
-        if (!Exec("UPDATE items SET day=$v, updated_at=$u WHERE id=$i AND deleted=0", id, newDay)) return false;
         using var c = Db.Open();
-        using var cmd = Cmd(c, "UPDATE countdowns SET date=$d WHERE id=(SELECT countdown_id FROM items WHERE id=$i)", null, ("$d", newDay), ("$i", id));
-        cmd.ExecuteNonQuery();      // the linked D-day follows the item to its new day
+        using var tx = c.BeginTransaction();
+        var before = Get(c, tx, id);
+        using (var move = Cmd(c, "UPDATE items SET day=$v, updated_at=$u WHERE id=$i AND deleted=0", tx, ("$v", newDay), ("$u", Clock.NowMs), ("$i", id)))
+            if (move.ExecuteNonQuery() == 0) return false;
+        using (var cmd = Cmd(c, "UPDATE countdowns SET date=$d WHERE id=(SELECT countdown_id FROM items WHERE id=$i)", tx, ("$d", newDay), ("$i", id)))
+            cmd.ExecuteNonQuery();      // the linked D-day follows the item to its new day
+        if (before is not null && before.Day != newDay) ActivityLog.Record(c, tx, id, ActivityKind.Moved, Clock.NowMs, before.Day, newDay);
+        tx.Commit();
         return true;
     }
     public bool SetCountdown(string id, string? countdownId) => Exec("UPDATE items SET countdown_id=$v, updated_at=$u WHERE id=$i AND deleted=0", id, countdownId);
@@ -245,11 +263,22 @@ public sealed class ItemRepository(DeskCalDb db, IClock clock) : RepoBase(db, cl
         using var cmd = Cmd(c, "UPDATE items SET deleted=1, updated_at=$u WHERE id=$i", tx, ("$u", Clock.NowMs), ("$i", id));
         bool changed = cmd.ExecuteNonQuery() > 0;
         if (changed) DropCountdown(c, tx, item?.CountdownId);
+        if (changed && item is { Deleted: false }) ActivityLog.Record(c, tx, id, ActivityKind.Deleted, Clock.NowMs, item.Day);
         tx.Commit();
         return changed;
     }
 
-    public bool Undelete(string id) => Exec("UPDATE items SET deleted=0, updated_at=$u WHERE id=$i", id, null);
+    public bool Undelete(string id)
+    {
+        using var c = Db.Open();
+        using var tx = c.BeginTransaction();
+        var before = Get(c, tx, id);
+        using var cmd = Cmd(c, "UPDATE items SET deleted=0, updated_at=$u WHERE id=$i", tx, ("$u", Clock.NowMs), ("$i", id));
+        bool changed = cmd.ExecuteNonQuery() > 0;
+        if (changed && before is { Deleted: true }) ActivityLog.Record(c, tx, id, ActivityKind.Restored, Clock.NowMs, before.Day);
+        tx.Commit();
+        return changed;
+    }
 
     /// <summary>A deleted item takes the D-day it was counting down to with it (the link is left on the item, harmlessly).</summary>
     private static void DropCountdown(SqliteConnection c, SqliteTransaction tx, string? countdownId)

@@ -13,6 +13,7 @@ public sealed class AppPreferencesStore(SettingsStore store)
         HotkeyAction.ToggleVisible => "hotkey_toggle",
         HotkeyAction.NewEvent => "hotkey_new_event",
         HotkeyAction.Search => "hotkey_search",
+        HotkeyAction.QuickInput => "hotkey_quick_input",
         _ => "hotkey_content",
     };
 

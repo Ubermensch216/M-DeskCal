@@ -53,18 +53,18 @@ public class BoardLayoutTests
     // ---- Full month --------------------------------------------------------
 
     [Fact]
-    public void Full_month_is_always_6_rows_with_dimmed_neighbours()
+    public void Full_month_is_always_5_rows_with_dimmed_neighbours()
     {
         foreach (var month in new[] { new DateOnly(2026, 2, 1), new DateOnly(2026, 11, 1), new DateOnly(2027, 5, 1) })
         {
             var g = Build(month, new BoardSettings { Mode = DisplayMode.FullMonth });
-            Assert.Equal(6, g.Rows.Count);
+            Assert.Equal(5, g.Rows.Count);
             Assert.DoesNotContain(Cells(g), c => c.IsBlank);
-            Assert.Equal(DateTime.DaysInMonth(month.Year, month.Month), Cells(g).Count(c => c.InAnchorMonth));
         }
         var nov = Build(Nov1, new BoardSettings { Mode = DisplayMode.FullMonth });
-        Assert.Equal(new DateOnly(2026, 12, 12), nov.Rows[5].Cells[6].Date);
-        Assert.False(nov.Rows[5].Cells[6].InAnchorMonth);
+        Assert.Equal(new DateOnly(2026, 12, 5), nov.Rows[4].Cells[6].Date);
+        Assert.False(nov.Rows[4].Cells[6].InAnchorMonth);
+        Assert.Equal(DateTime.DaysInMonth(Nov1.Year, Nov1.Month), Cells(nov).Count(c => c.InAnchorMonth));
     }
 
     // ---- Floating month ----------------------------------------------------

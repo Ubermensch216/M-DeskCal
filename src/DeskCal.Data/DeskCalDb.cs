@@ -174,5 +174,20 @@ internal static class Migrations
             id TEXT PRIMARY KEY, rrule TEXT, ext_rule TEXT, start_day TEXT NOT NULL,
             remind TEXT NOT NULL DEFAULT '', generated_until TEXT);
         """,
+        // v7: what happened to to-do items and when (created, done, undone, moved, deleted, restored) - the basis for reviews such as "what did I put off"
+        """
+        CREATE TABLE item_activity(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, item_id TEXT NOT NULL, kind TEXT NOT NULL, at INTEGER NOT NULL,
+            day TEXT, to_day TEXT);
+        CREATE INDEX ix_item_activity_item ON item_activity(item_id, at);
+        CREATE INDEX ix_item_activity_at ON item_activity(at);
+        """,
+        // v8: the meaning-search index - one vector per to-do or event (derived from its text; a plain copy of the data's meaning, so it is as readable as the database itself)
+        """
+        CREATE TABLE embeddings(
+            entity TEXT NOT NULL, entity_id TEXT NOT NULL, model TEXT NOT NULL, dim INTEGER NOT NULL,
+            vec BLOB NOT NULL, content_hash TEXT NOT NULL, updated_at INTEGER NOT NULL,
+            PRIMARY KEY(entity, entity_id));
+        """,
     ];
 }

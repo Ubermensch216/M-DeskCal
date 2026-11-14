@@ -253,9 +253,22 @@ public partial class EventEditorWindow : Window
     private void Save_Click(object sender, RoutedEventArgs e) => Save();
 
     /// <summary>Validate and store. Returns false (with the reason in the error line) when nothing was saved.</summary>
+    /// <summary>
+    /// Set by the app: what already on the calendar clashes with an event on this day (day, title, start, end, the event's own id).
+    /// Null in scripted runs, so that a notice never waits for a click there.
+    /// </summary>
+    internal static Func<DateOnly, string, TimeOnly?, TimeOnly?, string?, IReadOnlyList<string>>? ClashCheck;
+
     internal bool Save()
     {
         if (!TryBuild(out var draft, out var error)) { ErrorText.Text = error; return false; }
+        if (ClashCheck is { } check)
+        {
+            // an end on another day cannot be compared on this day alone: leave it out and let the usual one hour stand
+            var clashes = check(draft.StartDate, draft.Title, draft.StartTime, draft.EndDate is null || draft.EndDate == draft.StartDate ? draft.EndTime : null, _eventId);
+            if (clashes.Count > 0 && MessageBox.Show(this, "겹치는 일정이 있습니다:\n\n" + string.Join("\n", clashes.Take(5).Select(c => "· " + c)) + "\n\n그래도 저장할까요?",
+                    "일정 확인", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.Yes) != MessageBoxResult.Yes) return false;
+        }
         try
         {
             if (_eventId is null) _svc.Create(draft);

@@ -32,7 +32,7 @@ if (!access.Verify(Environment.GetEnvironmentVariable("DESKCAL_MCP_TOKEN"))) ret
 
 var holidays = HolidayOverrideFile.Load(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(dbPath))!, "holidays.json"));
 var days = new KoreanDays(holidays.Overrides);
-var server = new McpServer(db, new SystemClock(), d => days.Holidays.IsDayOff(d));
+var server = new McpServer(db, new SystemClock(), d => days.Holidays.IsDayOff(d), days);
 
 using var input = new StreamReader(Console.OpenStandardInput(), utf8);
 await using var output = new StreamWriter(Console.OpenStandardOutput(), utf8) { AutoFlush = true, NewLine = "\n" };
