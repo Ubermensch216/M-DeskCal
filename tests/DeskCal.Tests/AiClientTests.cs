@@ -14,7 +14,7 @@ internal sealed class FakeLlmServer : IDisposable
     public sealed record Seen(string Method, string Path, string Body);
 
     private readonly HttpListener _listener = new();
-    private readonly Task _loop;
+    private readonly CancellationTokenSource _stop = new();
     public int Port { get; }
     public string Url => $"http://127.0.0.1:{Port}";
     public List<Seen> Requests { get; } = [];
@@ -26,7 +26,7 @@ internal sealed class FakeLlmServer : IDisposable
         var l = new TcpListener(IPAddress.Loopback, 0); l.Start(); Port = ((IPEndPoint)l.LocalEndpoint).Port; l.Stop();
         _listener.Prefixes.Add(Url + "/");
         _listener.Start();
-        _loop = Task.Run(Loop);
+        _ = Task.Run(Loop);
     }
 
     private async Task Loop()
@@ -40,7 +40,8 @@ internal sealed class FakeLlmServer : IDisposable
                 string body = new StreamReader(ctx.Request.InputStream, Encoding.UTF8).ReadToEnd();
                 var seen = new Seen(ctx.Request.HttpMethod, ctx.Request.Url!.AbsolutePath, body);
                 lock (Requests) Requests.Add(seen);
-                if (Delay > TimeSpan.Zero) Thread.Sleep(Delay);
+                // Waits without holding a thread-pool thread (many fake servers run in parallel tests) and ends when the test disposes the server.
+                if (Delay > TimeSpan.Zero) await Task.Delay(Delay, _stop.Token);
                 var (status, text, location) = Respond(seen);
                 var bytes = Encoding.UTF8.GetBytes(text);
                 ctx.Response.StatusCode = status;
@@ -54,7 +55,7 @@ internal sealed class FakeLlmServer : IDisposable
         }
     }
 
-    public void Dispose() { try { _listener.Stop(); _listener.Close(); } catch { } }
+    public void Dispose() { _stop.Cancel(); try { _listener.Stop(); _listener.Close(); } catch { } }
 
     public static string OllamaChat(string content, int promptTokens = 100, int outTokens = 90) =>
         new JsonObject { ["message"] = new JsonObject { ["role"] = "assistant", ["content"] = content }, ["prompt_eval_count"] = promptTokens, ["eval_count"] = outTokens }.ToJsonString();
@@ -286,7 +287,8 @@ public class LlmClientTests
     [Fact]
     public async Task A_slow_server_times_out()
     {
-        using var server = new FakeLlmServer { Delay = TimeSpan.FromMilliseconds(1500) };
+        // The reply is far later than the timeout, so a timer that fires late on a busy machine still fires first.
+        using var server = new FakeLlmServer { Delay = TimeSpan.FromSeconds(30) };
         server.Respond = _ => (200, FakeLlmServer.OllamaChat("late"), null);
         var http = new LlmHttp(new Uri(server.Url + "/"), TimeSpan.FromMilliseconds(300));
         var ex = await Assert.ThrowsAsync<LlmException>(() => new OllamaClient(http, new AiSettings { Model = "m" }).ChatAsync(Request(), default));
@@ -296,7 +298,7 @@ public class LlmClientTests
     [Fact]
     public async Task Cancelling_is_not_reported_as_a_timeout()
     {
-        using var server = new FakeLlmServer { Delay = TimeSpan.FromMilliseconds(1500) };
+        using var server = new FakeLlmServer { Delay = TimeSpan.FromSeconds(30) };     // never answers before the cancel
         server.Respond = _ => (200, FakeLlmServer.OllamaChat("late"), null);
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => LlmClientFactory.Create(Local(server)).ChatAsync(Request(), cts.Token));
