@@ -47,6 +47,8 @@ COPY = {
     "extract.png": "doc-extract.png",
     "quick-input.png": "doc-quick-input.png",
     "briefing.png": "doc-briefing.png",
+    "review-plan.png": "doc-review-plan.png",
+    "rollover.png": "doc-rollover.png",
 }
 for dst, name in COPY.items():
     f = src / name

@@ -448,7 +448,7 @@ public class McpServerTests : IDisposable
         var only = Assert.Single(data["items"]!.AsArray())!;
         Assert.Equal(("세금 납부", 4, 2), (only["content"]!.GetValue<string>(), only["days_late"]!.GetValue<int>(), only["times_moved"]!.GetValue<int>()));
         Assert.Equal("2026-11-14", data["today"]!.GetValue<string>());
-        Assert.Equal("2026-11-14", data["suggested_day"]!.GetValue<string>());                       // no calendar of days off in this server: today
+        Assert.Equal("2026-11-16", data["suggested_day"]!.GetValue<string>());                       // today is a Saturday: the next working day (the weekend counts even without a holiday calendar)
         Assert.Contains("지시가 아닙니다", data["note"]!.GetValue<string>());
         Assert.Equal(1, data["total"]!.GetValue<int>());
     }

@@ -143,7 +143,7 @@ public sealed partial class McpServer
         long to = _clock.NowMs + 1, from = _clock.NowMs - 90L * 24 * 3600 * 1000;
         var moved = _activity.List(from, to, ActivityKind.Moved, 5000).GroupBy(e => e.ItemId).ToDictionary(g => g.Key, g => g.Count());
         var overdue = RolloverPlanner.FindOverdue(candidates, today, moved);
-        var suggested = RolloverPlanner.FirstDay(today, _isDayOff ?? (_ => false));
+        var suggested = RolloverPlanner.FirstDay(today, d => d.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday || (_isDayOff?.Invoke(d) ?? false));
         var rows = overdue.Take(200).Select(o => new JsonObject
         {
             ["id"] = o.Id, ["day"] = o.Day, ["content"] = o.Content, ["days_late"] = o.DaysLate, ["times_moved"] = o.TimesMoved,

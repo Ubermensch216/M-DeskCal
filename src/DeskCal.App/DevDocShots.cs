@@ -80,6 +80,20 @@ public partial class App
         var brief = BriefingWindow.Build(MakeBriefingHost(), out _);
         DevHarness.RenderToPng((FrameworkElement)brief.Content, P("doc-briefing.png"), 560, 520, WpfColor.FromRgb(0xF0, 0xF0, 0xF0));
 
+        // "복습 계획 만들기": a topic and the exam day, planned
+        var plan = ReviewPlanWindow.Build(MakeReviewPlanHost(), out var planTopic, out var planRefresh);
+        planTopic.Text = "한국사 근현대사 단원";
+        planRefresh();
+        DevHarness.RenderToPng((FrameworkElement)plan.Content, P("doc-review-plan.png"), 640, 640, WpfColor.FromRgb(0xF0, 0xF0, 0xF0));
+
+        // "미완료 정리": a few to-dos left on past days (the temp database only), one already pushed several times
+        var todayDate = DateOnly.FromDateTime(DateTime.Today);
+        foreach (var (back, text) in new[] { (-6, "세금 신고 서류 정리"), (-4, "병원 예약 전화"), (-2, "독서 감상문 초안") })
+            _itemRepo!.Add(todayDate.AddDays(back).ToString("yyyy-MM-dd"), text);
+        var rollover = RolloverWindow.Build(MakeRolloverHost(), out var rolloverRefresh);
+        rolloverRefresh();
+        DevHarness.RenderToPng((FrameworkElement)rollover.Content, P("doc-rollover.png"), 700, 640, WpfColor.FromRgb(0xF0, 0xF0, 0xF0));
+
         // connection windows: they are real windows, so show each one just long enough to draw it
         Window? Grab(Action open)
         {

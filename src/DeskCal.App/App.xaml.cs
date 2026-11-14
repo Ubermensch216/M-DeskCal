@@ -123,7 +123,7 @@ public partial class App : System.Windows.Application
         var items = new ItemRepository(db, clock);
         var events = new EventRepository(db, clock);
         var reminders = new ReminderRepository(db, clock);
-        Func<DateOnly, bool> isDayOff = d => _days.Holidays.IsDayOff(d);
+        Func<DateOnly, bool> isDayOff = d => _days.Holidays.IsDayOff(d);      // public holidays only (callers add the weekend where they need it)
         var series = new EventSeriesService(db, clock, isDayOff);
         bool snapshotMode = e.Args.Any(a => a.StartsWith("--snapshot="));
 
@@ -156,7 +156,7 @@ public partial class App : System.Windows.Application
         _backoff = new DeskCal.Ai.BriefingBackoff(settings, clock);
         _reviewBuilder = new DeskCal.Ai.WeeklyReviewBuilder(events, items, new DeskCal.Data.ActivityRepository(db, clock), isDayOff);
         _accuracy = new DeskCal.Ai.AccuracyStore(settings);
-        _rollover = new DeskCal.Ai.RolloverService(items, new DeskCal.Data.ActivityRepository(db, clock), settings, clock, isDayOff, day =>
+        _rollover = new DeskCal.Ai.RolloverService(items, new DeskCal.Data.ActivityRepository(db, clock), settings, clock, IsNonWorkingDay, day =>
             DeskCal.Core.FreeTimeFinder.BusyFromEvents(DeskCal.Core.EventOccurrences.Expand(events.GetAllActive(), events.GetExceptions(), day, day, isDayOff))
                 .Where(b => b.Date == day).Sum(b => b.EndMinute - b.StartMinute));
         // a notice in the event editor when the new event overlaps or repeats another (not in the scripted snapshot runs: they must never wait for a click)
@@ -427,9 +427,14 @@ public partial class App : System.Windows.Application
     private void OpenRollover()
     {
         if (!EnsureUnlocked()) return;
-        RolloverWindow.ShowOrActivate(new RolloverHost(
-            _rollover!, () => DateOnly.FromDateTime(DateTime.Today), d => _days.Holidays.IsDayOff(d), AfterImport, day => _board!.GoTo(day)));
+        RolloverWindow.ShowOrActivate(MakeRolloverHost());
     }
+
+    private RolloverHost MakeRolloverHost() => new(
+        _rollover!, () => DateOnly.FromDateTime(DateTime.Today), IsNonWorkingDay, AfterImport, day => _board!.GoTo(day));
+
+    /// <summary>Weekend or public holiday: what "working day" planning (rollover, review plan) steers around.</summary>
+    private bool IsNonWorkingDay(DateOnly d) => d.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday || _days.Holidays.IsDayOff(d);
 
     private void OpenBriefing(bool auto = false)
     {
@@ -721,12 +726,14 @@ public partial class App : System.Windows.Application
     private void OpenReviewPlan()
     {
         if (!EnsureUnlocked()) return;
-        ReviewPlanWindow.ShowOrActivate(new ReviewPlanHost(
-            _mcpChanges!, _batch!, () => DateOnly.FromDateTime(DateTime.Today), d => _days!.Holidays.IsDayOff(d),
-            () => _countdowns!.List().Where(c => !c.Lunar && DeskCal.Core.CountdownCalc.TryParseDate(c.Date, out var d) && d >= DateOnly.FromDateTime(DateTime.Today))
-                .Select(c => { DeskCal.Core.CountdownCalc.TryParseDate(c.Date, out var d); return (c.Title, d); }).OrderBy(x => x.d).ToList(),
-            AfterImport, day => _board!.GoTo(day)));
+        ReviewPlanWindow.ShowOrActivate(MakeReviewPlanHost());
     }
+
+    private ReviewPlanHost MakeReviewPlanHost() => new(
+        _mcpChanges!, _batch!, () => DateOnly.FromDateTime(DateTime.Today), IsNonWorkingDay,
+        () => _countdowns!.List().Where(c => !c.Lunar && DeskCal.Core.CountdownCalc.TryParseDate(c.Date, out var d) && d >= DateOnly.FromDateTime(DateTime.Today))
+            .Select(c => { DeskCal.Core.CountdownCalc.TryParseDate(c.Date, out var d); return (c.Title, d); }).OrderBy(x => x.d).ToList(),
+        AfterImport, day => _board!.GoTo(day));
 
     private void UndoLastAi()
     {
