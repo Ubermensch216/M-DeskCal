@@ -487,6 +487,8 @@ LLM 출력 스키마를 **절대 날짜가 아닌 상대 표현**으로 제한�
 
 ## 부록: 이 검토에서 확인한 코드 사실
 
+> 아래는 **검토를 시작한 시점(0단계 이전)** 의 코드 사실입니다. 3단계까지 구현한 현재(2026-11-14)는 MCP 도구 22개(읽기·계산 13, 승인 대기 쓰기 8, 확인 1)와 프롬프트 3개, DB 스키마 v8, 전역 단축키 6개(`Ctrl+Alt+Q` 빠른 입력 추가)입니다.
+
 - `McpServer`: 도구 9개(읽기 4·쓰기 5), 쓰기는 `mcp_pending` 에만 저장, 잠금 중 거부(`_lock.Hidden`), 모든 호출 `mcp_audit` 기록, stdio 전용.
 - `McpChanges.Validate/Apply`: 요약 문장 생성 + 적용 분리, 한도(`MaxTitle 500`, `MaxBody 20000`, `MaxItem 2000`, `MaxReminders 5`), 알림 0~525600분.
 - `RecurrenceRule.TryParse(rrule, ext, …)`: `rrule` 문자열 하나에 `FREQ=…` 또는 앱 고유 키워드(`weekday` 등)를 받음. MCP 는 `ext` 를 넘기지 않지만 키워드는 `rrule` 문자열로도 해석됨.

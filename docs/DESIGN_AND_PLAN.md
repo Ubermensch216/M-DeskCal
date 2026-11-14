@@ -1,7 +1,11 @@
 # 바탕화면 달력 프로그램(M-DeskCal) 설계 및 구현 계획
 
 대상 분석 프로그램: `CalendarTask` (desktopcal.exe v3.32.310.9371, Beijing Xiaowei Cloud Inc.)
-작성일: 2026-11-06
+작성일: 2026-11-06 · 최종 현행화: 2026-11-14
+
+> **현재 상태(2026-11-14)**: 베타 `0.1.0-beta.1`. M0~M16 구현 완료(제외 항목은 3장 표), 단위 테스트 912개 통과.
+> 이 문서의 1~2장은 착수 시점의 **분석과 계획**이고, 구현하면서 바뀐 결정은 각 절의 "구현 결과" 메모와 3.0 진행 기록에 적었습니다.
+> 실제 프로젝트 구성은 **2.3**, 실제 스키마는 `src/DeskCal.Data/DeskCalDb.cs`(마이그레이션 v1~v8)가 기준입니다.
 
 ---
 
@@ -141,22 +145,30 @@ REA 의 DISCLAIMER 는 "독점 소프트웨어의 보호된 코드·자산 복�
 
 → **A안 권장**. UI는 MVVM(CommunityToolkit.Mvvm), 저장소는 `Microsoft.Data.Sqlite` (+ 필요 시 EF 없이 Dapper 정도), 알림은 `Microsoft.Toolkit.Uwp.Notifications`/Windows App SDK 토스트.
 
+> **구현 결과**: A안(WPF)을 택했으나 대상은 설치된 SDK 에 맞춰 **.NET 10**(`net10.0`, 앱은 OCR 때문에 `net10.0-windows10.0.19041.0`)이다. 외부 패키지는 `Microsoft.Data.Sqlite` 하나뿐이다 — MVVM 라이브러리 없이 코드 비하인드, Dapper 없이 직접 SQL, 토스트 대신 자체 **알림 카드 창**(포커스를 뺏지 않음)과 코드로 합성한 효과음을 쓴다.
+
 ### 2.3 아키텍처
 
+계획 당시에는 `Desktop`·`UI`·`Calendars`·`Notify` 를 별도 프로젝트로 나눌 생각이었으나, 실제로는 아래처럼 **UI 를 하나의 앱 프로젝트에, 순수 계산을 Core 에** 모았다.
+
 ```
-M-DeskCal.sln
+M-DeskCal.slnx
 ├─ src/
-│  ├─ DeskCal.App            (WPF 진입점, 트레이, 단일 인스턴스, 자동 실행, 전역 단축키)
-│  ├─ DeskCal.Desktop        (바탕화면 호스팅: WorkerW 부모 지정, 클릭 처리, DPI/멀티모니터)
-│  ├─ DeskCal.UI             (달력 보드, 셀 편집기, 이벤트 편집기, 설정, 검색, 카운트다운 카드)
-│  ├─ DeskCal.Core           (도메인: Item/Event/Recurrence/Reminder/Countdown/Note/Timetable)
-│  ├─ DeskCal.Calendars      (음력·절기·공휴일 제공자: Korean, 확장 가능)
-│  ├─ DeskCal.Data           (SQLite 저장소, 마이그레이션, 이력, 가져오기/내보내기)
-│  ├─ DeskCal.Notify         (알림 스케줄러, 토스트, 사운드)
-│  ├─ DeskCal.Sync           (3차: 캘린더 프로바이더 CalDAV/Google/Graph)
-│  └─ DeskCal.Mcp            (3차: 로컬 MCP 서버)
-└─ tests/ (Core, Data, Calendars 단위 테스트, UI 스모크)
+│  ├─ DeskCal.App    (WPF 앱: 바탕화면 호스팅 DesktopHost, 달력 보드 MainWindow, 대화상자·창, 트레이, 전역 단축키,
+│  │                  알림 카드·효과음, Windows OCR, 개발용 스냅샷 DevHarness/DevDocShots)
+│  ├─ DeskCal.Core   (도메인, UI·DB 의존 없음: 모델, BoardLayout, 반복 규칙·전개, 알림 계획, Calendars/(음력·절기·공휴일),
+│  │                  Exchange/(JSON·CSV·ICS·XLSX), 검색, 디데이, 시간표, 빈 시간, 복습 계획, 미완료 계획, 동기화 판정표)
+│  ├─ DeskCal.Data   (SQLite 저장소·마이그레이션, 설정 저장, 반복 항목 시리즈, 알림 처리, 검색 서비스, 가져오기/내보내기 서비스,
+│  │                  활동 로그, 임베딩 색인, MCP 대기열·감사 로그, 자동 실행 등록)
+│  ├─ DeskCal.Ai     (Intent/: 한국어 규칙 파서·LLM 파서·텍스트 추출·질문·OCR 보정, Llm/: Ollama·OpenAI 호환 클라이언트,
+│  │                  브리핑, 의미 검색, 일괄 추가·되돌리기, 미완료 정리 서비스, 접속 주소 정책)
+│  ├─ DeskCal.Sync   (CalDAV 프로바이더, 동기화 엔진)
+│  └─ DeskCal.Mcp    (deskcal-mcp.exe: stdio MCP 서버, 도구 22개·프롬프트 3개)
+├─ tests/DeskCal.Tests   (xUnit: Core·Data·Ai·Sync·Mcp, 가짜 HTTP 서버로 CalDAV·LLM 시험)
+└─ tools/  (package.ps1 배포 zip, installer/ 설치·제거, monitor.ps1 안정성 측정, make-icon.py, collect-doc-images.py)
 ```
+
+의존 방향: `Core` ← `Data` ← (`Ai`, `Sync`, `Mcp`) ← `App`. `App` 은 `Mcp` 를 참조하지 않는다(별도 프로세스, 같은 DB 를 연다).
 
 원본의 "모듈(COM 플러그인)" 구조는 복제하지 않고, 프로젝트 단위 모듈 + 인터페이스(`ICalendarProvider`, `IReminderSink`)로 단순화합니다.
 
@@ -192,6 +204,7 @@ sync_accounts(...), sync_events(... etag, dirty, deleted, remote_id ...)
 ```
 
 - 날짜는 `yyyy-MM-dd` 문자열 + UTC 타임스탬프 분리(원본의 `*_day`, `*_raw` 패턴과 유사). 마이그레이션은 `PRAGMA user_version`.
+- **구현 결과**: 위는 계획 스키마다. 실제 스키마는 `DeskCalDb.cs` 의 `Migrations` 가 기준이며 v1(초기) → v2(글자색) → v3(반복 일정 제외일) → v4(시간표) → v5(동기화·MCP) → v6(반복 항목·디데이 연결) → v7(활동 로그) → v8(의미 검색 색인) 순으로 올라간다. 일정 시각은 UTC 가 아니라 현지 벽시계 문자열로 저장한다(3.0 M5). 비밀번호 잠금은 암호화가 아닌 **화면 가림 + PBKDF2 해시**로 구현했다(3.0 M9).
 - 변경 시 이력 자동 기록, 소프트 삭제, 주기적 백업(DB 파일 복사).
 - 비밀번호 잠금: 콘텐츠를 사용자 비밀번호 유래 키(Argon2/PBKDF2)로 AES-GCM 암호화.
 
@@ -202,6 +215,7 @@ sync_accounts(...), sync_events(... etag, dirty, deleted, remote_id ...)
 - **알림 스케줄러**: 다음 발화 시각 계산 → 단일 `Timer` 재설정, 절전 복귀/시간 변경(`SystemEvents`) 후 재계산, 누락 알림 보정(앱 비실행 중 지난 알림 처리). 토스트 + 알림음(자체 음원) + 완료 효과음.
 - **자동 연장**: "미완료 → 30일간 매일 다음 날로 이월" 옵션은 가상 표시(렌더링 시 계산) 또는 일일 배치로 구현 — 정확한 원본 규칙 확인 후 확정.
 - **검색**: SQLite FTS5(내용 인덱스) + 기간/완료/유형/글자색 필터.
+- **구현 결과**: 반복 규칙은 `Ical.Net` 없이 자체 구현(M5), 검색은 FTS5 대신 메모리 부분 문자열 검색(M7, 한글 부분 일치 때문), 자동 연장은 하지 않고 사용자가 확인하고 옮기는 **미완료 정리**(M16)로 대체했다.
 
 ### 2.7 설정·기타
 
@@ -211,6 +225,7 @@ sync_accounts(...), sync_events(... etag, dirty, deleted, remote_id ...)
 - 설치: MSIX 또는 Inno Setup, 자동 실행은 `HKCU\...\Run` 또는 StartupTask.
 - 로그/진단: 로컬 파일 로그(Serilog), 원격 전송 없음.
 - 개인정보: 모든 데이터는 `%AppData%\DeskCal` 로컬 저장. 외부 통신은 사용자가 켠 동기화에 한함.
+- **구현 결과**: 다국어는 한국어만, 설치는 MSIX/Inno 대신 **zip + 사용자 단위 설치 스크립트**(`tools/package.ps1`, `tools/installer/`), 로그는 Serilog 없이 `m0.log` 한 파일(`App/AppLog.cs`), 외부 통신은 사용자가 켠 동기화·AI 연동(기본은 이 PC 주소만)에 한한다.
 
 ### 2.8 3차 확장 설계 요약
 
@@ -235,10 +250,13 @@ sync_accounts(...), sync_events(... etag, dirty, deleted, remote_id ...)
 | **베타 릴리스** ✅(7일 실측 제외) | | 설치 파일, 사용자 가이드(ko) | 7일간 상시 실행 안정성(메모리/CPU) 확인 |
 | **M9. 2차 기능** ✅(바탕화면 캡처 배경 제외) | 3~4주 | 메모, 시간표, 배경 스킨(순환/캡처), Excel 내보내기(ClosedXML), 인쇄, 콘텐츠 잠금 | 기능별 수용 테스트 |
 | **M10. 3차 기능** ✅(CalDAV + MCP, Google/Graph 제외) | 4~6주 | CalDAV/Google/Graph 동기화, 로컬 MCP 서버 | 양방향 동기화 충돌 시나리오 테스트 |
+| **M11. UI 고도화** ✅ | (추가) | 설정 창 7개 탭, ⚙ 빠른 메뉴, 할 일 옵션 버튼, 문서 스크린샷 자동화 | 스냅샷 육안 확인 |
+| **M12. MCP 도구 확장** ✅ | (추가) | 조회·계산 도구, 디데이·메모 요청, 프롬프트 | 도구별 단위 테스트 |
+| **M13~M16. AI 도입 0~3단계** ✅ | (추가) | 빠른 입력, 텍스트·이미지 추출, 브리핑, 의미 검색, 복습 계획, 미완료 정리 (`docs/AI_FEATURE_REVIEW.md`) | 단계별 단위 테스트·실측 |
 
 총 MVP(M0~M8): 약 9~10주, 전체: 약 16~20주 (1인 개발 기준 추정).
 
-### 3.0 M0 진행 현황 (2026-11-08)
+### 3.0 진행 기록 (M0 2026-11-08 ~ M16 2026-11-14)
 
 구현 위치: `src/DeskCal.App` (솔루션 `M-DeskCal.sln`). 설치된 SDK 가 .NET 10 이라 대상 프레임워크는 `net10.0-windows` 로 했다(계획의 .NET 8 대신).
 
@@ -287,7 +305,7 @@ sync_accounts(...), sync_events(... etag, dirty, deleted, remote_id ...)
 - **확인하지 못한 것**: 알림음이 실제로 들리는지, 편집기·알림 카드에서의 사람 손 조작, 반복 일정의 "이 일정만/이후" 범위 대화상자 클릭 흐름(서비스 로직은 단위 테스트로 검증, 대화상자는 수동 확인 필요).
 - **알려진 한계**: 일정 색 선택 UI 없음(코드/데이터로는 지원), 하나의 일정에 알림 1개만 편집기에서 설정(여러 개는 데이터 모델이 지원, 편집 시 첫 번째만 바꾸고 나머지는 유지), 다일 일정은 날짜별 줄로만 표시(막대 연결 없음), 매우 오래 지난 일간 반복 시리즈의 알림 따라잡기는 호출당 200건씩 진행.
 
-**M6(트레이·단축키·자동 실행) 구현 (2026-11-08)** — 코드: `Core/Hotkey.cs`; `Data/AppPreferencesStore.cs`, `StartupRegistration.cs`; `App/Hotkeys.cs`, `TrayIcon.cs`, `App.xaml.cs`, `MainWindow`(ShowBoard/HideBoard/BringToFront); `tools/publish.ps1`.
+**M6(트레이·단축키·자동 실행) 구현 (2026-11-08)** — 코드: `Core/Hotkey.cs`; `Data/AppPreferencesStore.cs`, `StartupRegistration.cs`; `App/Hotkeys.cs`, `TrayIcon.cs`, `App.xaml.cs`, `MainWindow`(ShowBoard/HideBoard/BringToFront); `tools/publish.ps1`(2026-11-14 삭제 — 베타 배포의 `tools/package.ps1` 로 대체).
 - **전역 단축키**: 기본 `Ctrl+Alt+D` 달력 앞으로 불러오기(숨겨져 있으면 보이기), `Ctrl+Alt+H` 숨기기/보이기, `Ctrl+Alt+E` 오늘 일정 추가. 숨김 메시지 창에 `RegisterHotKey`(MOD_NOREPEAT)로 등록. 다른 프로그램이 이미 쓰는 조합이면 등록 실패를 말풍선으로 알리고 앱은 계속 동작(이 PC에서 `Ctrl+Alt+N`/`Ctrl+Alt+A` 는 이미 점유되어 있어 기본값을 `E` 로 정함). 조합 규칙(`Hotkey.TryParse`): 키 1개 + Ctrl/Alt/Win 중 최소 1개(Shift만은 일반 타이핑을 가로채므로 거부), 중복 수정키 거부, 두 동작에 같은 조합 거부. 트레이 "단축키 설정…" 대화상자에서 칸을 누르고 조합을 눌러 변경, "전역 단축키 사용" 토글. 설정은 `settings` 표의 `app.*` 키.
 - **"앞으로 불러오기"**: 달력은 평소 다른 창 아래(데스크톱 바로 위)에 있으므로, 일시적으로 TOPMOST + 활성화하고 사용자가 다른 곳을 클릭하면(비활성화/1초 타이머) 다시 데스크톱 위로 내려보낸다.
 - **단일 인스턴스**: 두 번째 실행은 이름 있는 이벤트(`Local\M-DeskCal-Show`)로 실행 중인 인스턴스에 신호를 보내고 종료 → 실행 중 앱이 달력을 앞으로 불러온다(숨겨져 있었어도).
@@ -352,7 +370,7 @@ sync_accounts(...), sync_events(... etag, dirty, deleted, remote_id ...)
 - **확인하지 못한 것**: **7일 연속 실행**(메모리 누수·타이머·절전 복귀 포함), 재부팅 후 자동 실행, 다른 PC·다른 Windows 버전·다중 모니터·고배율에서의 설치와 표시, SmartScreen 동작, 시작 메뉴·'설정 > 앱' 화면을 눈으로 보는 것(파일/레지스트리 존재만 확인), 가이드의 절차를 처음 쓰는 사람이 따라 해 보는 것(가이드는 코드 기준으로 작성·대조했으나 사용성 시험 없음).
 
 **M11(UI 고도화·설정 창 체계화·문서 현행화) 구현 (2026-11-09 ~ 2026-11-13)** — 코드: `App/SettingsWindow.cs`, `MainWindow.xaml/cs`, `DesktopHost.cs`, `App.xaml.cs`, `DevDocShots.cs`, `tools/collect-doc-images.py`.
-- **설정 창(SettingsWindow) 6개 탭 분리**: 긴 트레이 메뉴 대신 탭형 대화상자(캘린더, 셀, 글꼴 및 색상, 메모, 고급, 제품 정보)로 모든 표시·동작 설정을 집약. 모든 변경 사항은 누르는 즉시 실시간 반영 및 저장(확인 버튼 불필요). 왼쪽 하단 "기본 설정으로 사용"으로 표시값 일괄 복원 지원.
+- **설정 창(SettingsWindow) 6개 탭 분리**(M13 에서 AI 탭이 더해져 현재 7개): 긴 트레이 메뉴 대신 탭형 대화상자(캘린더, 셀, 글꼴 및 색상, 메모, 고급, 제품 정보)로 모든 표시·동작 설정을 집약. 모든 변경 사항은 누르는 즉시 실시간 반영 및 저장(확인 버튼 불필요). 왼쪽 하단 "기본 설정으로 사용"으로 표시값 일괄 복원 지원.
 - **달력 헤더 톱니바퀴(⚙) 빠른 메뉴 도입**: 헤더 우상단에 ⚙ 버튼을 배치하여 오늘 이동, 새 일정, 검색, 표시 모드 5종, 음력/공휴일/주 번호/완료 표시 토글, 배경 투명도, 위치/크기 조정, 콘텐츠 잠금 등 일상에서 자주 쓰는 기능을 1클릭으로 조작.
 - **트레이 메뉴 정돈**: 5개 논리적 그룹(1. 검색·일정 탐색 / 2. 화면·잠금·데이터 / 3. 메모·디데이·시간표 / 4. 설정·연동 / 5. 정보·종료)으로 깔끔하게 재분류.
 - **위치/크기 조정 UX 개선**: 기존 우하단 단일 그립 방식에서 4면 점선 테두리 오버레이 및 8방향 리사이즈 핸들(N, S, E, W, NW, NE, SW, SE) 드래그 방식으로 개선.
@@ -415,10 +433,20 @@ sync_accounts(...), sync_events(... etag, dirty, deleted, remote_id ...)
 - **확인하지 못한 것**: 검색 창·설정 카드·브리핑 창을 사람이 직접 조작하는 흐름(렌더링으로만 확인), 자동 브리핑이 실제 시각에 뜨는 것, 큰 DB(수만 건)에서의 색인 시간·메모리, 평가는 합성 데이터 22건(실사용 문장·표현에서는 더 낮을 수 있음), 실제 LM Studio 등 호환 서버의 임베딩.
 - **한계/후속**: 소형 모델(`gemma4:e2b`)로는 AI 문장 다듬기가 **대부분 거부되어 원본 줄이 표시된다**(검증이 틀린 것을 막는 것은 확인했으나 쓸모는 모델에 달림 — 더 큰 모델은 미시험). 메모는 색인·검색 대상이 아님. MCP 의 `search` 는 아직 글자 검색만. 3단계(OCR·복습 생성·이월) 미구현.
 
-- **보류/한계(M3)**: "미완료 30일 자동 연장"(원본 규칙 미확인), 최근 사용 색상, 서식(굵게 등), 한 칸에 항목이 많을 때 넘침 표시(현재는 잘림 + 툴팁), 항목별 알림 설정(M5), 개발용 옵션 `--db=`, `--seed`, `--snapshot=`.
+**M16(AI 도입 3단계: 이미지·복습·미완료) 구현 (2026-11-14)** — 근거·상세: `docs/AI_FEATURE_REVIEW.md` 15절. 코드: `App/Ocr.cs`(Windows.Media.Ocr), `Ai/Intent/OcrText.cs`; `Core/ReviewPlan.cs`, `App/PlannerUi.cs`; `Core/Rollover.cs`, `Ai/Rollover.cs`, `App/RolloverUi.cs`; MCP `list_overdue_items`·`move_item`(도구 22개).
+- **OCR**: 추출 창에 이미지 파일·끌어다 놓기·클립보드 추가. 오프라인, 이미지 미저장. 콜론 누락(`1430`) 등은 날짜가 있는 줄에서만 보정하고, "이미지와 대조하라"는 경고를 항상 표시. 이를 위해 앱 TFM 이 `net10.0-windows10.0.19041.0` 이 됨.
+- **복습 계획**: 학습일 +1·2·4·7·15·30일 / 시험일 −30·14·7·3·1일, 주말·휴일 회피, 계산만으로 날짜 결정(LLM 미사용), 일괄 추가·되돌리기.
+- **미완료 정리**: 최근 30일 미완료(반복·D-day 묶음 제외)를 오늘/다음 업무일/여유 있는 날로 이동, 날짜만 변경, 한 번에 되돌리기. M3 에서 보류한 "미완료 30일 자동 연장"을 자동 이동 대신 이 기능으로 대체.
+- **검증**: 단위 테스트 **912개 통과**. 화면 확인에서 주말을 보지 않던 휴일 판정 결함을 찾아 수정.
+- **한계**: 쉬는 요일 설정(`OffDaysMask`)은 두 기능에 반영되지 않고 토·일 고정.
 
-실행: `dotnet run --project src/DeskCal.App` (개발용 `--edit` 인자로 편집 모드 시작). 로그: `%AppData%\DeskCal\m0.log`.
-다음 단계: 사용자가 화면 앞에서 (a)~(c)를 육안 확인 → 문제 있으면 `WS_EX_LAYERED` 재적용/`UpdateLayeredWindow` 대안 검토 후 M1(코어·데이터) 착수.
+**코드 정리 (2026-11-14)** — 동작 변경 없음, 단위 테스트 912개 그대로 통과.
+- 쓰이지 않던 코드 삭제: `ReminderRepository.RearmOwner`, `EventRepository.GetStartingBetween`·`GetRecurring`(테스트에서만 쓰임), `SyncReport.ChangedAny`, `OcrReader.HasKorean`, 미사용 매개변수·`using`.
+- 중복 제거: 저장소의 행 읽기 반복문 → `RepoBase.ReadAll`, 창마다 있던 색 문자열 파싱 → `App/UiColors.cs`, 말줄임 자르기 11곳 → `Core/TextExtensions.Ellipsize`, 반복 간격 판정 2곳 → `RepeatKindExtensions.UsesInterval`, 로그 쓰기 2곳 → `App/AppLog.cs`.
+- `tools/publish.ps1`(프레임워크 종속 `dist/` 게시) 삭제 — 배포는 `tools/package.ps1` 하나.
+- M3 보류 항목의 현재 상태: 최근 사용 색상·항목별 알림은 이후 할 일 옵션 버튼(마이그레이션 v6)으로 구현됨, 미완료 자동 연장은 M16 미완료 정리로 대체, 서식(굵게 등)과 칸 넘침 표시는 미구현(잘림 + 툴팁).
+
+실행: `dotnet run --project src/DeskCal.App`. 개발용 인자: `--edit`(편집 모드로 시작), `--db=<파일>`(다른 DB), `--seed`(예시 데이터), `--snapshot=<폴더>`(오프스크린 PNG 렌더링), `--docshots`(문서용 스크린샷). 로그: `%AppData%\DeskCal\m0.log`.
 
 ### 3.1 테스트 전략
 - 단위: 반복 규칙, 음력/공휴일, 알림 스케줄, 마이그레이션, 가져오기/내보내기.
