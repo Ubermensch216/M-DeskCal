@@ -45,7 +45,8 @@ public partial class App : System.Windows.Application
     private ContentLockStore? _lock;
     private TimetableWidgetWindow? _ttWidget;
     private SyncCoordinator? _sync;
-    private System.Windows.Threading.DispatcherTimer? _syncTimer, _mcpTimer;
+    private System.Windows.Threading.DispatcherTimer? _syncTimer, _mcpTimer, _gitTimer;
+    private GitSyncCoordinator? _gitSync;
     private McpAccess? _mcpAccess;
     private McpRepository? _mcpRepo;
     private McpChanges? _mcpChanges;
@@ -137,6 +138,7 @@ public partial class App : System.Windows.Application
         _settingsStore = settings;
         _lock = new ContentLockStore(settings);
         _sync = new SyncCoordinator(db, clock, isDayOff, new DpapiSecretProtector(), settings);
+        _gitSync = new GitSyncCoordinator(db, clock, settings, DataDir, HolidaysPath);
         _mcpAccess = new McpAccess(settings);
         _mcpRepo = new McpRepository(db, clock);
         _mcpChanges = new McpChanges(db, clock, isDayOff);
@@ -509,6 +511,24 @@ public partial class App : System.Windows.Application
         };
         _syncTimer.Start();
 
+        // Git sync: a little after start-up (so changes made on another computer arrive), then at the chosen interval
+        _gitSync!.Finished += (report, error) =>
+        {
+            if (report?.HolidaysChanged == true) ApplyHolidaysFile();
+            if (report?.ChangedLocal == true) AfterImport();
+            if (error is not null && _gitUserVisible) _tray?.ShowBalloonTip(5000, "Git 동기화", error, Forms.ToolTipIcon.Warning);
+        };
+        _gitTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(20) };
+        _gitTimer.Tick += async (_, _) =>
+        {
+            int minutes = _gitSync.Config.IntervalMinutes;
+            _gitTimer.Interval = TimeSpan.FromMinutes(minutes > 0 ? minutes : 5);   // when off, only look again for a changed setting
+            if (minutes <= 0 || !_gitSync.Configured || _gitSync.Running || (_board?.ContentHidden ?? false)) return;
+            _gitUserVisible = false;
+            await _gitSync.RunAsync();
+        };
+        _gitTimer.Start();
+
         // AI requests: tell the user when new ones arrive (without saying what they are: the calendar may be locked)
         _mcpTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         _mcpTimer.Tick += (_, _) =>
@@ -569,6 +589,25 @@ public partial class App : System.Windows.Application
             var (report, error) = await _sync.RunAsync(a);
             _tray?.ShowBalloonTip(4000, "외부 캘린더 동기화", error ?? report!.Summary(), error is null ? Forms.ToolTipIcon.Info : Forms.ToolTipIcon.Warning);
         }
+    }
+
+    private bool _gitUserVisible;
+
+    private async void GitSyncNow()
+    {
+        if (!EnsureUnlocked()) return;
+        if (!_gitSync!.Configured) { OpenSettings(SettingsWindow.SyncTabIndex); return; }
+        _gitUserVisible = true;
+        var (report, error) = await _gitSync.RunAsync();
+        _tray?.ShowBalloonTip(4000, "Git 동기화", error ?? report!.Summary(), error is null ? Forms.ToolTipIcon.Info : Forms.ToolTipIcon.Warning);
+    }
+
+    private async Task<string> GitSyncFromSettings()
+    {
+        if (!EnsureUnlocked()) return "잠금을 풀어야 동기화할 수 있습니다.";
+        _gitUserVisible = false;       // the settings window shows the outcome itself
+        var (report, error) = await _gitSync!.RunAsync();
+        return error is null ? "성공 - " + report!.Summary() : "실패 - " + error;
     }
 
     private void OpenMcp(bool approvals = false)
@@ -657,6 +696,15 @@ public partial class App : System.Windows.Application
         catch (Exception ex) { System.Windows.MessageBox.Show(ex.Message, "휴일 데이터 편집"); }
     }
 
+    /// <summary>Read holidays.json again without asking anything (it was replaced by a sync).</summary>
+    private void ApplyHolidaysFile()
+    {
+        var r = HolidayOverrideFile.Load(HolidaysPath);
+        _days = new KoreanDays(r.Overrides);
+        _board?.SetCalendar(_days);
+        if (r.Errors.Count > 0) AppLog.Write("holidays.json from sync: " + string.Join("; ", r.Errors));
+    }
+
     private void ReloadHolidays()
     {
         var r = HolidayOverrideFile.Load(HolidaysPath);
@@ -699,7 +747,19 @@ public partial class App : System.Windows.Application
         ShowDiagnostics: () => System.Windows.MessageBox.Show(_board!.Diagnostics(), "M-DeskCal 진단"),
         Ai: new AiHost(() => _aiStore!.Load(), s => _aiStore!.Save(s), (s, ct) => DeskCal.Ai.Llm.LlmClientFactory.TestAsync(s, ct),
                        () => _accuracy!.Summary(), () => _accuracy!.Reset(),
-                       new AiPlusHost(() => _briefStore!.Load(), b => _briefStore!.Save(b), IndexStatus, BuildIndexAsync, () => _embedRepo!.Clear())));
+                       new AiPlusHost(() => _briefStore!.Load(), b => _briefStore!.Save(b), IndexStatus, BuildIndexAsync, () => _embedRepo!.Clear())),
+        Git: new GitSyncHost(() => _gitSync!.Config, c => _gitSync!.Config = c, GitSyncFromSettings, () => _gitSync!.LastResult,
+                             () => OpenFolder(_gitSync!.WorkDir)));
+
+    private static void OpenFolder(string dir)
+    {
+        try
+        {
+            if (!Directory.Exists(dir)) { System.Windows.MessageBox.Show("아직 동기화하지 않아 폴더가 없습니다.", "M-DeskCal"); return; }
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(dir) { UseShellExecute = true });
+        }
+        catch (Exception ex) { System.Windows.MessageBox.Show(ex.Message, "M-DeskCal"); }
+    }
 
     private void OpenSettings(int tab = 0) => SettingsWindow.ShowOrActivate(MakeSettingsHost(), tab);
 
@@ -893,6 +953,10 @@ public partial class App : System.Windows.Application
         syncMenu.DropDownItems.Add("동기화 설정…", null, (_, _) => OpenSync());
         syncMenu.DropDownItems.Add("지금 동기화", null, (_, _) => SyncNow());
         menu.Items.Add(syncMenu);
+        var gitMenu = new Forms.ToolStripMenuItem("Git 저장소 동기화");
+        gitMenu.DropDownItems.Add("동기화 설정…", null, (_, _) => OpenSettings(SettingsWindow.SyncTabIndex));
+        gitMenu.DropDownItems.Add("지금 동기화", null, (_, _) => GitSyncNow());
+        menu.Items.Add(gitMenu);
 
         var mcpItem = new Forms.ToolStripMenuItem("AI 연동…");
         mcpItem.Click += (_, _) => OpenMcp();
@@ -906,7 +970,7 @@ public partial class App : System.Windows.Application
         menu.Items.Add(new Forms.ToolStripSeparator());
 
         // 5. 정보 · 종료
-        menu.Items.Add("제품 정보…", null, (_, _) => OpenSettings(6));
+        menu.Items.Add("제품 정보…", null, (_, _) => OpenSettings(SettingsWindow.AboutTabIndex));
         menu.Items.Add("종료", null, (_, _) => Shutdown());
 
         menu.Opening += (_, _) => { foreach (var r in refresh) r(); };
@@ -917,6 +981,7 @@ public partial class App : System.Windows.Application
     {
         _trayTimer?.Stop();
         _syncTimer?.Stop();
+        _gitTimer?.Stop();
         _maintTimer?.Stop();
         _mcpTimer?.Stop();
         _hotkeys?.Dispose();

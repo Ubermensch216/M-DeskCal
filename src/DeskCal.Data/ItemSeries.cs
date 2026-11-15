@@ -136,8 +136,15 @@ public sealed class ItemSeriesRepository(DeskCalDb db, IClock clock, Func<DateOn
             if (d > horizon || made >= MaxPerCall) { exhausted = false; break; }
 
             string day = Fmt(d);
+            // A day the series already has (perhaps deleted on purpose, or brought over by sync from another computer) is not made again.
+            if (ScalarString(c, tx, "SELECT COUNT(*) FROM items WHERE series_id=$s AND day=$d", ("$s", seriesId), ("$d", day)) != "0")
+            {
+                lastDay = d;
+                continue;
+            }
             int sort = Convert.ToInt32(ScalarString(c, tx, "SELECT COALESCE(MAX(sort), -1) + 1 FROM items WHERE day=$d AND deleted=0", ("$d", day)));
-            string id = NewId();
+            string id = OccurrenceId(seriesId, day);
+            if (ScalarString(c, tx, "SELECT COUNT(*) FROM items WHERE id=$i", ("$i", id)) != "0") id = NewId();     // e.g. that occurrence was moved to another day
             Exec(c, tx,
                 $"INSERT INTO items({ItemRepository.Cols}) VALUES($id,$day,$c,$bg,$s,0,$n,$n,0,$tc,$sid,NULL)",
                 ("$id", id), ("$day", day), ("$c", content), ("$bg", bg), ("$s", sort), ("$n", now), ("$tc", text), ("$sid", seriesId));
@@ -153,6 +160,13 @@ public sealed class ItemSeriesRepository(DeskCalDb db, IClock clock, Func<DateOn
         Exec(c, tx, "UPDATE item_series SET generated_until=$g WHERE id=$i", ("$g", reached), ("$i", seriesId));
         return made;
     }
+
+    /// <summary>
+    /// The id of a series' occurrence on a day is derived from both, so two computers that each create the occurrence before they
+    /// sync end up with the same item instead of two. An id already taken (an older item that happens to collide) falls back to a fresh one.
+    /// </summary>
+    internal static string OccurrenceId(string seriesId, string day) =>
+        new Guid(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(seriesId + "|" + day))[..16]).ToString("N");
 
     /// <summary>Remove the occurrences of a series that lie after <paramref name="day"/>, with their reminders and history.</summary>
     private static void DeleteAfter(SqliteConnection c, SqliteTransaction tx, string seriesId, string day)

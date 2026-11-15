@@ -37,7 +37,8 @@ internal sealed record SettingsHost(
     Action ReloadHolidays,
     Action OpenDataFolder,
     Action ShowDiagnostics,
-    AiHost? Ai = null);
+    AiHost? Ai = null,
+    GitSyncHost? Git = null);
 
 /// <summary>
 /// "캘린더 설정": the full set of options, in seven tabs. The gear's quick menu holds the handful used every day;
@@ -46,6 +47,8 @@ internal sealed record SettingsHost(
 internal sealed class SettingsWindow : Window
 {
     private static SettingsWindow? _open;
+
+    public const int SyncTabIndex = 6, AboutTabIndex = 7, TabCount = 8;
 
     private static readonly Color Accent = Color.FromRgb(0x2F, 0x8C, 0xFF);
     private static readonly SolidColorBrush AccentBrush = Frozen(Accent);
@@ -94,6 +97,7 @@ internal sealed class SettingsWindow : Window
             ("메모", "", MemoTab),
             ("고급", "", AdvancedTab),
             ("AI", "\uE82F", AiTab),
+            ("동기화", "", SyncTab),
             ("제품 정보", "", AboutTab),
         ];
 
@@ -490,6 +494,67 @@ internal sealed class SettingsWindow : Window
                 RowCustom("AI 가 읽은 것", null, llm),
                 RowLink("기록 지우기", null, "지우기", () => { ai.ResetAccuracy?.Invoke(); SyncAll(); })));
         }
+        return page;
+    }
+
+    private UIElement SyncTab()
+    {
+        var page = new StackPanel();
+        if (_h.Git is not { } git)
+        {
+            page.Children.Add(Card("Git 저장소 동기화", RowText("동기화", "이 화면에서는 동기화 설정을 바꿀 수 없습니다.")));
+            return page;
+        }
+        GitSyncConfig Cur() => git.Get();
+        void Change(Func<GitSyncConfig, GitSyncConfig> f) { if (_syncing) return; git.Set(f(Cur())); SyncAll(); }
+
+        TextBox Field(Func<GitSyncConfig, string> get, Func<GitSyncConfig, string, GitSyncConfig> set, double width)
+        {
+            var box = new TextBox { Width = width, MinHeight = 26, VerticalContentAlignment = VerticalAlignment.Center };
+            void Commit() { if (!_syncing && box.Text.Trim() != get(Cur())) Change(c => set(c, box.Text.Trim())); }
+            box.LostFocus += (_, _) => Commit();
+            box.KeyDown += (_, e) => { if (e.Key == Key.Enter) Commit(); };
+            _sync.Add(() => { if (!box.IsKeyboardFocusWithin) box.Text = get(Cur()); });
+            return box;
+        }
+        var url = Field(c => c.Url, (c, v) => c with { Url = v }, 300);
+        var branch = Field(c => c.Branch, (c, v) => c with { Branch = v }, 160);
+        var folderNote = new TextBlock { Foreground = Frozen(Color.FromRgb(0xC0, 0x39, 0x2B)), FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed, Margin = new Thickness(14, 0, 14, 8) };
+        var folder = Field(c => c.Folder, (c, v) =>
+        {
+            bool ok = DeskCal.Sync.GitCalendarSync.IsValidFolder(v);
+            folderNote.Text = ok ? "" : "폴더 이름에는 / \\ : * ? \" < > | 를 쓸 수 없고 . 으로 시작할 수 없습니다.";
+            folderNote.Visibility = ok ? Visibility.Collapsed : Visibility.Visible;
+            return ok ? c with { Folder = v } : c;
+        }, 200);
+
+        var status = new TextBlock { Foreground = MutedBrush, TextWrapping = TextWrapping.Wrap, MaxWidth = 420, TextAlignment = TextAlignment.Right };
+        _sync.Add(() => status.Text = git.Status());
+        bool busy = false;
+        async Task Run()
+        {
+            if (busy) return;
+            busy = true;
+            status.Text = "동기화하는 중… (처음에는 저장소를 받아오느라 시간이 걸립니다)";
+            try { await git.RunNow(); } finally { busy = false; }
+            status.Text = git.Status();
+        }
+
+        page.Children.Add(Card("Git 저장소 동기화",
+            RowText("하는 일", "할 일·일정·디데이·메모·반복 규칙·시간표·휴일 수정 파일을 Git 저장소의 한 폴더에 항목마다 파일 하나로 저장하고, " +
+                             "다른 컴퓨터의 M-DeskCal 과 그 폴더를 통해 합칩니다. 창 위치·표시 설정·AI·잠금 설정은 컴퓨터마다 따로입니다."),
+            RowCustom("저장소 주소", "예: https://github.com/아이디/저장소.git — 이 컴퓨터의 git 로그인(자격 증명 관리자·SSH 키)을 그대로 씁니다", url),
+            RowCustom("브랜치", "비워 두면 저장소의 기본 브랜치", branch),
+            RowCustom("폴더", "저장소 안에서 캘린더가 쓰는 폴더. 다른 폴더는 건드리지 않습니다", folder),
+            folderNote,
+            RowCombo("자동 동기화", "프로그램이 켜진 동안 이 간격으로 받고 올립니다 (켤 때도 한 번)",
+                [("끔", 0), ("5분", 5), ("15분", 15), ("30분", 30), ("1시간", 60)], () => Cur().IntervalMinutes, v => Change(c => c with { IntervalMinutes = v })),
+            RowLink("지금 동기화", "받아서 합치고 올립니다. 이 컴퓨터의 내용을 바꾸기 전에는 데이터 폴더의 backup 에 복사본을 남깁니다", "실행", () => _ = Run()),
+            RowCustom("마지막 결과", null, status),
+            RowLink("작업 폴더", "이 프로그램이 받아 둔 저장소 사본", "열기", git.OpenFolder)));
+        page.Children.Add(Card("주의",
+            RowText("개인정보", "일정 내용이 그대로 저장소에 올라갑니다. 저장소는 반드시 비공개로 두세요. 콘텐츠 잠금 중에는 자동 동기화를 하지 않습니다."),
+            RowText("충돌", "같은 항목을 두 컴퓨터에서 동시에 고치면 나중에 고친 쪽이 남고, 덮어쓴 글은 기록(이력)에 남습니다.")));
         return page;
     }
 

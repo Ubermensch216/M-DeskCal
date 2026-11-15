@@ -53,7 +53,7 @@ public partial class App
 
         // the settings window, every tab, tall enough to show the whole page
         var host = MakeSettingsHost();
-        for (int tab = 0; tab < 7; tab++)
+        for (int tab = 0; tab < SettingsWindow.TabCount; tab++)
         {
             var win = SettingsWindow.CreateForSnapshot(host, tab);
             DevHarness.RenderToPng(win.Surface, P($"doc-settings-{tab}.png"), 800, 1100, WpfColor.FromRgb(0xEE, 0xF1, 0xF6));
