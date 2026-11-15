@@ -46,7 +46,7 @@ internal static class ModernUi
 
     public static readonly FontFamily AppFont = new("Segoe UI, Malgun Gothic");
 
-    public static SolidColorBrush Frozen(Color c) { var b = new SolidColorBrush(c); b.Freeze(); return b; }
+    public static SolidColorBrush Frozen(Color c) => UiColors.Frozen(c);
 
     // Flat 24x24 stroke-based vector icon paths (clean, uniform 1.8px stroke)
     public static class Icons
@@ -316,6 +316,79 @@ internal static class ModernUi
             Padding = new Thickness(20, 12, 20, 12),
             Child = dock,
         };
+    }
+
+    public static Border ActionFooter(IEnumerable<UIElement> leftButtons, params UIElement[] rightButtons)
+    {
+        var left = new StackPanel { Orientation = Orientation.Horizontal };
+        foreach (var b in leftButtons) left.Children.Add(b);
+        var right = new StackPanel { Orientation = Orientation.Horizontal };
+        for (int i = 0; i < rightButtons.Length; i++)
+        {
+            if (i == rightButtons.Length - 1 && rightButtons[i] is FrameworkElement fe)
+                fe.Margin = new Thickness(0);
+            right.Children.Add(rightButtons[i]);
+        }
+        return Footer(left, rightButtons.Length > 0 ? right : null);
+    }
+
+    public static DockPanel PageShell(UIElement header, UIElement footer, UIElement center)
+    {
+        var dock = new DockPanel();
+        DockPanel.SetDock(header, Dock.Top);
+        DockPanel.SetDock(footer, Dock.Bottom);
+        dock.Children.Add(header);
+        dock.Children.Add(footer);
+        dock.Children.Add(center);
+        return dock;
+    }
+
+    public static ScrollViewer ScrollBody(params UIElement[] children)
+    {
+        var body = new StackPanel();
+        foreach (var c in children) body.Children.Add(c);
+        return new ScrollViewer
+        {
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Padding = new Thickness(18, 14, 18, 10),
+            Content = body,
+        };
+    }
+
+    public static TextBlock SummaryText() => new()
+    {
+        Margin = new Thickness(0, 4, 0, 8),
+        FontWeight = FontWeights.SemiBold,
+        Foreground = InkBrush,
+        TextWrapping = TextWrapping.Wrap,
+    };
+
+    public static TextBlock StatusText() => new()
+    {
+        Margin = new Thickness(0, 8, 0, 0),
+        FontSize = 12,
+        TextWrapping = TextWrapping.Wrap,
+        Foreground = MutedBrush,
+    };
+
+    public static Border CheckCardRow(CheckBox check, UIElement body, UIElement? badge = null, UIElement? right = null, bool mutedBg = false)
+    {
+        var row = new Grid();
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        if (badge is not null) row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        if (right is not null) row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        int col = 0;
+        Grid.SetColumn(check, col++);
+        row.Children.Add(check);
+        if (badge is not null) { Grid.SetColumn(badge, col++); row.Children.Add(badge); }
+        Grid.SetColumn(body, col++);
+        row.Children.Add(body);
+        if (right is not null) { Grid.SetColumn(right, col); row.Children.Add(right); }
+
+        return Card(row, new Thickness(12, 10, 12, 10), new Thickness(0, 0, 0, 6),
+            background: mutedBg ? CardAltBrush : CardBrush);
     }
 
     // ---- Modern ContextMenu for the Gear Quick Menu ----

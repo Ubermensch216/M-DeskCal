@@ -26,4 +26,20 @@
     <Using Remove="System.Windows.Forms" />
   </ItemGroup>
 
+  <Target Name="OptimizeDesktopPublish" AfterTargets="PrepareForILLink" Condition="'$(PublishTrimmed)' == 'true'">
+    <ItemGroup>
+      <!-- Drop unreferenced desktop pack assemblies (Visual Studio designers, VB runtime, Ribbon, legacy WinXP themes). -->
+      <_UnusedDesktop Include="System.Windows.Forms.Design;System.Windows.Forms.Design.Editors;System.Design;System.Drawing.Design;System.Windows.Controls.Ribbon;Microsoft.VisualBasic;Microsoft.VisualBasic.Core;Microsoft.VisualBasic.Forms;WindowsFormsIntegration;System.Windows.Presentation;PresentationFramework.Luna;PresentationFramework.Royale;PresentationFramework.Classic" />
+      <TrimmerRootAssembly Remove="@(_UnusedDesktop)" />
+      <ManagedAssemblyToLink Condition="'%(Filename)' == 'System.Windows.Forms.Design' or '%(Filename)' == 'System.Windows.Forms.Design.Editors' or '%(Filename)' == 'System.Design' or '%(Filename)' == 'System.Drawing.Design' or '%(Filename)' == 'System.Windows.Controls.Ribbon' or '%(Filename)' == 'Microsoft.VisualBasic' or '%(Filename)' == 'Microsoft.VisualBasic.Core' or '%(Filename)' == 'Microsoft.VisualBasic.Forms' or '%(Filename)' == 'WindowsFormsIntegration' or '%(Filename)' == 'System.Windows.Presentation' or '%(Filename)' == 'PresentationFramework.Luna' or '%(Filename)' == 'PresentationFramework.Royale' or '%(Filename)' == 'PresentationFramework.Classic'">
+        <TrimMode>copyused</TrimMode>
+      </ManagedAssemblyToLink>
+      <!-- Rewrite the large WPF/WinForms assemblies from IL while rooting 100% of their types/members (RootMode=All),
+           which strips the precompiled ReadyToRun native image bloat without removing any reflection/XAML targets. -->
+      <ManagedAssemblyToLink Condition="'%(Filename)' == 'PresentationFramework' or '%(Filename)' == 'PresentationCore' or '%(Filename)' == 'WindowsBase' or '%(Filename)' == 'System.Windows.Forms' or '%(Filename)' == 'System.Windows.Forms.Primitives'">
+        <TrimMode>link</TrimMode>
+      </ManagedAssemblyToLink>
+    </ItemGroup>
+  </Target>
+
 </Project>
