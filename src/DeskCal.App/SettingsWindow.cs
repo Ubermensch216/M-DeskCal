@@ -381,6 +381,8 @@ internal sealed class SettingsWindow : Window
         model.LostFocus += (_, _) => { if (!_syncing && model.Text.Trim() != Cur().Model) Change(s => s with { Model = model.Text.Trim() }); };
         _sync.Add(() => { if (!model.IsKeyboardFocusWithin) model.Text = Cur().Model; });
 
+        // Other model pickers (the embedding model) register here so the one connection test fills them all.
+        Action<IReadOnlyList<string>>? onModelsFound = null;
         var result = new TextBlock { Foreground = MutedBrush, TextWrapping = TextWrapping.Wrap, MaxWidth = 420, TextAlignment = TextAlignment.Right, Text = "아직 시험하지 않았습니다." };
         async Task RunTest()
         {
@@ -396,6 +398,7 @@ internal sealed class SettingsWindow : Window
                 model.Items.Clear();
                 foreach (var m in report.Models) model.Items.Add(m);
                 model.Text = keep;
+                onModelsFound?.Invoke(report.Models);
             }
         }
 
@@ -431,6 +434,17 @@ internal sealed class SettingsWindow : Window
             embed.SelectionChanged += (_, _) => { if (!_syncing && embed.SelectedItem is string m && m != Cur().EmbedModel) Change(s => s with { EmbedModel = m }); };
             embed.LostFocus += (_, _) => { if (!_syncing && embed.Text.Trim() != Cur().EmbedModel) Change(s => s with { EmbedModel = embed.Text.Trim() }); };
             _sync.Add(() => { if (!embed.IsKeyboardFocusWithin) embed.Text = Cur().EmbedModel; });
+            onModelsFound = models =>
+            {
+                // Models that look like embedding models first; the rest stay available below them.
+                static bool LooksLikeEmbedding(string m) =>
+                    new[] { "embed", "bge", "e5", "minilm", "nomic", "gte", "arctic", "mxbai", "snowflake" }
+                        .Any(k => m.Contains(k, StringComparison.OrdinalIgnoreCase));
+                string keep = Cur().EmbedModel;
+                embed.Items.Clear();
+                foreach (string name in models.Where(LooksLikeEmbedding).Concat(models.Where(x => !LooksLikeEmbedding(x)))) embed.Items.Add(name);
+                embed.Text = keep;
+            };
             var indexState = new TextBlock { Foreground = MutedBrush, TextWrapping = TextWrapping.Wrap, MaxWidth = 420, TextAlignment = TextAlignment.Right };
             _sync.Add(() => indexState.Text = plus.IndexStatus());
             async Task Build()

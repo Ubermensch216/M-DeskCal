@@ -800,6 +800,8 @@ public partial class App : System.Windows.Application
         menu.Items.Add(Entry(board.ContentHidden ? "콘텐츠 잠금 해제…" : "콘텐츠 잠그기", () => { if (board.ContentHidden) EnsureUnlocked(); else SetLocked(true); }));
         menu.Items.Add(new System.Windows.Controls.Separator());
         menu.Items.Add(Entry("캘린더 설정…", () => OpenSettings()));
+        menu.Items.Add(new System.Windows.Controls.Separator());
+        menu.Items.Add(Entry("캘린더 종료", () => Shutdown()));
         return menu;
     }
 
