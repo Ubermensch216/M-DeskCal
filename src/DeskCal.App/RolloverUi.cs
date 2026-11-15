@@ -45,18 +45,18 @@ internal static class RolloverWindow
 
     internal static Window Build(RolloverHost host, out Action refresh)
     {
-        var win = Dlg.Create("미완료 정리", 700, 640);
-        win.ShowInTaskbar = true;
+        var win = new Window();
+        ModernUi.ConfigureWindow(win, "미완료 정리", 720, 680);
 
-        var summary = new TextBlock { Margin = new Thickness(0, 0, 0, 6), FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
+        var summary = new TextBlock { Margin = new Thickness(0, 2, 0, 8), FontWeight = FontWeights.SemiBold, Foreground = ModernUi.InkBrush, TextWrapping = TextWrapping.Wrap };
         var list = new StackPanel();
-        var status = new TextBlock { Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap, Foreground = Brushes.Gray };
+        var status = new TextBlock { Margin = new Thickness(0, 8, 0, 0), FontSize = 12, TextWrapping = TextWrapping.Wrap, Foreground = ModernUi.MutedBrush };
         var rows = new List<Row>();
-        var target = new DatePicker { Width = 130 };
+        var target = new DatePicker { Width = 136, VerticalAlignment = VerticalAlignment.Center };
         Button moveBtn = null!, undoBtn = null!;
-        moveBtn = Dlg.Btn("선택한 건 옮기기", (_, _) => MoveSelected());
+        moveBtn = ModernUi.PrimaryBtn("선택한 건 옮기기", (_, _) => MoveSelected());
         moveBtn.IsEnabled = false;
-        undoBtn = Dlg.Btn("마지막 이동 되돌리기", (_, _) => Undo());
+        undoBtn = ModernUi.SecondaryBtn("마지막 이동 되돌리기", (_, _) => Undo());
 
         DateOnly Start() => RolloverPlanner.FirstDay(host.Today(), host.IsDayOff);
 
@@ -78,28 +78,29 @@ internal static class RolloverWindow
             if (target.SelectedDate is null) target.SelectedDate = to.ToDateTime(TimeOnly.MinValue);
             foreach (var o in overdue)
             {
-                var check = new CheckBox { IsChecked = true, Margin = new Thickness(0, 4, 8, 0), VerticalAlignment = VerticalAlignment.Top };
-                var picker = new DatePicker { SelectedDate = target.SelectedDate ?? to.ToDateTime(TimeOnly.MinValue), Width = 120, VerticalAlignment = VerticalAlignment.Top };
-                var title = new TextBlock { Text = o.Content, TextWrapping = TextWrapping.Wrap, FontSize = 13 };
+                var check = new CheckBox { IsChecked = true, Margin = new Thickness(0, 4, 10, 0), VerticalAlignment = VerticalAlignment.Top };
+                var picker = new DatePicker { SelectedDate = target.SelectedDate ?? to.ToDateTime(TimeOnly.MinValue), Width = 126, VerticalAlignment = VerticalAlignment.Center };
+                var title = new TextBlock { Text = o.Content, TextWrapping = TextWrapping.Wrap, FontSize = 13.5, FontWeight = FontWeights.SemiBold, Foreground = ModernUi.InkBrush };
                 CountdownCalc.TryParseDate(o.Day, out var day);
-                var detail = new TextBlock { Text = $"{day:M월 d일} ({AiText.Dow[(int)day.DayOfWeek]}) 의 할 일 · {o.DaysLate}일 지남", Foreground = Brushes.Gray, FontSize = 11.5 };
-                var warn = new TextBlock
+                var detail = new TextBlock { Text = $"{day:M월 d일} ({AiText.Dow[(int)day.DayOfWeek]}) 의 할 일 · {o.DaysLate}일 지남", Foreground = ModernUi.MutedBrush, FontSize = 11.5, Margin = new Thickness(0, 2, 0, 0) };
+                var warn = new Border
                 {
-                    Text = $"이미 {o.TimesMoved}번 옮겼습니다 — 또 미루기보다 쪼개거나 지우는 편이 나을 수 있습니다.", Foreground = AiText.Warn, FontSize = 11.5, TextWrapping = TextWrapping.Wrap,
+                    Background = ModernUi.WarnSoftBrush, CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(0, 6, 0, 0),
                     Visibility = o.TimesMoved >= RolloverPlanner.ManyMoves ? Visibility.Visible : Visibility.Collapsed,
+                    Child = new TextBlock
+                    {
+                        Text = $"이미 {o.TimesMoved}번 옮겼습니다 — 또 미루기보다 쪼개거나 지우는 편이 나을 수 있습니다.",
+                        Foreground = ModernUi.WarnBrush, FontSize = 11.5, TextWrapping = TextWrapping.Wrap,
+                    },
                 };
-                var body = new StackPanel { Children = { title, detail, warn } };
+                var body = new StackPanel { Children = { title, detail, warn }, Margin = new Thickness(0, 0, 12, 0) };
                 var line = new Grid();
                 line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 Grid.SetColumn(body, 1); Grid.SetColumn(picker, 2);
                 line.Children.Add(check); line.Children.Add(body); line.Children.Add(picker);
-                list.Children.Add(new Border
-                {
-                    Child = line, Padding = new Thickness(8, 5, 8, 6), Margin = new Thickness(0, 0, 0, 4), CornerRadius = new CornerRadius(6),
-                    BorderThickness = new Thickness(1), BorderBrush = new SolidColorBrush(Color.FromRgb(0xD9, 0xDE, 0xE7)),
-                });
+                list.Children.Add(ModernUi.Card(line, new Thickness(12, 10, 12, 10), new Thickness(0, 0, 0, 6)));
                 check.Click += (_, _) => UpdateButtons();
                 rows.Add(new Row { Item = o, Check = check, To = picker });
             }
@@ -149,26 +150,37 @@ internal static class RolloverWindow
             Refresh();
         }
 
-        var todayBtn = Dlg.Btn("모두 오늘로", (_, _) => SetAll(Start()));
-        var nextBtn = Dlg.Btn("모두 다음 업무일로", (_, _) => SetAll(RolloverPlanner.DayAfter(host.Today(), host.IsDayOff)));
-        var spreadBtn = Dlg.Btn("여유 있는 날로 나누기", (_, _) => Spread());
-        var applyAll = Dlg.Btn("이 날짜로 모두", (_, _) => { if (target.SelectedDate is { } d) SetAll(DateOnly.FromDateTime(d)); });
-        var quick = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
-        foreach (var b in new UIElement[] { todayBtn, nextBtn, spreadBtn, new TextBlock { Text = "날짜", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 6, 0) }, target, applyAll })
-            quick.Children.Add(b);
+        var todayBtn = ModernUi.ChipBtn("모두 오늘로", (_, _) => SetAll(Start()));
+        var nextBtn = ModernUi.ChipBtn("모두 다음 업무일로", (_, _) => SetAll(RolloverPlanner.DayAfter(host.Today(), host.IsDayOff)));
+        var spreadBtn = ModernUi.ChipBtn("여유 있는 날로 나누기", (_, _) => Spread());
+        var applyAll = ModernUi.ChipBtn("이 날짜로 모두", (_, _) => { if (target.SelectedDate is { } d) SetAll(DateOnly.FromDateTime(d)); });
+        applyAll.Margin = new Thickness(6, 0, 0, 0);
+        var quickWrap = new WrapPanel();
+        foreach (var b in new UIElement[] { todayBtn, nextBtn, spreadBtn, new TextBlock { Text = "날짜", VerticalAlignment = VerticalAlignment.Center, Foreground = ModernUi.MutedBrush, FontWeight = FontWeights.SemiBold, Margin = new Thickness(10, 0, 6, 0) }, target, applyAll })
+            quickWrap.Children.Add(b);
+        var quickCard = ModernUi.Card(quickWrap, new Thickness(12, 10, 12, 10));
 
-        var close = Dlg.Btn("닫기", (_, _) => win.Close());
-        var buttons = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
-        buttons.Children.Add(moveBtn); buttons.Children.Add(undoBtn); buttons.Children.Add(close);
+        var close = ModernUi.SecondaryBtn("닫기", (_, _) => win.Close());
+        close.Margin = new Thickness(0);
+        var leftBtns = new System.Windows.Controls.StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+        leftBtns.Children.Add(moveBtn); leftBtns.Children.Add(undoBtn);
+        var rightBtns = new System.Windows.Controls.StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+        rightBtns.Children.Add(close);
+        var footer = ModernUi.Footer(leftBtns, rightBtns);
 
-        var root = new StackPanel { Margin = new Thickness(18, 16, 18, 14) };
-        foreach (var e in new UIElement[]
-                 {
-                     new TextBlock { Text = "지난 날에 남아 있는 미완료 할 일을 오늘이나 다음 업무일로 옮깁니다. 반복 항목과 D-day 에 묶인 항목은 목록에서 뺐고, 내용은 바꾸지 않고 날짜만 옮깁니다.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) },
-                     summary, quick, new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = list, MaxHeight = 330 }, status, buttons,
-                 })
-            root.Children.Add(e);
-        win.Content = root;
+        var header = ModernUi.Header(ModernUi.Icons.Rollover, "미완료 정리", "지난 날의 미완료 할 일을 오늘이나 다음 업무일로 옮깁니다 (반복·D-day 항목 제외)");
+        var body = new StackPanel();
+        foreach (var e in new UIElement[] { quickCard, summary, list, status })
+            body.Children.Add(e);
+        var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(18, 14, 18, 10), Content = body };
+
+        var dock = new DockPanel();
+        DockPanel.SetDock(header, Dock.Top);
+        DockPanel.SetDock(footer, Dock.Bottom);
+        dock.Children.Add(header);
+        dock.Children.Add(footer);
+        dock.Children.Add(scroll);
+        win.Content = dock;
         win.Loaded += (_, _) => Refresh();
         return win;
     }

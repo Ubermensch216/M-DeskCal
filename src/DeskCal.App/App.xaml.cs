@@ -815,53 +815,56 @@ public partial class App : System.Windows.Application
     {
         var board = _board!;
         var s = board.Settings;
-        var menu = new WpfMenu();
+        var menu = ModernUi.CreateModernContextMenu();
 
-        WpfMenuItem Entry(string header, Action click, bool? check = null)
-        {
-            var mi = new WpfMenuItem { Header = header, IsChecked = check == true };
-            mi.Click += (_, _) => click();
-            return mi;
-        }
-        WpfMenuItem Toggle(string header, bool on, Func<BoardSettings, BoardSettings> flip) => Entry(header, () => UpdateSettings(flip), on);
+        WpfMenuItem Entry(string header, string? icon, Action click, bool? check = null, bool danger = false) =>
+            ModernUi.MenuEntry(header, icon, click, check, danger);
+        WpfMenuItem Toggle(string header, string icon, bool on, Func<BoardSettings, BoardSettings> flip) =>
+            Entry(header, icon, () => UpdateSettings(flip), on);
 
-        menu.Items.Add(Entry("오늘로 이동", board.GoToday));
-        menu.Items.Add(Entry("새 일정 (오늘)…", () => OnHotkey(HotkeyAction.NewEvent)));
-        menu.Items.Add(Entry("빠른 입력…", OpenQuickInput));
-        menu.Items.Add(Entry("텍스트에서 일정 추출…", OpenExtract));
-        menu.Items.Add(Entry("복습 계획 만들기…", OpenReviewPlan));
-        menu.Items.Add(Entry("미완료 정리…", OpenRollover));
-        menu.Items.Add(Entry("오늘 브리핑…", () => OpenBriefing()));
-        menu.Items.Add(Entry("검색…", OpenSearch));
-        menu.Items.Add(new System.Windows.Controls.Separator());
+        // Group 1: 일정 · 도구
+        menu.Items.Add(ModernUi.MenuGroupHeader(ModernUi.Icons.GroupTools, "일정 · 도구", topDivider: false));
+        menu.Items.Add(Entry("새 일정 (오늘)", ModernUi.Icons.CalendarPlus, () => OnHotkey(HotkeyAction.NewEvent)));
+        menu.Items.Add(Entry("빠른 입력", ModernUi.Icons.Bolt, OpenQuickInput));
+        menu.Items.Add(Entry("텍스트에서 일정 추출", ModernUi.Icons.FileText, OpenExtract));
+        menu.Items.Add(Entry("복습 계획 만들기", ModernUi.Icons.RepeatPlan, OpenReviewPlan));
+        menu.Items.Add(Entry("미완료 정리", ModernUi.Icons.Rollover, OpenRollover));
+        menu.Items.Add(Entry("오늘 브리핑", ModernUi.Icons.Briefing, () => OpenBriefing()));
+        menu.Items.Add(Entry("검색", ModernUi.Icons.Search, OpenSearch));
 
-        var modeMenu = new WpfMenuItem { Header = "표시 모드" };
+        // Group 2: 화면 표시
+        menu.Items.Add(ModernUi.MenuGroupHeader(ModernUi.Icons.GroupDisplay, "화면 표시"));
+        var modeMenu = ModernUi.MenuEntry("표시 모드", ModernUi.Icons.Layout, null);
         foreach (var (mode, name) in new[]
                  {
                      (DisplayMode.FixedMonth, "고정 월"), (DisplayMode.FloatingMonth, "변동 월 (주 단위)"), (DisplayMode.FullMonth, "전체 월 (5줄 고정)"),
                      (DisplayMode.SingleLine, "고정 단일 행"), (DisplayMode.SingleLineFloating, "변동 단일 행 (오늘부터)"),
                  })
-            modeMenu.Items.Add(Entry(name, () => UpdateSettings(x => x with { Mode = mode }), s.Mode == mode));
+            modeMenu.Items.Add(Entry(name, null, () => UpdateSettings(x => x with { Mode = mode }), s.Mode == mode));
         menu.Items.Add(modeMenu);
 
-        menu.Items.Add(Toggle("음력 표시", s.ShowLunar, x => x with { ShowLunar = !x.ShowLunar }));
-        menu.Items.Add(Toggle("공휴일 표시", s.ShowHolidays, x => x with { ShowHolidays = !x.ShowHolidays }));
-        menu.Items.Add(Toggle("주 번호 표시", s.ShowWeekNumbers, x => x with { ShowWeekNumbers = !x.ShowWeekNumbers }));
-        menu.Items.Add(Toggle("완료한 항목 표시", s.ShowCompleted, x => x with { ShowCompleted = !x.ShowCompleted }));
+        menu.Items.Add(Toggle("음력 표시", ModernUi.Icons.Moon, s.ShowLunar, x => x with { ShowLunar = !x.ShowLunar }));
+        menu.Items.Add(Toggle("공휴일 표시", ModernUi.Icons.Flag, s.ShowHolidays, x => x with { ShowHolidays = !x.ShowHolidays }));
+        menu.Items.Add(Toggle("주 번호 표시", ModernUi.Icons.Hash, s.ShowWeekNumbers, x => x with { ShowWeekNumbers = !x.ShowWeekNumbers }));
+        menu.Items.Add(Toggle("완료한 항목 표시", ModernUi.Icons.CheckSquare, s.ShowCompleted, x => x with { ShowCompleted = !x.ShowCompleted }));
 
-        var opacityMenu = new WpfMenuItem { Header = "배경 투명도" };
-        foreach (int pct in new[] { 0, 20, 40, 60, 80, 100 })
-            opacityMenu.Items.Add(Entry(pct == 0 ? "완전 투명" : $"{pct}%", () => UpdateSettings(x => x with { BackgroundOpacity = pct / 100.0 }),
-                Math.Abs(s.BackgroundOpacity - pct / 100.0) < 0.001));
+        var opacityMenu = ModernUi.MenuEntry("배경 투명도", ModernUi.Icons.Droplet, null);
+        foreach (int pct in new[] { 0, 20, 40, 60, 80, 100 })      // transparency: 0% = fully opaque, 100% = fully transparent (BackgroundOpacity is the opposite)
+        {
+            double opacity = 1 - pct / 100.0;
+            opacityMenu.Items.Add(Entry(pct == 0 ? "완전 불투명" : pct == 100 ? "완전 투명" : $"{pct}%", null, () => UpdateSettings(x => x with { BackgroundOpacity = opacity }),
+                Math.Abs(s.BackgroundOpacity - opacity) < 0.001));
+        }
         menu.Items.Add(opacityMenu);
 
-        menu.Items.Add(new System.Windows.Controls.Separator());
-        menu.Items.Add(Entry("위치/크기 조정", () => SetEditMode(!EditItem.Checked), EditItem.Checked));
-        menu.Items.Add(Entry(board.ContentHidden ? "콘텐츠 잠금 해제…" : "콘텐츠 잠그기", () => { if (board.ContentHidden) EnsureUnlocked(); else SetLocked(true); }));
-        menu.Items.Add(new System.Windows.Controls.Separator());
-        menu.Items.Add(Entry("캘린더 설정…", () => OpenSettings()));
-        menu.Items.Add(new System.Windows.Controls.Separator());
-        menu.Items.Add(Entry("캘린더 종료", () => Shutdown()));
+        // Group 3: 설정
+        menu.Items.Add(ModernUi.MenuGroupHeader(ModernUi.Icons.GroupSettings, "설정"));
+        menu.Items.Add(Entry("위치/크기 조정", ModernUi.Icons.MoveResize, () => SetEditMode(!EditItem.Checked), EditItem.Checked));
+        menu.Items.Add(Entry(board.ContentHidden ? "콘텐츠 잠금 해제" : "콘텐츠 잠그기", ModernUi.Icons.Lock, () => { if (board.ContentHidden) EnsureUnlocked(); else SetLocked(true); }));
+        menu.Items.Add(Entry("캘린더 설정", ModernUi.Icons.Gear, () => OpenSettings()));
+
+        menu.Items.Add(ModernUi.MenuDivider());
+        menu.Items.Add(Entry("캘린더 종료", ModernUi.Icons.Power, () => Shutdown(), danger: true));
         return menu;
     }
 

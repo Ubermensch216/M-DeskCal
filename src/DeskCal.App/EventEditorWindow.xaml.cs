@@ -65,6 +65,7 @@ public partial class EventEditorWindow : Window
         if (draft is null)
         {
             Title = "새 일정";
+            HeaderTitle.Text = "새 일정";
             StartDate.SelectedDate = occurrence.ToDateTime(TimeOnly.MinValue);
             var h = DateTime.Now.Hour < 23 ? DateTime.Now.Hour + 1 : 23;
             StartTime.Text = $"{h:00}:00";
@@ -77,6 +78,7 @@ public partial class EventEditorWindow : Window
         else
         {
             Title = "일정 수정";
+            HeaderTitle.Text = "일정 수정";
             _seriesStart = draft.StartDate;
             _wasRepeating = draft.Rule.IsRepeating;
             _color = draft.Color;

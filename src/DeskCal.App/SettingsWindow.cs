@@ -275,9 +275,10 @@ internal sealed class SettingsWindow : Window
             RowColor("쉬는 날 글자색", () => S.OffDayColor, v => Apply(s => s with { OffDayColor = v })),
             RowColor("24절기 글자색", () => S.TermColor, v => Apply(s => s with { TermColor = v }))));
 
-        var opacity = Enumerable.Range(0, 21).Select(i => ($"{i * 5}%", i * 5)).ToList();
+        // shown as transparency: 0% = fully opaque, 100% = fully transparent (BackgroundOpacity is the opposite)
+        var opacity = Enumerable.Range(0, 21).Select(i => (i == 0 ? "0% (완전 불투명)" : i == 20 ? "100% (완전 투명)" : $"{i * 5}%", i * 5)).ToList();
         page.Children.Add(Card("투명도",
-            RowCombo("배경 투명도", "0%는 완전 투명, 100%는 불투명", opacity, () => (int)Math.Round(S.BackgroundOpacity * 20) * 5, v => Apply(s => s with { BackgroundOpacity = v / 100.0 }))));
+            RowCombo("배경 투명도", "0%는 완전 불투명, 100%는 완전 투명", opacity, () => (int)Math.Round((1 - S.BackgroundOpacity) * 20) * 5, v => Apply(s => s with { BackgroundOpacity = 1 - v / 100.0 }))));
 
         page.Children.Add(Card("배경 사진", SkinRow(),
             RowCombo("맞춤 방식", null,

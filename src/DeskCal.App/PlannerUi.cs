@@ -52,23 +52,23 @@ internal static class ReviewPlanWindow
     /// <summary>The window, wired but not shown. A dev snapshot sets <paramref name="topic"/> and calls <paramref name="refresh"/>.</summary>
     internal static Window Build(ReviewPlanHost host, out TextBox topic, out Action refresh)
     {
-        var win = Dlg.Create("복습 계획 만들기", 640, 640);
-        win.ShowInTaskbar = true;
+        var win = new Window();
+        ModernUi.ConfigureWindow(win, "복습 계획 만들기", 660, 680);
 
-        topic = new TextBox { Padding = new Thickness(4, 3, 4, 3), MaxLength = ReviewPlanner.MaxTopic, FontSize = 13 };
+        topic = new TextBox { Padding = new Thickness(10, 7, 10, 7), MaxLength = ReviewPlanner.MaxTopic, FontSize = 13.5 };
         var topicBox = topic;
-        var learned = new RadioButton { Content = "공부한 날부터 (1·2·4·7·15·30일 뒤)", IsChecked = true, GroupName = "mode", Margin = new Thickness(0, 0, 0, 3) };
-        var exam = new RadioButton { Content = "시험일 앞으로 (30·14·7·3·1일 전)", GroupName = "mode" };
-        var dayLabel = new TextBlock { Text = "공부한 날", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
-        var day = new DatePicker { SelectedDate = host.Today().ToDateTime(TimeOnly.MinValue), Width = 130 };
-        var pick = new ComboBox { Width = 220, Margin = new Thickness(12, 0, 0, 0), ToolTip = "등록해 둔 D-day 의 날짜를 시험일로 가져옵니다" };
-        var skipOff = new CheckBox { Content = "주말·휴일은 피하기", Margin = new Thickness(0, 8, 0, 0), IsChecked = true };
-        var summary = new TextBlock { Margin = new Thickness(0, 10, 0, 4), FontWeight = FontWeights.SemiBold };
+        var learned = new RadioButton { Content = "공부한 날부터 (1·2·4·7·15·30일 뒤)", IsChecked = true, GroupName = "mode", Margin = new Thickness(0, 0, 0, 5), Foreground = ModernUi.InkBrush };
+        var exam = new RadioButton { Content = "시험일 앞으로 (30·14·7·3·1일 전)", GroupName = "mode", Foreground = ModernUi.InkBrush };
+        var dayLabel = new TextBlock { Text = "공부한 날", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0), FontWeight = FontWeights.SemiBold, Foreground = ModernUi.MutedBrush };
+        var day = new DatePicker { SelectedDate = host.Today().ToDateTime(TimeOnly.MinValue), Width = 140, VerticalAlignment = VerticalAlignment.Center };
+        var pick = new ComboBox { Width = 220, Margin = new Thickness(12, 0, 0, 0), Padding = new Thickness(8, 4, 8, 4), ToolTip = "등록해 둔 D-day 의 날짜를 시험일로 가져옵니다" };
+        var skipOff = new CheckBox { Content = "주말·휴일은 피하기", Margin = new Thickness(0, 10, 0, 0), IsChecked = true, Foreground = ModernUi.InkBrush };
+        var summary = new TextBlock { Margin = new Thickness(0, 4, 0, 8), FontWeight = FontWeights.SemiBold, Foreground = ModernUi.InkBrush };
         var list = new StackPanel();
-        var status = new TextBlock { Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap, Foreground = Brushes.Gray };
+        var status = new TextBlock { Margin = new Thickness(0, 8, 0, 0), FontSize = 12, TextWrapping = TextWrapping.Wrap, Foreground = ModernUi.MutedBrush };
         var views = new List<StepView>();
         Button addBtn = null!;
-        addBtn = Dlg.Btn("선택한 건 추가", (_, _) => AddSelected());
+        addBtn = ModernUi.PrimaryBtn("선택한 건 추가", (_, _) => AddSelected());
         addBtn.IsEnabled = false;
 
         var countdowns = host.Countdowns();
@@ -98,21 +98,30 @@ internal static class ReviewPlanWindow
             {
                 string content = ReviewPlanner.Content(name, step, steps.Count, mode);
                 var proposal = ProposalFactory.FromTodo(step.Date, content, ParseSource.Rules, host.Changes, out _);
-                var check = new CheckBox { IsChecked = !step.Past && proposal is not null, IsEnabled = !step.Past && proposal is not null, Margin = new Thickness(0, 3, 8, 0), VerticalAlignment = VerticalAlignment.Top };
-                var line1 = new TextBlock { Text = $"{step.Date:yyyy년 M월 d일} ({AiText.Dow[(int)step.Date.DayOfWeek]})", FontWeight = FontWeights.SemiBold };
+                var check = new CheckBox { IsChecked = !step.Past && proposal is not null, IsEnabled = !step.Past && proposal is not null, Margin = new Thickness(0, 3, 10, 0), VerticalAlignment = VerticalAlignment.Top };
+                var line1 = new TextBlock
+                {
+                    Text = $"{step.Date:yyyy년 M월 d일} ({AiText.Dow[(int)step.Date.DayOfWeek]})",
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = step.Past ? ModernUi.MutedBrush : ModernUi.InkBrush,
+                };
                 string note = step.Past ? "이미 지난 날이라 추가하지 않습니다." : step.Shifted ? "주말·휴일을 피해 옮긴 날짜입니다." : "";
-                var detail = new TextBlock { Text = content + (note.Length > 0 ? "   ·   " + note : ""), Foreground = step.Past ? Brushes.Gray : Brushes.Black, FontSize = 12, TextWrapping = TextWrapping.Wrap };
+                var detail = new TextBlock
+                {
+                    Text = content + (note.Length > 0 ? "   ·   " + note : ""),
+                    Foreground = step.Past ? ModernUi.MutedBrush : ModernUi.InkBrush,
+                    FontSize = 12,
+                    Margin = new Thickness(0, 3, 0, 0),
+                    TextWrapping = TextWrapping.Wrap,
+                };
                 var body = new StackPanel { Children = { line1, detail } };
                 var row = new Grid();
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 Grid.SetColumn(body, 1);
                 row.Children.Add(check); row.Children.Add(body);
-                list.Children.Add(new Border
-                {
-                    Child = row, Padding = new Thickness(8, 5, 8, 6), Margin = new Thickness(0, 0, 0, 4), CornerRadius = new CornerRadius(6),
-                    BorderThickness = new Thickness(1), BorderBrush = new SolidColorBrush(Color.FromRgb(0xD9, 0xDE, 0xE7)),
-                });
+                list.Children.Add(ModernUi.Card(row, new Thickness(12, 9, 12, 9), new Thickness(0, 0, 0, 6),
+                    background: step.Past ? ModernUi.CardAltBrush : ModernUi.CardBrush));
                 check.Click += (_, _) => UpdateCount();
                 views.Add(new StepView { Step = step, Check = check, Proposal = proposal, Detail = detail });
             }
@@ -153,26 +162,44 @@ internal static class ReviewPlanWindow
             day.SelectedDate = countdowns[i].Date.ToDateTime(TimeOnly.MinValue);
         };
 
-        var undo = Dlg.Btn("마지막 추가 되돌리기", (_, _) => AiUndo.Run(win, host.Batch, host.Changed));
-        var close = Dlg.Btn("닫기", (_, _) => win.Close());
-        var buttons = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
-        buttons.Children.Add(addBtn); buttons.Children.Add(undo); buttons.Children.Add(close);
+        var undo = ModernUi.SecondaryBtn("마지막 추가 되돌리기", (_, _) => AiUndo.Run(win, host.Batch, host.Changed));
+        var close = ModernUi.SecondaryBtn("닫기", (_, _) => win.Close());
+        close.Margin = new Thickness(0);
 
-        var dayRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+        var dayRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
         dayRow.Children.Add(dayLabel); dayRow.Children.Add(day); dayRow.Children.Add(pick);
 
-        var root = new StackPanel { Margin = new Thickness(18, 16, 18, 14) };
-        foreach (var e in new UIElement[]
-                 {
-                     new TextBlock { Text = "무엇을 복습할지 적고 날짜를 고르면, 잊기 전에 다시 볼 날들을 할 일로 만들어 드립니다.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) },
-                     new TextBlock { Text = "복습할 내용 (예: 영어 단어 Day 12)", Margin = new Thickness(0, 0, 0, 3) }, topicBox,
-                     new StackPanel { Margin = new Thickness(0, 10, 0, 0), Children = { learned, exam } },
-                     dayRow, skipOff, summary,
-                     new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = list, MaxHeight = 280 },
-                     status, buttons,
-                 })
-            root.Children.Add(e);
-        win.Content = root;
+        var setupCard = ModernUi.Card(new StackPanel
+        {
+            Children =
+            {
+                ModernUi.FieldLabel("복습할 내용 (예: 영어 단어 Day 12)"),
+                topicBox,
+                new StackPanel { Margin = new Thickness(0, 12, 0, 0), Children = { learned, exam } },
+                dayRow,
+                skipOff,
+            }
+        }, new Thickness(16, 14, 16, 14));
+
+        var leftBtns = new StackPanel { Orientation = Orientation.Horizontal };
+        leftBtns.Children.Add(addBtn); leftBtns.Children.Add(undo);
+        var rightBtns = new StackPanel { Orientation = Orientation.Horizontal };
+        rightBtns.Children.Add(close);
+        var footer = ModernUi.Footer(leftBtns, rightBtns);
+
+        var header = ModernUi.Header(ModernUi.Icons.RepeatPlan, "복습 계획 만들기", "무엇을 복습할지 적고 날짜를 고르면 잊기 전에 다시 볼 날들을 할 일로 만들어 드립니다");
+        var body = new StackPanel();
+        foreach (var e in new UIElement[] { setupCard, summary, list, status })
+            body.Children.Add(e);
+        var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(18, 14, 18, 10), Content = body };
+
+        var dock = new DockPanel();
+        DockPanel.SetDock(header, Dock.Top);
+        DockPanel.SetDock(footer, Dock.Bottom);
+        dock.Children.Add(header);
+        dock.Children.Add(footer);
+        dock.Children.Add(scroll);
+        win.Content = dock;
         win.Loaded += (_, _) => { Refresh(); topicBox.Focus(); };
         return win;
     }

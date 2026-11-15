@@ -39,23 +39,23 @@ internal static class BriefingWindow
     /// <summary>The window, wired but not shown. <paramref name="polish"/> asks the model (true = the user pressed the button).</summary>
     internal static Window Build(BriefingHost host, out Action<bool> polish)
     {
-        var win = Dlg.Create("브리핑", 560, 560);
-        win.ShowInTaskbar = true;
+        var win = new Window();
+        ModernUi.ConfigureWindow(win, "브리핑", 600, 620);
         var day = host.Today();
         Briefing? current = null;
 
         // ---- today
-        var dateText = new TextBlock { FontSize = 16, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, MinWidth = 220, TextAlignment = TextAlignment.Center };
-        var polished = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = 14 };
-        var polishedNote = new TextBlock { Foreground = Brushes.Gray, FontSize = 11.5, Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap };
+        var dateText = new TextBlock { FontSize = 15, FontWeight = FontWeights.SemiBold, Foreground = ModernUi.InkBrush, VerticalAlignment = VerticalAlignment.Center, MinWidth = 220, TextAlignment = TextAlignment.Center };
+        var polished = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = 14, Foreground = ModernUi.InkBrush };
+        var polishedNote = new TextBlock { Foreground = ModernUi.MutedBrush, FontSize = 11.5, Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap };
         var polishedBox = new Border
         {
-            Child = new StackPanel { Children = { polished, polishedNote } }, Padding = new Thickness(12, 10, 12, 10), CornerRadius = new CornerRadius(8),
-            Background = new SolidColorBrush(Color.FromRgb(0xF2, 0xF8, 0xFF)), BorderBrush = AiText.Accent, BorderThickness = new Thickness(1),
+            Child = new StackPanel { Children = { polished, polishedNote } }, Padding = new Thickness(14, 12, 14, 12), CornerRadius = new CornerRadius(10),
+            Background = ModernUi.AccentSoftBrush, BorderBrush = ModernUi.AccentBorderBrush, BorderThickness = new Thickness(1.5),
             Margin = new Thickness(0, 0, 0, 10), Visibility = Visibility.Collapsed,
         };
         var lines = new StackPanel();
-        var status = new TextBlock { Foreground = Brushes.Gray, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
+        var status = new TextBlock { Foreground = ModernUi.MutedBrush, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
         CancellationTokenSource? cts = null;
 
         void Refresh()
@@ -66,11 +66,15 @@ internal static class BriefingWindow
             polishedBox.Visibility = Visibility.Collapsed;
             lines.Children.Clear();
             foreach (var l in current.Lines())
+            {
+                bool isWarn = l.StartsWith("⚠", StringComparison.Ordinal);
                 lines.Children.Add(new TextBlock
                 {
-                    Text = (l.StartsWith("⚠", StringComparison.Ordinal) ? "" : "• ") + l, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6), FontSize = 13.5,
-                    Foreground = l.StartsWith("⚠", StringComparison.Ordinal) ? AiText.Warn : Brushes.Black,
+                    Text = (isWarn ? "" : "• ") + l, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 7), FontSize = 13.5,
+                    Foreground = isWarn ? ModernUi.WarnBrush : ModernUi.InkBrush,
+                    FontWeight = isWarn ? FontWeights.SemiBold : FontWeights.Normal,
                 });
+            }
             status.Text = "";
         }
 
@@ -104,50 +108,74 @@ internal static class BriefingWindow
         polish = Polish;
 
         void Move(int delta) { day = delta == 0 ? host.Today() : day.AddDays(delta); Refresh(); }
-        var nav = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 10) };
-        nav.Children.Add(Dlg.Btn("◀", (_, _) => Move(-1)));
-        nav.Children.Add(dateText);
-        nav.Children.Add(Dlg.Btn("▶", (_, _) => Move(1)));
-        nav.Children.Add(Dlg.Btn("오늘", (_, _) => Move(0)));
-        var actions = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
-        actions.Children.Add(Dlg.Btn("AI 로 문장 다듬기", (_, _) => Polish(true)));
-        actions.Children.Add(Dlg.Btn("달력에서 보기", (_, _) => host.GoTo(day)));
+        var navStack = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Center };
+        var prevBtn = ModernUi.ChipBtn("◀", (_, _) => Move(-1));
+        var nextBtn = ModernUi.ChipBtn("▶", (_, _) => Move(1));
+        var todayBtn = ModernUi.ChipBtn("오늘", (_, _) => Move(0));
+        todayBtn.Margin = new Thickness(8, 0, 0, 0);
+        navStack.Children.Add(prevBtn); navStack.Children.Add(dateText); navStack.Children.Add(nextBtn); navStack.Children.Add(todayBtn);
+        var navCard = ModernUi.Card(navStack, new Thickness(12, 9, 12, 9));
+
+        var rawCard = ModernUi.Card(new StackPanel
+        {
+            Children =
+            {
+                ModernUi.FieldLabel("원본 (달력에서 읽은 그대로)", new Thickness(0, 0, 0, 8)),
+                lines,
+            }
+        }, new Thickness(16, 14, 16, 10));
+
+        var actions = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
+        actions.Children.Add(ModernUi.PrimaryBtn("AI 로 문장 다듬기", (_, _) => Polish(true)));
+        actions.Children.Add(ModernUi.SecondaryBtn("달력에서 보기", (_, _) => host.GoTo(day)));
         if (host.OpenRollover is { } openRollover)
         {
             int overdue = host.OverdueCount?.Invoke() ?? 0;
-            actions.Children.Add(Dlg.Btn(overdue > 0 ? $"미완료 정리… ({overdue}건)" : "미완료 정리…", (_, _) => openRollover()));
+            actions.Children.Add(ModernUi.SecondaryBtn(overdue > 0 ? $"미완료 정리 ({overdue}건)" : "미완료 정리", (_, _) => openRollover()));
         }
-        var today = new StackPanel { Margin = new Thickness(14) };
-        foreach (var e in new UIElement[] { nav, polishedBox, new TextBlock { Text = "원본 (달력에서 읽은 그대로)", Foreground = Brushes.Gray, FontSize = 11.5, Margin = new Thickness(0, 0, 0, 6) }, lines, status, actions })
+        var today = new StackPanel { Margin = new Thickness(16, 14, 16, 14) };
+        foreach (var e in new UIElement[] { navCard, polishedBox, rawCard, status, actions })
             today.Children.Add(e);
 
         // ---- the week behind
-        var reviewLines = new StackPanel { Margin = new Thickness(14) };
+        var reviewItems = new StackPanel();
         void RefreshReview()
         {
-            reviewLines.Children.Clear();
+            reviewItems.Children.Clear();
             var r = host.Review(host.Today());
             int n = 0;
             foreach (var l in r.Lines())
-                reviewLines.Children.Add(new TextBlock
+                reviewItems.Children.Add(new TextBlock
                 {
                     Text = (n++ == 0 ? "" : "• ") + l, FontWeight = n == 1 ? FontWeights.SemiBold : FontWeights.Normal, FontSize = n == 1 ? 15 : 13.5,
-                    TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8),
+                    Foreground = ModernUi.InkBrush, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8),
                 });
-            reviewLines.Children.Add(new TextBlock
+            reviewItems.Children.Add(new TextBlock
             {
                 Text = "끝낸 것·미룬 것의 기록은 이 기능이 켜진 날부터 쌓입니다. '미룸'은 할 일을 다른 날(더 뒤)로 옮긴 경우입니다.",
-                Foreground = Brushes.Gray, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0),
+                Foreground = ModernUi.MutedBrush, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0),
             });
         }
+        var reviewCard = ModernUi.Card(reviewItems, new Thickness(16, 14, 16, 12), new Thickness(16, 14, 16, 14));
 
-        var tabs = new TabControl { Margin = new Thickness(10) };
+        var tabs = new TabControl { Margin = new Thickness(12, 10, 12, 12), Background = ModernUi.BgBrush, BorderThickness = new Thickness(0) };
         tabs.Items.Add(new TabItem { Header = "브리핑", Content = new ScrollViewer { Content = today, VerticalScrollBarVisibility = ScrollBarVisibility.Auto } });
-        var reviewTab = new TabItem { Header = "지난 7일 돌아보기", Content = new ScrollViewer { Content = reviewLines, VerticalScrollBarVisibility = ScrollBarVisibility.Auto } };
+        var reviewTab = new TabItem { Header = "지난 7일 돌아보기", Content = new ScrollViewer { Content = reviewCard, VerticalScrollBarVisibility = ScrollBarVisibility.Auto } };
         tabs.Items.Add(reviewTab);
         tabs.SelectionChanged += (_, e) => { if (e.OriginalSource == tabs && tabs.SelectedItem == reviewTab) RefreshReview(); };
 
-        win.Content = tabs;
+        var header = ModernUi.Header(ModernUi.Icons.Briefing, "오늘 브리핑", "오늘 일정 요약과 지난 7일 돌아보기를 한눈에 확인합니다");
+        var closeBtn = ModernUi.SecondaryBtn("닫기", (_, _) => win.Close());
+        closeBtn.Margin = new Thickness(0);
+        var footer = ModernUi.Footer(new StackPanel(), closeBtn);
+
+        var dock = new DockPanel();
+        DockPanel.SetDock(header, Dock.Top);
+        DockPanel.SetDock(footer, Dock.Bottom);
+        dock.Children.Add(header);
+        dock.Children.Add(footer);
+        dock.Children.Add(tabs);
+        win.Content = dock;
         win.PreviewKeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Escape) win.Close(); };
         win.Closed += (_, _) => cts?.Cancel();
         Refresh();

@@ -109,44 +109,51 @@ internal static class QuickInputWindow
     /// <summary>The window, wired but not shown. <paramref name="input"/> is its text box (a dev snapshot types into it).</summary>
     internal static Window Build(QuickInputHost host, out TextBox input)
     {
-        var win = Dlg.Create("빠른 입력", 620, 520);
-        win.ShowInTaskbar = true;
+        var win = new Window();
+        ModernUi.ConfigureWindow(win, "빠른 입력", 650, 560);
 
-        input = new TextBox { FontSize = 16, Padding = new Thickness(8, 6, 8, 6), MaxLength = KoreanEventParser.MaxChars };
+        input = new TextBox { FontSize = 15.5, Padding = new Thickness(12, 10, 12, 10), MaxLength = KoreanEventParser.MaxChars };
         var box = input;                                                                  // locals below cannot capture an out parameter
         var hint = new TextBlock
         {
-            Foreground = Brushes.Gray, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 10),
+            Foreground = ModernUi.MutedBrush, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0),
             Text = "예) 다음 주 화요일 오후 2시 A사 미팅 1시간, 15분 전 알림 · 매주 월수금 아침 7시 운동 · 12월 3일 종일 치과 하루 전 알림 · 이번 주 일정 보여줘",
         };
+        var inputCard = ModernUi.Card(new StackPanel
+        {
+            Children = { ModernUi.FieldLabel("무엇을 언제 하나요? (질문도 됩니다)"), box, hint }
+        }, new Thickness(16, 14, 16, 14));
 
         // the card
-        var cardTitle = new TextBlock { FontSize = 16, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
-        var cardWhen = new TextBlock { Margin = new Thickness(0, 4, 0, 0) };
-        var cardMore = new TextBlock { Margin = new Thickness(0, 2, 0, 0), TextWrapping = TextWrapping.Wrap };
-        var cardClash = new TextBlock { Margin = new Thickness(0, 6, 0, 0), Foreground = AiText.Warn, TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold };
-        var cardNotes = new TextBlock { Margin = new Thickness(0, 6, 0, 0), Foreground = Brushes.Gray, FontSize = 11.5, TextWrapping = TextWrapping.Wrap };
-        var badge = new TextBlock { Margin = new Thickness(0, 8, 0, 0), FontSize = 11.5, FontWeight = FontWeights.SemiBold };
+        var cardTitle = new TextBlock { FontSize = 16.5, FontWeight = FontWeights.SemiBold, Foreground = ModernUi.InkBrush, TextWrapping = TextWrapping.Wrap };
+        var cardWhen = new TextBlock { Margin = new Thickness(0, 5, 0, 0), FontSize = 13, Foreground = ModernUi.InkBrush };
+        var cardMore = new TextBlock { Margin = new Thickness(0, 3, 0, 0), FontSize = 12, Foreground = ModernUi.MutedBrush, TextWrapping = TextWrapping.Wrap };
+        var cardClash = new TextBlock { Margin = new Thickness(0, 8, 0, 0), Foreground = ModernUi.WarnBrush, TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold, FontSize = 12 };
+        var cardNotes = new TextBlock { Margin = new Thickness(0, 6, 0, 0), Foreground = ModernUi.MutedBrush, FontSize = 11.5, TextWrapping = TextWrapping.Wrap };
+        var badge = new TextBlock { FontSize = 11, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+        var badgePill = new Border { CornerRadius = new CornerRadius(999), Padding = new Thickness(8, 2, 8, 2), Child = badge, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 10, 0, 0) };
 
         // "was this reading right?" - counted on this computer only (no text is kept)
-        var feedbackLabel = new TextBlock { Text = "이 해석이 맞나요?", FontSize = 11.5, Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
-        var right = new Button { Content = "맞음", Padding = new Thickness(8, 1, 8, 1), Margin = new Thickness(0, 0, 4, 0), FontSize = 11.5 };
-        var wrong = new Button { Content = "틀림", Padding = new Thickness(8, 1, 8, 1), FontSize = 11.5 };
-        var feedback = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+        var feedbackLabel = new TextBlock { Text = "이 해석이 맞나요?", FontSize = 11.5, Foreground = ModernUi.MutedBrush, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+        var right = ModernUi.ChipBtn("맞음", (_, _) => { });
+        var wrong = ModernUi.ChipBtn("틀림", (_, _) => { });
+        right.Margin = new Thickness(0, 0, 6, 0);
+        var feedback = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
         feedback.Children.Add(feedbackLabel); feedback.Children.Add(right); feedback.Children.Add(wrong);
 
         var cardBody = new StackPanel();
-        foreach (var e in new UIElement[] { cardTitle, cardWhen, cardMore, cardClash, cardNotes, badge, feedback }) cardBody.Children.Add(e);
+        foreach (var e in new UIElement[] { cardTitle, cardWhen, cardMore, cardClash, cardNotes, badgePill, feedback }) cardBody.Children.Add(e);
         var card = new Border
         {
-            Child = cardBody, Padding = new Thickness(14, 10, 14, 10), CornerRadius = new CornerRadius(8), Visibility = Visibility.Collapsed,
-            BorderThickness = new Thickness(1), BorderBrush = AiText.Accent, Background = new SolidColorBrush(Color.FromRgb(0xF2, 0xF8, 0xFF)),
+            Child = cardBody, Padding = new Thickness(16, 14, 16, 14), CornerRadius = new CornerRadius(10), Visibility = Visibility.Collapsed,
+            Margin = new Thickness(0, 0, 0, 10),
+            BorderThickness = new Thickness(1.5), BorderBrush = ModernUi.AccentBorderBrush, Background = ModernUi.AccentSoftBrush,
         };
 
         // the answer to a question
-        var answerLabel = new TextBlock { FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 4), Visibility = Visibility.Collapsed };
-        var answer = new ListBox { Height = 180, Visibility = Visibility.Collapsed };
-        var status = new TextBlock { Margin = new Thickness(0, 10, 0, 0), TextWrapping = TextWrapping.Wrap, Foreground = Brushes.Gray };
+        var answerLabel = new TextBlock { FontWeight = FontWeights.SemiBold, Foreground = ModernUi.InkBrush, Margin = new Thickness(0, 0, 0, 6), Visibility = Visibility.Collapsed };
+        var answer = new ListBox { Height = 190, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 0, 0, 8) };
+        var status = new TextBlock { Margin = new Thickness(0, 4, 0, 0), FontSize = 12, TextWrapping = TextWrapping.Wrap, Foreground = ModernUi.MutedBrush };
 
         Proposal? current = null;
         DateOnly? currentDate = null;
@@ -155,14 +162,18 @@ internal static class QuickInputWindow
         CancellationTokenSource? cts = null;
         bool busy = false;
 
-        var add = Dlg.Btn("추가 (Enter)", (_, _) => Add());
-        var edit = Dlg.Btn("일정 편집기로 열기", (_, _) => OpenEditor());
+        var add = ModernUi.PrimaryBtn("추가 (Enter)", (_, _) => Add(), isDefault: true);
+        var edit = ModernUi.SecondaryBtn("일정 편집기로 열기", (_, _) => OpenEditor());
         Button undo = null!;
-        undo = Dlg.Btn("마지막 추가 되돌리기", (_, _) => { AiUndo.Run(win, host.Batch, host.Changed); UpdateUndo(); });
-        var close = Dlg.Btn("닫기 (Esc)", (_, _) => win.Close());
+        undo = ModernUi.SecondaryBtn("마지막 추가 되돌리기", (_, _) => { AiUndo.Run(win, host.Batch, host.Changed); UpdateUndo(); });
+        var close = ModernUi.SecondaryBtn("닫기 (Esc)", (_, _) => win.Close());
+        close.Margin = new Thickness(0);
         add.IsEnabled = false;
-        var buttons = new WrapPanel { Margin = new Thickness(0, 14, 0, 0) };
-        buttons.Children.Add(add); buttons.Children.Add(edit); buttons.Children.Add(undo); buttons.Children.Add(close);
+        var leftBtns = new StackPanel { Orientation = Orientation.Horizontal };
+        leftBtns.Children.Add(add); leftBtns.Children.Add(edit); leftBtns.Children.Add(undo);
+        var rightBtns = new StackPanel { Orientation = Orientation.Horizontal };
+        rightBtns.Children.Add(close);
+        var footer = ModernUi.Footer(leftBtns, rightBtns);
 
         void UpdateUndo() => undo.IsEnabled = host.Batch.Last() is not null;
 
@@ -181,7 +192,8 @@ internal static class QuickInputWindow
             cardNotes.Visibility = notes.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
             bool viaAi = p.Source == ParseSource.Llm;
             badge.Text = viaAi ? "AI 가 해석했습니다 — 날짜와 시각이 맞는지 꼭 확인하세요" : "규칙으로 읽었습니다";
-            badge.Foreground = viaAi ? AiText.Warn : Brushes.Gray;
+            badge.Foreground = viaAi ? ModernUi.WarnBrush : ModernUi.AccentBrush;
+            badgePill.Background = viaAi ? ModernUi.WarnSoftBrush : ModernUi.CardBrush;
             currentSource = p.Source;
             feedbackGiven = false;
             feedbackLabel.Text = "이 해석이 맞나요?";
@@ -199,7 +211,7 @@ internal static class QuickInputWindow
             foreach (var r in rows)
             {
                 var line = $"{r.Date.Month}월 {r.Date.Day}일 ({AiText.Dow[(int)r.Date.DayOfWeek]})   {(r.IsItem ? (r.Done ? "✓ " : "☐ ") : r.Time + "  ")}{r.Title}";
-                answer.Items.Add(new ListBoxItem { Content = line, Tag = r.Date, Foreground = r.IsItem && r.Done ? Brushes.Gray : Brushes.Black });
+                answer.Items.Add(new ListBoxItem { Content = line, Tag = r.Date, Foreground = r.IsItem && r.Done ? ModernUi.MutedBrush : ModernUi.InkBrush });
             }
             answerLabel.Visibility = Visibility.Visible;
             answer.Visibility = rows.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
@@ -291,10 +303,19 @@ internal static class QuickInputWindow
         };
         win.Closed += (_, _) => cts?.Cancel();
 
-        var root = new StackPanel { Margin = new Thickness(18, 16, 18, 14) };
-        foreach (var e in new UIElement[] { new TextBlock { Text = "무엇을 언제 하나요? (질문도 됩니다)", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) }, box, hint, card, answerLabel, answer, status, buttons })
-            root.Children.Add(e);
-        win.Content = root;
+        var header = ModernUi.Header(ModernUi.Icons.Bolt, "빠른 입력", "한 문장으로 일정을 추가하거나 달력 일정을 바로 조회합니다");
+        var body = new StackPanel();
+        foreach (var e in new UIElement[] { inputCard, card, answerLabel, answer, status })
+            body.Children.Add(e);
+        var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(18, 14, 18, 10), Content = body };
+
+        var dock = new DockPanel();
+        DockPanel.SetDock(header, Dock.Top);
+        DockPanel.SetDock(footer, Dock.Bottom);
+        dock.Children.Add(header);
+        dock.Children.Add(footer);
+        dock.Children.Add(scroll);
+        win.Content = dock;
         UpdateUndo();
         win.Loaded += (_, _) => { box.Focus(); _ = host.Service.WarmUpAsync(CancellationToken.None); };       // start loading the model while the user types
         return win;
@@ -331,24 +352,25 @@ internal static class ExtractWindow
     /// <summary>The window, wired but not shown. A dev snapshot sets <paramref name="input"/> and calls <paramref name="analyze"/>.</summary>
     internal static Window Build(ExtractHost host, out TextBox input, out Action analyze)
     {
-        var win = Dlg.Create("텍스트에서 일정 추출", 760, 700);
-        win.ShowInTaskbar = true;
+        var win = new Window();
+        ModernUi.ConfigureWindow(win, "텍스트에서 일정 추출", 780, 720);
 
         input = new TextBox
         {
-            AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Height = 130,
+            AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Height = 126,
+            VerticalContentAlignment = VerticalAlignment.Top, Padding = new Thickness(10, 8, 10, 8),
             MaxLength = TextExtractor.MaxChars, FontSize = 13,
         };
         var box = input;
-        var baseDay = new DatePicker { SelectedDate = host.Today().ToDateTime(TimeOnly.MinValue), Width = 130 };
-        var summary = new TextBlock { Margin = new Thickness(0, 10, 0, 4), FontWeight = FontWeights.SemiBold };
+        var baseDay = new DatePicker { SelectedDate = host.Today().ToDateTime(TimeOnly.MinValue), Width = 136, VerticalAlignment = VerticalAlignment.Center };
+        var summary = new TextBlock { Margin = new Thickness(0, 4, 0, 8), FontWeight = FontWeights.SemiBold, Foreground = ModernUi.InkBrush };
         var list = new StackPanel();
         var skippedBox = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
-        var skippedHead = new Expander { Header = "제외된 문장", Visibility = Visibility.Collapsed, Content = skippedBox, Margin = new Thickness(0, 8, 0, 0) };
-        var status = new TextBlock { Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap, Foreground = Brushes.Gray };
+        var skippedHead = new Expander { Header = "제외된 문장", Visibility = Visibility.Collapsed, Content = skippedBox, Margin = new Thickness(0, 8, 0, 0), Foreground = ModernUi.MutedBrush };
+        var status = new TextBlock { Margin = new Thickness(0, 8, 0, 0), FontSize = 12, TextWrapping = TextWrapping.Wrap, Foreground = ModernUi.MutedBrush };
         var views = new List<RowView>();
         Button addBtn = null!;
-        addBtn = Dlg.Btn("선택한 건 추가", (_, _) => AddSelected());
+        addBtn = ModernUi.PrimaryBtn("선택한 건 추가", (_, _) => AddSelected());
         addBtn.IsEnabled = false;
 
         bool fromImage = false, setByProgram = false;        // the text came out of a picture (so its numbers may have been misread)
@@ -392,18 +414,24 @@ internal static class ExtractWindow
 
             foreach (var row in rows.Where(r => r.Candidate.Kind != CandidateKind.Skipped))
             {
-                var check = new CheckBox { IsChecked = row.SelectedByDefault, Margin = new Thickness(0, 4, 8, 0), VerticalAlignment = VerticalAlignment.Top };
+                var check = new CheckBox { IsChecked = row.SelectedByDefault, Margin = new Thickness(0, 6, 10, 0), VerticalAlignment = VerticalAlignment.Top };
                 bool todo = row.Candidate.Kind == CandidateKind.Todo;
-                var kind = new TextBlock { Text = todo ? "할 일" : "일정", Foreground = todo ? Brushes.SeaGreen : AiText.Accent, FontWeight = FontWeights.SemiBold, Width = 38, Margin = new Thickness(0, 5, 6, 0), VerticalAlignment = VerticalAlignment.Top };
-                var title = new TextBox { Text = row.Candidate.Title, Padding = new Thickness(4, 2, 4, 2), MinWidth = 380 };
-                var detail = new TextBlock { Margin = new Thickness(0, 3, 0, 0) };
-                var notes = new TextBlock { Foreground = Brushes.Gray, FontSize = 11.5, TextWrapping = TextWrapping.Wrap };
-                var clash = new TextBlock { Foreground = AiText.Warn, FontSize = 11.5, TextWrapping = TextWrapping.Wrap };
-                var source = new TextBlock { Text = "원문: " + row.Candidate.Source, Foreground = Brushes.Gray, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
+                var kindPill = ModernUi.Pill(
+                    todo ? "할 일" : "일정",
+                    todo ? ModernUi.SuccessBrush : ModernUi.AccentBrush,
+                    todo ? ModernUi.SuccessSoftBrush : ModernUi.AccentSoftBrush);
+                kindPill.VerticalAlignment = VerticalAlignment.Top;
+                kindPill.Margin = new Thickness(0, 3, 10, 0);
+
+                var title = new TextBox { Text = row.Candidate.Title, Padding = new Thickness(8, 5, 8, 5), FontWeight = FontWeights.SemiBold };
+                var detail = new TextBlock { Margin = new Thickness(0, 5, 0, 0), Foreground = ModernUi.InkBrush, FontSize = 12.5 };
+                var notes = new TextBlock { Foreground = ModernUi.MutedBrush, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) };
+                var clash = new TextBlock { Foreground = ModernUi.WarnBrush, FontSize = 11.5, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) };
+                var source = new TextBlock { Text = "원문: " + row.Candidate.Source, Foreground = ModernUi.MutedBrush, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) };
                 var ok = new TextBlock
                 {
                     Text = fromImage ? "이미지에서 읽은 글자 기준 — 날짜와 시각을 이미지와 꼭 대조하세요 (OCR 은 숫자를 틀리게 읽을 수 있습니다)" : "원문 확인 — 날짜가 이 문장에 적혀 있습니다",
-                    Foreground = fromImage ? AiText.Warn : Brushes.SeaGreen, FontSize = 11, Margin = new Thickness(0, 1, 0, 0), TextWrapping = TextWrapping.Wrap,
+                    Foreground = fromImage ? ModernUi.WarnBrush : ModernUi.SuccessBrush, FontSize = 11, Margin = new Thickness(0, 2, 0, 0), TextWrapping = TextWrapping.Wrap,
                 };
 
                 var view = new RowView { Row = row, Check = check, Detail = detail, Notes = notes, Clash = clash };
@@ -424,19 +452,15 @@ internal static class ExtractWindow
                 line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                Grid.SetColumn(kind, 1); Grid.SetColumn(body, 2);
-                line.Children.Add(check); line.Children.Add(kind); line.Children.Add(body);
-                list.Children.Add(new Border
-                {
-                    Child = line, Padding = new Thickness(8, 6, 8, 8), Margin = new Thickness(0, 0, 0, 6), CornerRadius = new CornerRadius(6),
-                    BorderThickness = new Thickness(1), BorderBrush = new SolidColorBrush(Color.FromRgb(0xD9, 0xDE, 0xE7)),
-                });
+                Grid.SetColumn(kindPill, 1); Grid.SetColumn(body, 2);
+                line.Children.Add(check); line.Children.Add(kindPill); line.Children.Add(body);
+                list.Children.Add(ModernUi.Card(line, new Thickness(12, 10, 12, 10), new Thickness(0, 0, 0, 8)));
                 RefreshRow(view);
             }
 
             var skipped = rows.Where(r => r.Candidate.Kind == CandidateKind.Skipped).ToList();
             foreach (var s in skipped)
-                skippedBox.Children.Add(new TextBlock { Text = $"· {s.Candidate.Source}   →   {s.Candidate.Reason}", Foreground = Brushes.Gray, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 3) });
+                skippedBox.Children.Add(new TextBlock { Text = $"· {s.Candidate.Source}   →   {s.Candidate.Reason}", Foreground = ModernUi.MutedBrush, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 3) });
             skippedHead.Header = $"제외된 문장 ({skipped.Count}) — 날짜가 없거나 읽을 수 없는 문장";
             skippedHead.Visibility = skipped.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
 
@@ -466,7 +490,7 @@ internal static class ExtractWindow
             UpdateCount();
         }
 
-        var analyzeBtn = Dlg.Btn("분석", (_, _) => Analyze());
+        var analyzeBtn = ModernUi.PrimaryBtn("분석", (_, _) => Analyze());
         // ---- a picture instead of text: read with the OCR that comes with Windows (offline; the picture is not kept)
         async Task LoadImage(Func<Task<OcrReading>> read)
         {
@@ -487,7 +511,7 @@ internal static class ExtractWindow
             catch (OperationCanceledException) { }
         }
 
-        var paste = Dlg.Btn("클립보드 (글·이미지)", (_, _) =>
+        var paste = ModernUi.SecondaryBtn("클립보드 (글·이미지)", (_, _) =>
         {
             try
             {
@@ -497,7 +521,7 @@ internal static class ExtractWindow
             }
             catch (System.Runtime.InteropServices.ExternalException) { status.Text = "클립보드를 읽을 수 없습니다. 직접 붙여넣으세요 (Ctrl+V)."; }
         });
-        var imageFile = Dlg.Btn("이미지 파일…", (_, _) =>
+        var imageFile = ModernUi.SecondaryBtn("이미지 파일", (_, _) =>
         {
             var dlg = new Microsoft.Win32.OpenFileDialog { Title = "글자를 읽을 이미지", Filter = "그림 파일|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp|모든 파일|*.*" };
             if (dlg.ShowDialog(win) == true) _ = LoadImage(() => OcrReader.ReadFileAsync(dlg.FileName));
@@ -520,28 +544,41 @@ internal static class ExtractWindow
             if (e.Data.GetData(DataFormats.FileDrop) is string[] { Length: > 0 } files) _ = LoadImage(() => OcrReader.ReadFileAsync(files[0]));
             e.Handled = true;
         };
-        var undo = Dlg.Btn("마지막 추가 되돌리기", (_, _) => AiUndo.Run(win, host.Batch, host.Changed));
-        var close = Dlg.Btn("닫기", (_, _) => win.Close());
+        var undo = ModernUi.SecondaryBtn("마지막 추가 되돌리기", (_, _) => AiUndo.Run(win, host.Batch, host.Changed));
+        var close = ModernUi.SecondaryBtn("닫기", (_, _) => win.Close());
+        close.Margin = new Thickness(0);
         baseDay.SelectedDateChanged += (_, _) => { if (!string.IsNullOrWhiteSpace(box.Text)) Analyze(); };
 
-        var top = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
-        top.Children.Add(new TextBlock { Text = "기준일", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
-        top.Children.Add(baseDay);
-        top.Children.Add(new TextBlock { Width = 12 });
-        top.Children.Add(analyzeBtn); top.Children.Add(paste); top.Children.Add(imageFile);
+        var toolbar = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
+        toolbar.Children.Add(new TextBlock { Text = "기준일", VerticalAlignment = VerticalAlignment.Center, Foreground = ModernUi.MutedBrush, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 6, 0) });
+        toolbar.Children.Add(baseDay);
+        toolbar.Children.Add(new TextBlock { Width = 12 });
+        toolbar.Children.Add(analyzeBtn); toolbar.Children.Add(paste); toolbar.Children.Add(imageFile);
 
-        var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = new StackPanel { Children = { list, skippedHead } }, MaxHeight = 320 };
-        var buttons = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
-        buttons.Children.Add(addBtn); buttons.Children.Add(undo); buttons.Children.Add(close);
+        var inputCard = ModernUi.Card(new StackPanel
+        {
+            Children = { ModernUi.FieldLabel("원문 텍스트 또는 캡처 이미지 (드래그·Ctrl+V 지원)"), box, toolbar }
+        }, new Thickness(14, 12, 14, 12));
 
-        var root = new StackPanel { Margin = new Thickness(18, 16, 18, 14) };
-        foreach (var e in new UIElement[]
-                 {
-                     new TextBlock { Text = "공지·메일·메신저 대화를 붙여넣거나, 사진·캡처 이미지(끌어다 놓기·Ctrl+V·이미지 파일)를 불러오세요. 날짜가 있는 문장을 찾아 일정이나 할 일로 제안합니다.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6) },
-                     box, top, summary, scroll, status, buttons,
-                 })
-            root.Children.Add(e);
-        win.Content = root;
+        var leftBtns = new StackPanel { Orientation = Orientation.Horizontal };
+        leftBtns.Children.Add(addBtn); leftBtns.Children.Add(undo);
+        var rightBtns = new StackPanel { Orientation = Orientation.Horizontal };
+        rightBtns.Children.Add(close);
+        var footer = ModernUi.Footer(leftBtns, rightBtns);
+
+        var header = ModernUi.Header(ModernUi.Icons.FileText, "텍스트에서 일정 추출", "공지·메일·대화를 붙여넣거나 이미지를 불러오면 날짜가 있는 일정을 제안합니다");
+        var body = new StackPanel();
+        foreach (var e in new UIElement[] { inputCard, summary, list, skippedHead, status })
+            body.Children.Add(e);
+        var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(18, 14, 18, 10), Content = body };
+
+        var dock = new DockPanel();
+        DockPanel.SetDock(header, Dock.Top);
+        DockPanel.SetDock(footer, Dock.Bottom);
+        dock.Children.Add(header);
+        dock.Children.Add(footer);
+        dock.Children.Add(scroll);
+        win.Content = dock;
         win.Loaded += (_, _) => box.Focus();
         return win;
     }

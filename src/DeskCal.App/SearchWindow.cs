@@ -59,9 +59,13 @@ internal sealed class SearchWindow : Window
     {
         _search = search; _items = items; _history = history; _goTo = goTo; _changed = changed;
         _semantic = semantic; _syncIndex = syncIndex; _weekStart = weekStart ?? (() => DayOfWeek.Monday);
-        Title = "M-DeskCal 검색"; Width = 640; Height = 560; MinWidth = 520; MinHeight = 380;
-        WindowStartupLocation = WindowStartupLocation.CenterScreen; ShowInTaskbar = true;
-        FontFamily = new FontFamily("Segoe UI, Malgun Gothic"); FontSize = 13;
+        ModernUi.ConfigureWindow(this, "M-DeskCal 검색", 680, 620, topmost: false);
+
+        _text.Padding = new Thickness(10, 7, 10, 7);
+        _text.FontSize = 14;
+        _status.Foreground = ModernUi.MutedBrush;
+        _status.FontSize = 12;
+        _status.Margin = new Thickness(0, 0, 0, 8);
 
         Fill(_range, "전체 기간", "최근 1개월", "최근 3개월", "최근 1년", "기간 지정…");
         Fill(_kind, "할 일 + 일정", "할 일만", "일정만");
@@ -71,16 +75,16 @@ internal sealed class SearchWindow : Window
         _color.SelectedIndex = 0;
         _from.SelectedDate = DateTime.Today.AddMonths(-1); _to.SelectedDate = DateTime.Today;
 
-        var top = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
-        var go = Dlg.Btn("검색", (_, _) => Run(), isDefault: true);
+        var top = new DockPanel { Margin = new Thickness(0, 0, 0, 10) };
+        var go = ModernUi.PrimaryBtn("검색", (_, _) => Run(), isDefault: true);
         go.Margin = new Thickness(8, 0, 0, 0);
         DockPanel.SetDock(go, Dock.Right);
         top.Children.Add(go); top.Children.Add(_text);
 
-        var filters = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
+        var filters = new WrapPanel();
         foreach (var c in new[] { _range, _kind, _done, _color })
         {
-            c.Margin = new Thickness(0, 0, 8, 4); c.MinWidth = 100; c.Padding = new Thickness(6, 3, 6, 3);
+            c.Margin = new Thickness(0, 0, 8, 4); c.MinWidth = 104; c.Padding = new Thickness(8, 4, 8, 4);
             filters.Children.Add(c);
         }
         _from.Margin = new Thickness(0, 0, 4, 4); _to.Margin = new Thickness(0, 0, 8, 4);
@@ -88,16 +92,32 @@ internal sealed class SearchWindow : Window
         filters.Children.Add(_deleted);
         if (_semantic?.Available == true) filters.Children.Add(_meaning);
 
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
-        actions.Children.Add(Dlg.Btn("달력에서 보기", (_, _) => GoToSelected()));
-        actions.Children.Add(Dlg.Btn("이력 보기", (_, _) => ShowHistory()));
-        actions.Children.Add(Dlg.Btn("삭제된 항목 복원", (_, _) => Undelete()));
+        var searchCard = ModernUi.Card(new StackPanel { Children = { top, filters } }, new Thickness(14, 12, 14, 10));
 
-        var dock = new DockPanel { Margin = new Thickness(14) };
-        DockPanel.SetDock(top, Dock.Top); DockPanel.SetDock(filters, Dock.Top); DockPanel.SetDock(_status, Dock.Top); DockPanel.SetDock(actions, Dock.Bottom);
-        dock.Children.Add(top); dock.Children.Add(filters); dock.Children.Add(_status); dock.Children.Add(actions);
-        dock.Children.Add(_results);
-        Content = dock;
+        var leftBtns = new StackPanel { Orientation = Orientation.Horizontal };
+        leftBtns.Children.Add(ModernUi.PrimaryBtn("달력에서 보기", (_, _) => GoToSelected()));
+        leftBtns.Children.Add(ModernUi.SecondaryBtn("이력 보기", (_, _) => ShowHistory()));
+        leftBtns.Children.Add(ModernUi.SecondaryBtn("삭제된 항목 복원", (_, _) => Undelete()));
+        var closeBtn = ModernUi.SecondaryBtn("닫기", (_, _) => Close());
+        closeBtn.Margin = new Thickness(0);
+        var footer = ModernUi.Footer(leftBtns, closeBtn);
+
+        var header = ModernUi.Header(ModernUi.Icons.Search, "일정 및 할 일 검색", "키워드, 기간, 유형, 색상으로 원하는 항목을 빠르게 찾습니다");
+
+        var contentDock = new DockPanel { Margin = new Thickness(18, 14, 18, 14) };
+        DockPanel.SetDock(searchCard, Dock.Top);
+        DockPanel.SetDock(_status, Dock.Top);
+        contentDock.Children.Add(searchCard);
+        contentDock.Children.Add(_status);
+        contentDock.Children.Add(_results);
+
+        var rootDock = new DockPanel();
+        DockPanel.SetDock(header, Dock.Top);
+        DockPanel.SetDock(footer, Dock.Bottom);
+        rootDock.Children.Add(header);
+        rootDock.Children.Add(footer);
+        rootDock.Children.Add(contentDock);
+        Content = rootDock;
 
         _debounce.Tick += (_, _) => { _debounce.Stop(); Run(); };
         _text.TextChanged += (_, _) => { if (_ready) { _debounce.Stop(); _debounce.Start(); } };
@@ -192,23 +212,28 @@ internal sealed class SearchWindow : Window
         var line = new DockPanel { Margin = new Thickness(0, 2, 0, 2), Tag = h };
         var date = new TextBlock
         {
-            Text = h.Date.ToString("yyyy-MM-dd ddd", CultureInfo.CurrentCulture), Width = 120, Foreground = Brushes.Gray,
-            VerticalAlignment = VerticalAlignment.Center,
+            Text = h.Date.ToString("yyyy-MM-dd ddd", CultureInfo.CurrentCulture), Width = 118, Foreground = ModernUi.MutedBrush,
+            FontSize = 12, VerticalAlignment = VerticalAlignment.Center,
         };
-        var kind = new TextBlock
+        var kindPill = ModernUi.Pill(
+            h.Kind == SearchKind.Event ? "일정" : h.Done ? "완료" : "할 일",
+            h.Kind == SearchKind.Event ? ModernUi.AccentBrush : h.Done ? ModernUi.MutedBrush : ModernUi.SuccessBrush,
+            h.Kind == SearchKind.Event ? ModernUi.AccentSoftBrush : h.Done ? ModernUi.HoverBrush : ModernUi.SuccessSoftBrush);
+        kindPill.Margin = new Thickness(0, 0, 10, 0);
+
+        var text = new TextBlock
         {
-            Text = h.Kind == SearchKind.Event ? "일정" : h.Done ? "완료" : "할 일", Width = 40, Foreground = Brushes.SteelBlue,
-            VerticalAlignment = VerticalAlignment.Center,
+            Text = h.Text.ReplaceLineEndings(" "), TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center, Foreground = ModernUi.InkBrush,
         };
-        var text = new TextBlock { Text = h.Text.ReplaceLineEndings(" "), TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
         if (h.Done || h.Deleted) text.TextDecorations = TextDecorations.Strikethrough;
         if (h.Done || h.Deleted) text.Opacity = 0.6;
         if (h.TextColor is { Length: > 0 } hex && UiColors.TryBrush(hex) is { } b) text.Foreground = b;
 
-        var tail = new TextBlock { Foreground = Brushes.Gray, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+        var tail = new TextBlock { Foreground = h.Deleted ? ModernUi.DangerBrush : ModernUi.MutedBrush, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
         tail.Text = h.Deleted ? "삭제됨" : h.Repeating ? "반복" : "";
-        DockPanel.SetDock(date, Dock.Left); DockPanel.SetDock(kind, Dock.Left); DockPanel.SetDock(tail, Dock.Right);
-        line.Children.Add(date); line.Children.Add(kind); line.Children.Add(tail); line.Children.Add(text);
+        DockPanel.SetDock(date, Dock.Left); DockPanel.SetDock(kindPill, Dock.Left); DockPanel.SetDock(tail, Dock.Right);
+        line.Children.Add(date); line.Children.Add(kindPill); line.Children.Add(tail); line.Children.Add(text);
         return line;
     }
 
