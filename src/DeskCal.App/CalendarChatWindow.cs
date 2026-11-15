@@ -426,7 +426,7 @@ internal static class CalendarChatWindow
                     h.Kind == SearchKind.Event ? ModernUi.AccentSoftBrush : h.Done ? ModernUi.HoverBrush : ModernUi.SuccessSoftBrush);
                 pill.Margin = new Thickness(0, 0, 8, 0);
 
-                var actionPanel = new StackPanel { Orientation = Orientation.Horizontal };
+                var actionPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
                 var goBtn = ModernUi.SecondaryBtn("이동", (_, _) => host.GoTo(h.Date));
                 goBtn.Padding = new Thickness(7, 2, 7, 2);
                 goBtn.FontSize = 11;
@@ -467,13 +467,28 @@ internal static class CalendarChatWindow
                 };
                 if (h.Done || h.Deleted) { label.TextDecorations = TextDecorations.Strikethrough; label.Opacity = 0.6; }
 
+                var itemContent = new DockPanel();
                 DockPanel.SetDock(dateText, Dock.Left);
                 DockPanel.SetDock(pill, Dock.Left);
+                itemContent.Children.Add(dateText);
+                itemContent.Children.Add(pill);
+                itemContent.Children.Add(label);
+
+                var hitBtn = new Button
+                {
+                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                    Background = Brushes.Transparent,
+                    BorderThickness = new Thickness(0),
+                    Padding = new Thickness(4, 3, 6, 3),
+                    Cursor = Cursors.Hand,
+                    Content = itemContent,
+                    ToolTip = "클릭하면 달력에서 해당 날짜로 이동합니다",
+                };
+                hitBtn.Click += (_, _) => host.GoTo(h.Date);
+
                 DockPanel.SetDock(actionPanel, Dock.Right);
-                row.Children.Add(dateText);
-                row.Children.Add(pill);
                 row.Children.Add(actionPanel);
-                row.Children.Add(label);
+                row.Children.Add(hitBtn);
                 stack.Children.Add(row);
             }
             if (hits.Count > 35)

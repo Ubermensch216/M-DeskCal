@@ -395,7 +395,7 @@ public partial class App : System.Windows.Application
             () => DateOnly.FromDateTime(DateTime.Today),
             () => _board!.Settings.FirstDayOfWeek,
             AfterImport,
-            day => { _board!.GoTo(day); _board.BringToFront(CalendarChatWindow.CurrentWindow); RememberVisibility(); },
+            day => { _board!.GoToAndHighlight(day); _board.BringToFront(CalendarChatWindow.CurrentWindow); RememberVisibility(); },
             day => _board!.NewEvent(day),
             _semantic,
             SyncIndexAsync,
@@ -450,7 +450,7 @@ public partial class App : System.Windows.Application
         () => DateOnly.FromDateTime(DateTime.Today),
         (day, today) => new DeskCal.Ai.BriefingBuilder(_eventRepo!, _itemRepo!, _countdowns!, _timetableRepo!, _settingsStore!, _days, d => _days.Holidays.IsDayOff(d)).Build(day, today),
         last => _reviewBuilder!.Build(last), () => _aiStore!.Load(), s => DeskCal.Ai.Llm.LlmClientFactory.Create(s), _backoff!,
-        day => { _board!.GoTo(day); _board.BringToFront(BriefingWindow.CurrentWindow); RememberVisibility(); },
+        day => { _board!.GoToAndHighlight(day); _board.BringToFront(BriefingWindow.CurrentWindow); RememberVisibility(); },
         () => _rollover!.Find(DateOnly.FromDateTime(DateTime.Today)).Count, OpenRollover);
 
     /// <summary>Unfinished to-dos of past days: move them to today, or spread them over the next working days.</summary>

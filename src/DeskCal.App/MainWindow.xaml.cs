@@ -209,8 +209,28 @@ public partial class MainWindow : Window
     /// <summary>The date the board is currently centred on (its month is what "print" prints).</summary>
     internal DateOnly Anchor => _anchor;
 
-    internal void GoToday() { _anchor = Today(); Render(); }
-    internal void GoTo(DateOnly date) { _anchor = date; Render(); }
+    private DateOnly? _highlightedDay;
+    private System.Windows.Threading.DispatcherTimer? _highlightTimer;
+
+    internal void GoToday() { _highlightedDay = null; _anchor = Today(); Render(); }
+    internal void GoTo(DateOnly date) { _highlightedDay = null; _anchor = date; Render(); }
+
+    /// <summary>Navigate to <paramref name="date"/> and briefly outline that day cell so same-month jumps are visible.</summary>
+    internal void GoToAndHighlight(DateOnly date)
+    {
+        _highlightedDay = date;
+        _anchor = date;
+        Render();
+        _highlightTimer?.Stop();
+        _highlightTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
+        _highlightTimer.Tick += (_, _) =>
+        {
+            _highlightTimer.Stop();
+            _highlightedDay = null;
+            if (IsVisible) Render();
+        };
+        _highlightTimer.Start();
+    }
 
     internal void SetRect(DesktopHost.RectInt rect) => _rect = rect;
     public void SetPosition(int x, int y) => _rect = new(x, y, _rect.Width, _rect.Height);
@@ -984,11 +1004,14 @@ public partial class MainWindow : Window
     private UIElement MakeCell(BoardCell cell, List<Item> items, List<EventOccurrence> events, BoardSettings s, WpfBrush text, WpfBrush off,
                                FontFamily font, double size, bool dense)
     {
+        bool isHighlighted = _highlightedDay == cell.Date;
         var border = new Border
         {
             Margin = new Thickness(s.CellGap / 2.0),
             CornerRadius = new CornerRadius(6),
             Background = Brushes.Transparent,          // transparent (not null) so empty cells are clickable
+            BorderBrush = isHighlighted ? Brush("#FFC857", Colors.Gold) : Brushes.Transparent,
+            BorderThickness = new Thickness(isHighlighted ? 2 : 0),
             ClipToBounds = true,
         };
         if (cell.IsBlank) return border;
@@ -1001,6 +1024,7 @@ public partial class MainWindow : Window
         var accent = Color.FromRgb(0x3B, 0x82, 0xF6);
         if (_cellBgs.TryGetValue(cell.Date, out var cellBgHex) && UiColors.Parse(cellBgHex, Colors.Transparent) is { A: > 0 } cc)
             border.Background = new SolidColorBrush(WithAlpha(cc, 0x66));
+        else if (isHighlighted) border.Background = new SolidColorBrush(Color.FromArgb(0x38, 0xFF, 0xC8, 0x57));
         else if (cell.IsToday) border.Background = new SolidColorBrush(dense ? Color.FromArgb(0xB0, accent.R, accent.G, accent.B)
                                                                               : Color.FromArgb(0x30, accent.R, accent.G, accent.B));
         else if (isDayOffCell && !string.IsNullOrWhiteSpace(s.HolidayBgColor))
