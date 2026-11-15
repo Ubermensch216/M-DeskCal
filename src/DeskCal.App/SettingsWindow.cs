@@ -517,8 +517,14 @@ internal sealed class SettingsWindow : Window
             _sync.Add(() => { if (!box.IsKeyboardFocusWithin) box.Text = get(Cur()); });
             return box;
         }
-        var url = Field(c => c.Url, (c, v) => c with { Url = v }, 300);
-        var branch = Field(c => c.Branch, (c, v) => c with { Branch = v }, 160);
+        var urlNote = new TextBlock { Foreground = Frozen(Color.FromRgb(0xC0, 0x39, 0x2B)), FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed, Margin = new Thickness(14, 0, 14, 8) };
+        var url = Field(c => c.Url, (c, v) =>
+        {
+            bool ok = v.Length == 0 || DeskCal.Sync.GitCalendarSync.IsValidUrl(v);
+            urlNote.Text = ok ? "" : "주소 형식이 올바르지 않습니다. https://github.com/아이디/저장소.git 처럼 입력하세요.";
+            urlNote.Visibility = ok ? Visibility.Collapsed : Visibility.Visible;
+            return ok ? c with { Url = v } : c;
+        }, 300);
         var folderNote = new TextBlock { Foreground = Frozen(Color.FromRgb(0xC0, 0x39, 0x2B)), FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed, Margin = new Thickness(14, 0, 14, 8) };
         var folder = Field(c => c.Folder, (c, v) =>
         {
@@ -534,17 +540,33 @@ internal sealed class SettingsWindow : Window
         async Task Run()
         {
             if (busy) return;
+            if (git.Get().Url.Length == 0) { status.Text = "저장소 주소를 먼저 입력하세요."; return; }
             busy = true;
             status.Text = "동기화하는 중… (처음에는 저장소를 받아오느라 시간이 걸립니다)";
             try { await git.RunNow(); } finally { busy = false; }
             status.Text = git.Status();
         }
 
-        page.Children.Add(Card("Git 저장소 동기화",
-            RowText("하는 일", "할 일·일정·디데이·메모·반복 규칙·시간표·휴일 수정 파일을 Git 저장소의 한 폴더에 항목마다 파일 하나로 저장하고, " +
-                             "다른 컴퓨터의 M-DeskCal 과 그 폴더를 통해 합칩니다. 창 위치·표시 설정·AI·잠금 설정은 컴퓨터마다 따로입니다."),
-            RowCustom("저장소 주소", "예: https://github.com/아이디/저장소.git — 이 컴퓨터의 git 로그인(자격 증명 관리자·SSH 키)을 그대로 씁니다", url),
-            RowCustom("브랜치", "비워 두면 저장소의 기본 브랜치", branch),
+        page.Children.Add(Card("처음 사용하는 방법",
+            GuideRow("이 기능은 무엇인가요?",
+                "달력의 모든 내용(할 일·일정·디데이·메모·반복 규칙·시간표·휴일 수정 파일)을 내 Git 저장소의 폴더 하나에 올려 두고, " +
+                "다른 컴퓨터의 M-DeskCal 과 함께 쓰는 기능입니다. 주소를 입력하기 전에는 아무것도 하지 않으며, 어떤 데이터도 밖으로 나가지 않습니다."),
+            GuideRow("1. 준비물",
+                "① 이 컴퓨터에 Git for Windows 설치 (https://git-scm.com)\n" +
+                "② 내 Git 저장소 하나 (GitHub 등에서 새로 만드세요. 달력 내용이 그대로 올라가므로 반드시 '비공개(Private)'로 만드세요)\n" +
+                "③ 이 컴퓨터에서 그 저장소에 로그인되어 있을 것 — 명령 창에서 'git clone 저장소주소' 를 한 번 실행해 로그인해 두면 됩니다. 이 프로그램은 비밀번호를 묻지도 저장하지도 않고, git 의 로그인(자격 증명 관리자·SSH 키)을 그대로 씁니다."),
+            GuideRow("2. 설정",
+                "아래 '저장소 주소'에 내 저장소 주소를 붙여 넣고 Enter 를 누르세요. 폴더 이름은 그대로 두어도 됩니다(저장소 안에서 달력이 쓰는 폴더이며, 없으면 만들어지고 저장소의 다른 파일은 건드리지 않습니다). 저장소의 기본 브랜치를 사용합니다."),
+            GuideRow("3. 동기화",
+                "'지금 동기화'를 누르면 저장소의 내용과 이 컴퓨터의 달력을 합치고 올립니다. 이후에는 프로그램이 켜진 동안 자동으로 합니다(간격은 아래에서 선택). 결과는 '마지막 결과'에 표시됩니다."),
+            GuideRow("4. 다른 컴퓨터에서 쓰려면",
+                "그 컴퓨터에도 M-DeskCal·Git 을 설치하고 저장소에 로그인한 뒤, 같은 주소를 입력하고 '지금 동기화'를 누르세요. 그 컴퓨터에 이미 있는 일정은 지워지지 않고 저장소의 내용과 합쳐집니다."),
+            GuideRow("문제가 생기면",
+                "'마지막 결과'에 이유가 표시됩니다. 'git 프로그램을 찾을 수 없습니다' → Git 설치, '로그인되어 있지 않습니다' → 위 ③ 을 해 보세요. 동기화 때마다 이 컴퓨터의 내용을 바꾸기 전에 데이터 폴더의 backup 에 복사본이 남습니다.")));
+
+        page.Children.Add(Card("저장소 연결",
+            RowCustom("저장소 주소", "비어 있으면 동기화하지 않습니다. 예: https://github.com/아이디/저장소.git", url),
+            urlNote,
             RowCustom("폴더", "저장소 안에서 캘린더가 쓰는 폴더. 다른 폴더는 건드리지 않습니다", folder),
             folderNote,
             RowCombo("자동 동기화", "프로그램이 켜진 동안 이 간격으로 받고 올립니다 (켤 때도 한 번)",
@@ -556,6 +578,15 @@ internal sealed class SettingsWindow : Window
             RowText("개인정보", "일정 내용이 그대로 저장소에 올라갑니다. 저장소는 반드시 비공개로 두세요. 콘텐츠 잠금 중에는 자동 동기화를 하지 않습니다."),
             RowText("충돌", "같은 항목을 두 컴퓨터에서 동시에 고치면 나중에 고친 쪽이 남고, 덮어쓴 글은 기록(이력)에 남습니다.")));
         return page;
+    }
+
+    /// <summary>A heading with a left-aligned paragraph under it (for the first-time guide).</summary>
+    private static Border GuideRow(string heading, string text)
+    {
+        var p = new StackPanel();
+        p.Children.Add(new TextBlock { Text = heading, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 3) });
+        p.Children.Add(new TextBlock { Text = text, Foreground = MutedBrush, TextWrapping = TextWrapping.Wrap, LineHeight = 19 });
+        return new Border { Padding = new Thickness(14, 9, 14, 10), BorderBrush = LineBrush, Child = p };
     }
 
     private UIElement AboutTab()

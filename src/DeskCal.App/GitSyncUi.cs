@@ -6,7 +6,7 @@ using DeskCal.Sync;
 namespace DeskCal.App;
 
 /// <summary>The Git sync settings as the settings window shows them.</summary>
-internal sealed record GitSyncConfig(string Url, string Branch, string Folder, int IntervalMinutes);
+internal sealed record GitSyncConfig(string Url, string Folder, int IntervalMinutes);
 
 /// <summary>What the settings window needs for the "동기화" tab.</summary>
 internal sealed record GitSyncHost(
@@ -33,13 +33,12 @@ internal sealed class GitSyncCoordinator(DeskCalDb db, IClock clock, SettingsSto
 
     public GitSyncConfig Config
     {
-        get => new(settings.GetString(P + "url") ?? "", settings.GetString(P + "branch") ?? "",
+        get => new(settings.GetString(P + "url") ?? "",
                    settings.GetString(P + "folder") is { Length: > 0 } f ? f : GitSyncOptions.DefaultFolder,
                    settings.GetInt(P + "interval_min", DefaultInterval));
         set
         {
             settings.SetString(P + "url", value.Url.Trim());
-            settings.SetString(P + "branch", value.Branch.Trim());
             settings.SetString(P + "folder", value.Folder.Trim());
             settings.SetInt(P + "interval_min", Math.Max(0, value.IntervalMinutes));
         }
@@ -60,7 +59,7 @@ internal sealed class GitSyncCoordinator(DeskCalDb db, IClock clock, SettingsSto
         GitSyncReport? report = null; string? error = null;
         try
         {
-            var options = new GitSyncOptions(cfg.Url, cfg.Branch, cfg.Folder, WorkDir, Path.Combine(dataDir, "git-sync", "base.json"), Path.Combine(dataDir, "backup"));
+            var options = new GitSyncOptions(cfg.Url, cfg.Folder, WorkDir, Path.Combine(dataDir, "git-sync", "base.json"), Path.Combine(dataDir, "backup"));
             using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(15));
             var engine = new GitCalendarSync(db, new CalendarSnapshot(db, clock, holidaysPath), new GitCli());
             report = await Task.Run(() => engine.RunAsync(options, cts.Token));

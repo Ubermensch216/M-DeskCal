@@ -8,12 +8,12 @@ using DeskCal.Data;
 namespace DeskCal.Sync;
 
 /// <summary>
-/// Where the calendar is shared: a git repository (<see cref="RepoUrl"/>), its branch (empty = the repository's default branch) and the
+/// Where the calendar is shared: a git repository (<see cref="RepoUrl"/>; its default branch is always used) and the
 /// folder inside it that belongs to the calendar. <see cref="WorkDir"/> is this program's own checkout of that folder,
 /// <see cref="BaseFile"/> remembers what both sides agreed on at the last sync, <see cref="BackupDir"/> receives a database copy
 /// before a sync changes anything here.
 /// </summary>
-public sealed record GitSyncOptions(string RepoUrl, string Branch, string Folder, string WorkDir, string BaseFile, string BackupDir)
+public sealed record GitSyncOptions(string RepoUrl, string Folder, string WorkDir, string BaseFile, string BackupDir)
 {
     public const string DefaultFolder = "my_calendar_sync";
 }
@@ -52,11 +52,18 @@ public sealed class GitCalendarSync(DeskCalDb db, CalendarSnapshot snapshot, Git
     private static readonly Regex SafeId = new("^[A-Za-z0-9_-]{1,80}$", RegexOptions.Compiled);
     private static readonly Regex SafeFolder = new(@"^[^\\/:*?""<>|.\s][^\\/:*?""<>|]{0,79}$", RegexOptions.Compiled);
 
+    /// <summary>An https/http/ssh/git address or an scp-style one (git@host:owner/repo.git); never something git could read as an option.</summary>
+    public static bool IsValidUrl(string url) =>
+        url.Length is > 0 and <= 500 && !url.StartsWith('-') &&
+        (!url.Any(char.IsWhiteSpace) && (Regex.IsMatch(url, @"^(https?|ssh|git)://[^/]+/.+$") || Regex.IsMatch(url, @"^[\w.-]+@[\w.-]+:.+$"))
+         || Regex.IsMatch(url, @"^([A-Za-z]:[\\/]|\\\\[^\\]|/|file://).+", RegexOptions.IgnoreCase));      // a repository on this computer or a shared folder (a path may contain spaces)
+
     public static bool IsValidFolder(string folder) => SafeFolder.IsMatch(folder) && !folder.EndsWith('.') && !folder.EndsWith(' ');
 
     public async Task<GitSyncReport> RunAsync(GitSyncOptions o, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(o.RepoUrl)) throw new GitException("저장소 주소를 입력하세요.");
+        if (!IsValidUrl(o.RepoUrl)) throw new GitException("저장소 주소 형식이 올바르지 않습니다. https://… 또는 git@…:… 형태로 입력하세요.");
         if (!IsValidFolder(o.Folder)) throw new GitException("폴더 이름에는 / \\ : * ? \" < > | 를 쓸 수 없고 . 으로 시작할 수 없습니다.");
 
         await EnsureCloneAsync(o, ct).ConfigureAwait(false);
@@ -105,12 +112,8 @@ public sealed class GitCalendarSync(DeskCalDb db, CalendarSnapshot snapshot, Git
         var fetch = await git.RunAsync(o.WorkDir, ["fetch", "--prune", "origin"], ct).ConfigureAwait(false);
         if (!fetch.Ok) throw new GitException("저장소에서 받아오지 못했습니다: " + Short(fetch.Err) + Hint(fetch.Err), fetch.Both);
 
-        string branch = o.Branch.Trim();
-        if (branch.Length == 0)
-        {
-            var head = await git.RunAsync(o.WorkDir, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], ct).ConfigureAwait(false);
-            branch = head.Ok && head.Out.Trim().StartsWith("origin/", StringComparison.Ordinal) ? head.Out.Trim()["origin/".Length..] : "main";
-        }
+        var head = await git.RunAsync(o.WorkDir, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], ct).ConfigureAwait(false);
+        string branch = head.Ok && head.Out.Trim().StartsWith("origin/", StringComparison.Ordinal) ? head.Out.Trim()["origin/".Length..] : "main";
 
         await git.OkAsync(o.WorkDir, "체크아웃 범위를 정하지 못했습니다", ct, "sparse-checkout", "set", "--no-cone", "/" + o.Folder + "/").ConfigureAwait(false);
         bool remoteHas = (await git.RunAsync(o.WorkDir, ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/" + branch], ct).ConfigureAwait(false)).Ok;

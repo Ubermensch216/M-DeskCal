@@ -196,6 +196,28 @@ public sealed class CalendarSnapshotTests : IDisposable
 }
 
 /// <summary>Two "computers" (two databases, two checkouts) sharing a calendar folder through a real git repository on disk.</summary>
+public class GitSyncSettingsTests
+{
+    [Theory]
+    [InlineData("https://github.com/someone/repo.git", true)]
+    [InlineData("git@github.com:someone/repo.git", true)]
+    [InlineData("ssh://git@host/path/repo.git", true)]
+    [InlineData("", false)]
+    [InlineData("--upload-pack=calc", false)]
+    [InlineData("github.com/someone/repo", false)]
+    [InlineData("https://github.com/some one/repo.git", false)]
+    public void Repository_addresses_are_checked(string url, bool ok) => Assert.Equal(ok, GitCalendarSync.IsValidUrl(url));
+
+    [Fact]
+    public async Task A_bad_address_is_refused_before_git_runs()
+    {
+        using var f = new DbFixture();
+        var sync = new GitCalendarSync(f.Db, new CalendarSnapshot(f.Db, f.Clock, f.TempFile("h.json")), new GitCli());
+        var e = await Assert.ThrowsAsync<GitException>(() => sync.RunAsync(new GitSyncOptions("-oops", "x", f.TempFile("w"), f.TempFile("b.json"), f.TempFile("bk")), CancellationToken.None));
+        Assert.Contains("형식", e.Message);
+    }
+}
+
 public sealed class GitCalendarSyncTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "deskcal-git-" + Guid.NewGuid().ToString("N"));
@@ -228,7 +250,7 @@ public sealed class GitCalendarSyncTests : IDisposable
     }
 
     private GitSyncOptions Options(string pc) =>
-        new(_remote, "", GitSyncOptions.DefaultFolder, Path.Combine(_dir, pc, "repo"), Path.Combine(_dir, pc, "base.json"), Path.Combine(_dir, pc, "backup"));
+        new(_remote, GitSyncOptions.DefaultFolder, Path.Combine(_dir, pc, "repo"), Path.Combine(_dir, pc, "base.json"), Path.Combine(_dir, pc, "backup"));
 
     private Task<GitSyncReport> Sync(DbFixture f, string pc) =>
         new GitCalendarSync(f.Db, new CalendarSnapshot(f.Db, f.Clock, f.TempFile("holidays.json")), new GitCli()).RunAsync(Options(pc), CancellationToken.None);
