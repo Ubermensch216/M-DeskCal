@@ -57,7 +57,7 @@ for dst, name in COPY.items():
         continue
     shutil.copyfile(f, out / dst)
 
-SETTINGS = ["calendar", "cell", "font", "memo", "advanced", "ai", "about"]
+SETTINGS = ["calendar", "cell", "font", "memo", "advanced", "ai", "sync", "about"]
 BG = (0xEE, 0xF1, 0xF6)
 for i, key in enumerate(SETTINGS):
     f = src / f"doc-settings-{i}.png"

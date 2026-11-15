@@ -56,8 +56,10 @@ public partial class App
         for (int tab = 0; tab < SettingsWindow.TabCount; tab++)
         {
             var win = SettingsWindow.CreateForSnapshot(host, tab);
-            DevHarness.RenderToPng(win.Surface, P($"doc-settings-{tab}.png"), 800, 1100, WpfColor.FromRgb(0xEE, 0xF1, 0xF6));
+            DevHarness.RenderToPng(win.Surface, P($"doc-settings-{tab}.png"), 800, 1300, WpfColor.FromRgb(0xEE, 0xF1, 0xF6));
         }
+
+        var modernBg = WpfColor.FromRgb(0xF4, 0xF6, 0xFA);
 
         // the quick-input window: a sentence the rules read, and one they cannot
         var quickHost = new QuickInputHost(_quickInput!, _batch!, _query!, _accuracy!, () => DateOnly.FromDateTime(DateTime.Today), () => board.Settings.FirstDayOfWeek, () => { }, _ => { }, _ => { });
@@ -65,7 +67,7 @@ public partial class App
         {
             var quick = QuickInputWindow.Build(quickHost, out var quickBox);
             quickBox.Text = text;
-            DevHarness.RenderToPng((FrameworkElement)quick.Content, P(file), 620, 480, WpfColor.FromRgb(0xF0, 0xF0, 0xF0));
+            DevHarness.RenderToPng((FrameworkElement)quick.Content, P(file), 650, 520, modernBg);
         }
 
         // "extract from text": a pasted notice, analysed
@@ -73,17 +75,17 @@ public partial class App
         var extract = ExtractWindow.Build(extractHost, out var extractBox, out var extractRun);
         extractBox.Text = "[공지] 11월 정기 회의 안내\n- 일시: 11월 20일(금) 오후 2시\n- 장소: 3층 회의실\n- 제출 서류는 11월 18일까지 제출해 주세요.\n감사합니다.";
         extractRun();
-        DevHarness.RenderToPng((FrameworkElement)extract.Content, P("doc-extract.png"), 760, 640, WpfColor.FromRgb(0xF0, 0xF0, 0xF0));
+        DevHarness.RenderToPng((FrameworkElement)extract.Content, P("doc-extract.png"), 780, 720, modernBg);
 
         // the briefing window (today and the week behind)
         var brief = BriefingWindow.Build(MakeBriefingHost(), out _);
-        DevHarness.RenderToPng((FrameworkElement)brief.Content, P("doc-briefing.png"), 560, 520, WpfColor.FromRgb(0xF0, 0xF0, 0xF0));
+        DevHarness.RenderToPng((FrameworkElement)brief.Content, P("doc-briefing.png"), 600, 580, modernBg);
 
         // "복습 계획 만들기": a topic and the exam day, planned
         var plan = ReviewPlanWindow.Build(MakeReviewPlanHost(), out var planTopic, out var planRefresh);
         planTopic.Text = "한국사 근현대사 단원";
         planRefresh();
-        DevHarness.RenderToPng((FrameworkElement)plan.Content, P("doc-review-plan.png"), 640, 640, WpfColor.FromRgb(0xF0, 0xF0, 0xF0));
+        DevHarness.RenderToPng((FrameworkElement)plan.Content, P("doc-review-plan.png"), 660, 760, modernBg);
 
         // "미완료 정리": a few to-dos left on past days (the temp database only), one already pushed several times
         var todayDate = DateOnly.FromDateTime(DateTime.Today);
@@ -91,7 +93,7 @@ public partial class App
             _itemRepo!.Add(todayDate.AddDays(back).ToString("yyyy-MM-dd"), text);
         var rollover = RolloverWindow.Build(MakeRolloverHost(), out var rolloverRefresh);
         rolloverRefresh();
-        DevHarness.RenderToPng((FrameworkElement)rollover.Content, P("doc-rollover.png"), 700, 640, WpfColor.FromRgb(0xF0, 0xF0, 0xF0));
+        DevHarness.RenderToPng((FrameworkElement)rollover.Content, P("doc-rollover.png"), 720, 660, modernBg);
 
         // connection windows: they are real windows, so show each one just long enough to draw it
         Window? Grab(Action open)

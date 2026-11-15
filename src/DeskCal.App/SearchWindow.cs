@@ -138,7 +138,7 @@ internal sealed class SearchWindow : Window
         var w = new SearchWindow(search, items, history, _ => { }, () => { });
         w._text.Text = query;
         w.Run();
-        DevHarness.RenderToPng((FrameworkElement)w.Content, path, 640, 520, System.Windows.Media.Colors.White);
+        DevHarness.RenderToPng((FrameworkElement)w.Content, path, 680, 560, System.Windows.Media.Color.FromRgb(0xF4, 0xF6, 0xFA));
     }
 
     private static void Fill(ComboBox box, params string[] entries)

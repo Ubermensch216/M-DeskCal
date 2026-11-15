@@ -1,9 +1,9 @@
 # 바탕화면 달력 프로그램(M-DeskCal) 설계 및 구현 계획
 
 대상 분석 프로그램: `CalendarTask` (desktopcal.exe v3.32.310.9371, Beijing Xiaowei Cloud Inc.)
-작성일: 2026-11-06 · 최종 현행화: 2026-11-14
+작성일: 2026-11-06 · 최종 현행화: 2026-11-15
 
-> **현재 상태(2026-11-14)**: 베타 `0.1.0-beta.1`. M0~M16 구현 완료(제외 항목은 3장 표), 단위 테스트 912개 통과.
+> **현재 상태(2026-11-15)**: 베타 `0.1.0-beta.1`. M0~M17 및 UI/UX 전면 개편·경량 패키징 완료(제외 항목은 3장 표), 단위 테스트 937개 통과.
 > 이 문서의 1~2장은 착수 시점의 **분석과 계획**이고, 구현하면서 바뀐 결정은 각 절의 "구현 결과" 메모와 3.0 진행 기록에 적었습니다.
 > 실제 프로젝트 구성은 **2.3**, 실제 스키마는 `src/DeskCal.Data/DeskCalDb.cs`(마이그레이션 v1~v8)가 기준입니다.
 
@@ -250,13 +250,14 @@ sync_accounts(...), sync_events(... etag, dirty, deleted, remote_id ...)
 | **베타 릴리스** ✅(7일 실측 제외) | | 설치 파일, 사용자 가이드(ko) | 7일간 상시 실행 안정성(메모리/CPU) 확인 |
 | **M9. 2차 기능** ✅(바탕화면 캡처 배경 제외) | 3~4주 | 메모, 시간표, 배경 스킨(순환/캡처), Excel 내보내기(ClosedXML), 인쇄, 콘텐츠 잠금 | 기능별 수용 테스트 |
 | **M10. 3차 기능** ✅(CalDAV + MCP, Google/Graph 제외) | 4~6주 | CalDAV/Google/Graph 동기화, 로컬 MCP 서버 | 양방향 동기화 충돌 시나리오 테스트 |
-| **M11. UI 고도화** ✅ | (추가) | 설정 창 7개 탭, ⚙ 빠른 메뉴, 할 일 옵션 버튼, 문서 스크린샷 자동화 | 스냅샷 육안 확인 |
+| **M11. UI 고도화** ✅ | (추가) | 설정 창 8개 탭, ⚙ 빠른 메뉴, 할 일 옵션 버튼, 문서 스크린샷 자동화 | 스냅샷 육안 확인 |
 | **M12. MCP 도구 확장** ✅ | (추가) | 조회·계산 도구, 디데이·메모 요청, 프롬프트 | 도구별 단위 테스트 |
 | **M13~M16. AI 도입 0~3단계** ✅ | (추가) | 빠른 입력, 텍스트·이미지 추출, 브리핑, 의미 검색, 복습 계획, 미완료 정리 (`docs/AI_FEATURE_REVIEW.md`) | 단계별 단위 테스트·실측 |
+| **M17. Git 저장소 동기화 & 모던 UI/UX·경량 배포** ✅ | (추가) | 내 Git 저장소 기반 다중 PC 동기화, 빠른 메뉴·7개 주요 도구 창 모던 카드형 UI 개편, ReadyToRun·Trimming 경량화 | 단위 테스트 937개·65종 스냅샷 |
 
 총 MVP(M0~M8): 약 9~10주, 전체: 약 16~20주 (1인 개발 기준 추정).
 
-### 3.0 진행 기록 (M0 2026-11-08 ~ M16 2026-11-14)
+### 3.0 진행 기록 (M0 2026-11-08 ~ M17 2026-11-15)
 
 구현 위치: `src/DeskCal.App` (솔루션 `M-DeskCal.sln`). 설치된 SDK 가 .NET 10 이라 대상 프레임워크는 `net10.0-windows` 로 했다(계획의 .NET 8 대신).
 
@@ -445,6 +446,15 @@ sync_accounts(...), sync_events(... etag, dirty, deleted, remote_id ...)
 - 중복 제거: 저장소의 행 읽기 반복문 → `RepoBase.ReadAll`, 창마다 있던 색 문자열 파싱 → `App/UiColors.cs`, 말줄임 자르기 11곳 → `Core/TextExtensions.Ellipsize`, 반복 간격 판정 2곳 → `RepeatKindExtensions.UsesInterval`, 로그 쓰기 2곳 → `App/AppLog.cs`.
 - `tools/publish.ps1`(프레임워크 종속 `dist/` 게시) 삭제 — 배포는 `tools/package.ps1` 하나.
 - M3 보류 항목의 현재 상태: 최근 사용 색상·항목별 알림은 이후 할 일 옵션 버튼(마이그레이션 v6)으로 구현됨, 미완료 자동 연장은 M16 미완료 정리로 대체, 서식(굵게 등)과 칸 넘침 표시는 미구현(잘림 + 툴팁).
+
+**M17(Git 저장소 다중 PC 동기화 · UI/UX 전면 개편 · 리팩토링 및 배포 경량화) 구현 (2026-11-14 ~ 2026-11-15)** — 코드: `Sync/GitCalendarSync.cs`, `App/GitSyncUi.cs`, `App/ModernUi.cs`, `App/SettingsWindow.cs`(동기화 탭 추가, 총 8개 탭), `App/App.xaml.cs`, `App/EventEditorWindow.cs`, `App/QuickInputWindow.cs`, `App/ExtractWindow.cs`, `App/ReviewPlanWindow.cs`, `App/RolloverWindow.cs`, `App/BriefingWindow.cs`, `App/SearchWindow.cs`, `Core/Exchange/JsonExchange.cs`, `tools/package.ps1`.
+- **Git 저장소 동기화(`GitCalendarSync`)**: 별도 서버나 계정 없이 사용자의 비공개 Git 저장소 한 폴더(`my_calendar_sync`, sparse-checkout)를 통해 여러 PC 간 달력 전체(할 일·일정·디데이·메모·할 일 반복 시리즈·시간표·`holidays.json`)를 항목별 JSON 파일 단위로 3-way 병합 동기화. 마지막 동기화 스냅샷(`git-sync-base.json`)과 비교해 한쪽 변경·삭제를 반영하고, 양쪽 동시 수정 시 최신 `updated_at` 우선(덮어쓴 텍스트는 `HistoryRepository`에 보존), 삭제 대 수정 충돌 시 수정본 보존. 적용 전 `%AppData%\DeskCal\backup\before-gitsync-*.db` 자동 백업. 단위 테스트 **937개 통과**(+25).
+- **빠른 메뉴(⚙) 및 7개 도구 창 모던 UI/UX 개편(`ModernUi`)**:
+  - ⚙ 빠른 메뉴에서 중복 항목(`오늘로 이동`)과 메뉴명 끝의 `…`을 제거하고, 좌측 아이콘 영역 위쪽에 플랫 벡터 아이콘이 포함된 3개 섹션 헤더(`일정 · 도구`, `화면 표시`, `설정`)를 배치.
+  - 첫 번째 그룹의 7개 창(`새 일정`, `빠른 입력`, `텍스트에서 일정 추출`, `복습 계획 만들기`, `미완료 정리`, `오늘 브리핑`, `검색`)을 공통 디자인 키트(`ModernUi.cs`) 기반의 카드형 레이아웃(아이콘 배지 헤더 + 둥근 흰색 카드 본문 + 하단 액션 푸터 바, `#F4F6FA` 배경, 커스텀 버튼·필 입력 컨트롤)으로 전면 재설계.
+- **코드 리팩토링 및 배포 용량 경량화**:
+  - 7개 모던 창의 공통 셸·스크롤 본문·푸터 바·체크 카드 행 패턴을 `ModernUi.PageShell`/`ScrollBody`/`ActionFooter`/`CheckCardRow`로 통합하고, `JsonExchange.cs`에 소스 생성기(`DocContext : JsonSerializerContext`)를 적용해 리플렉션 경고를 제거.
+  - `DeskCal.App`과 `DeskCal.Mcp`를 동일 폴더에 게시해 .NET 런타임 중복 포함을 제거하고, `PublishReadyToRun=false` + 핵심 프레임워크 어셈블리 선택적 IL Trimming(`_R2RStrip`, `RootMode="All"` + `TrimMode="link"`) 및 `Fluent` 테마 리소스 제외를 적용하여 자체 포함(self-contained) 배포 크기를 **설치 후 178.0 MB → 67.5 MB, 배포 zip 78.0 MB → 26.5 MB(약 66% 감소)** 로 축소. 오프스크린 스냅샷 65종 렌더링 자체 점검(종료 코드 0) 및 단위 테스트 937개 통과 확인.
 
 실행: `dotnet run --project src/DeskCal.App`. 개발용 인자: `--edit`(편집 모드로 시작), `--db=<파일>`(다른 DB), `--seed`(예시 데이터), `--snapshot=<폴더>`(오프스크린 PNG 렌더링), `--docshots`(문서용 스크린샷). 로그: `%AppData%\DeskCal\m0.log`.
 
