@@ -53,6 +53,18 @@ internal static class DesktopHost
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
     }
 
+    /// <summary>Raise <paramref name="window"/> above background windows while keeping it directly behind <paramref name="frontWindow"/> (without stealing focus).</summary>
+    public static void FloatBehind(Window window, Window frontWindow)
+    {
+        var hwnd = new WindowInteropHelper(window).EnsureHandle();
+        var frontHwnd = new WindowInteropHelper(frontWindow).Handle;
+        if (frontHwnd == 0 || frontHwnd == hwnd) { Float(window); return; }
+        Guard(window, hwnd).Floating = true;
+        if ((GetWindowLongPtr(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0)
+            SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        SetWindowPos(hwnd, frontHwnd, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    }
+
     // ---- Z-order guard ------------------------------------------------------
     // Clicking or activating a window makes Windows raise it above every other normal window. For a pinned
     // board that is exactly the bug: after a click it would cover (and swallow clicks meant for) other apps.
@@ -113,7 +125,7 @@ internal static class DesktopHost
     private const long WS_EX_TOPMOST = 0x8, WS_EX_TOOLWINDOW = 0x80;
     private const uint SWP_NOSIZE = 0x1, SWP_NOMOVE = 0x2, SWP_NOZORDER = 0x4, SWP_NOACTIVATE = 0x10, SWP_SHOWWINDOW = 0x40;
     private const uint GW_HWNDNEXT = 2, GW_HWNDPREV = 3;
-    private static readonly nint HWND_TOP = 0, HWND_BOTTOM = 1, HWND_TOPMOST = -1;
+    private static readonly nint HWND_TOP = 0, HWND_BOTTOM = 1, HWND_TOPMOST = -1, HWND_NOTOPMOST = -2;
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern nint FindWindow(string? cls, string? title);
     [DllImport("user32.dll")] private static extern nint GetWindow(nint hwnd, uint cmd);

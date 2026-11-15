@@ -22,6 +22,7 @@ internal sealed record BriefingHost(
 internal static class BriefingWindow
 {
     private static Window? _open;
+    internal static Window? CurrentWindow => _open;
 
     /// <param name="auto">Opened by the schedule, not by the user: do not take the keyboard focus, and ask the model only if it is switched on for this and not backing off.</param>
     public static void Show(BriefingHost host, bool auto = false, bool polishAutomatically = false)

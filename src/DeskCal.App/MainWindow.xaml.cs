@@ -253,6 +253,7 @@ public partial class MainWindow : Window
     }
 
     private System.Windows.Threading.DispatcherTimer? _timer;
+    private WeakReference<Window>? _peekBehind;
 
     /// <summary>True while the board is shown on the desktop (it can be hidden from the tray menu or by a shortcut).</summary>
     internal bool BoardVisible => IsVisible;
@@ -268,20 +269,29 @@ public partial class MainWindow : Window
     {
         if (_editMode) SetEditMode(false);
         if (_editingDay is not null) CommitEditor();
+        _peekBehind = null;
         Hide();
     }
 
     internal void ToggleBoard() { if (IsVisible) HideBoard(); else ShowBoard(); }
 
     /// <summary>
-    /// Raise the board above the other windows so it can be read or used, and give it the keyboard focus.
+    /// Raise the board above the other windows so it can be read or used. When <paramref name="behind"/> is given and visible,
+    /// the board stays directly below that window without stealing focus; otherwise it floats topmost and takes focus.
     /// The 1 s timer (and deactivation) put it back under the other windows once the user clicks elsewhere.
     /// </summary>
-    internal void BringToFront()
+    internal void BringToFront(Window? behind = null)
     {
         // Do not re-pin when already shown: moving the window behind the others would deactivate it, and the
         // queued deactivation would then send it straight back.
         if (!IsVisible) ShowBoard();
+        if (behind is not null && behind.IsVisible)
+        {
+            _peekBehind = new WeakReference<Window>(behind);
+            DesktopHost.FloatBehind(this, behind);
+            return;
+        }
+        _peekBehind = null;
         DesktopHost.Float(this);
         Activate();
         Focus();
@@ -294,7 +304,12 @@ public partial class MainWindow : Window
         var t = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         t.Tick += (_, _) =>
         {
-            if (!_editMode && IsVisible && !IsActive && _busy == 0) DesktopHost.Repin(this);
+            bool keepingPeek = _peekBehind is { } w && w.TryGetTarget(out var front) && front.IsVisible && front.IsActive;
+            if (!_editMode && IsVisible && !IsActive && !keepingPeek && _busy == 0)
+            {
+                _peekBehind = null;
+                DesktopHost.Repin(this);
+            }
             if (Today() != _renderedToday && _editingDay is null) Render();
             else ApplySkin();     // cheap unless the rotation moved on to the next picture
         };
@@ -307,7 +322,7 @@ public partial class MainWindow : Window
         base.OnDeactivated(e);
         if (_busy > 0) return;                         // an option popup or dialog of the editor has the focus
         if (_editingDay is not null) CommitEditor();   // never lose typed text when focus moves away
-        else if (!_editMode && _attached && IsVisible) DesktopHost.Repin(this);
+        else if (!_editMode && _attached && IsVisible) { _peekBehind = null; DesktopHost.Repin(this); }
     }
 
     public void SetEditMode(bool on)

@@ -38,6 +38,7 @@ internal static class CalendarChatWindow
 {
     private static Window? _open;
     private static Action<string>? _openSend;
+    internal static Window? CurrentWindow => _open;
 
     private sealed record FilterState(
         ComboBox Range, ComboBox Kind, ComboBox Done, ComboBox Color,

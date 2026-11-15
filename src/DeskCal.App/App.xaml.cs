@@ -91,7 +91,15 @@ public partial class App : System.Windows.Application
 
         // Dev aid: an offscreen snapshot run on a scratch database (--snapshot=DIR --db=FILE) never shows a window or touches the real
         // data, so it may run next to the user's own running calendar instead of handing over to it.
-        bool offscreenDev = e.Args.Any(a => a.StartsWith("--snapshot=")) && e.Args.Any(a => a.StartsWith("--db="));
+        bool snapshotMode = e.Args.Any(a => a.StartsWith("--snapshot="));
+        var dbArg = e.Args.FirstOrDefault(a => a.StartsWith("--db="));
+        if ((snapshotMode || e.Args.Contains("--seed") || e.Args.Contains("--docshots")) && dbArg is null)
+        {
+            Console.Error.WriteLine("--snapshot / --seed / --docshots require --db=<scratch.db>.");
+            Shutdown(2);
+            return;
+        }
+        bool offscreenDev = snapshotMode && dbArg is not null;
         if (!offscreenDev)
         {
             _singleInstance = new Mutex(true, "Local\\M-DeskCal-SingleInstance", out bool created);
@@ -110,7 +118,6 @@ public partial class App : System.Windows.Application
         Directory.CreateDirectory(DataDir);
 
         // --db=<path> (dev aid) uses another database file, e.g. a scratch one for snapshots.
-        var dbArg = e.Args.FirstOrDefault(a => a.StartsWith("--db="));
         var db = new DeskCalDb(dbArg is null ? Path.Combine(DataDir, "deskcal.db") : dbArg["--db=".Length..]);
         db.Migrate();
         var settings = new SettingsStore(db);
@@ -124,7 +131,6 @@ public partial class App : System.Windows.Application
         var reminders = new ReminderRepository(db, clock);
         Func<DateOnly, bool> isDayOff = d => _days.Holidays.IsDayOff(d);      // public holidays only (callers add the weekend where they need it)
         var series = new EventSeriesService(db, clock, isDayOff);
-        bool snapshotMode = e.Args.Any(a => a.StartsWith("--snapshot="));
 
         var history = new HistoryRepository(db, clock);
         _countdowns = new CountdownRepository(db, clock);
@@ -201,21 +207,36 @@ public partial class App : System.Windows.Application
         _board.ChatSubmitted += prompt => OpenCalendarChat(prompt);
         if (_lock.Hidden) _board.SetContentHidden(true);      // a restart must not undo the lock
 
-        // Restore the saved board rectangle (physical pixels), ignoring implausible values.
+        // Restore the saved board rectangle (physical pixels), falling back onto a connected monitor when off-screen or implausible.
+        var screens = Forms.Screen.AllScreens
+            .Select(sc => new PixelRect(sc.WorkingArea.X, sc.WorkingArea.Y, sc.WorkingArea.Width, sc.WorkingArea.Height))
+            .ToList();
+        var priWa = Forms.Screen.PrimaryScreen?.WorkingArea ?? new System.Drawing.Rectangle(0, 0, 1920, 1080);
+        var primary = new PixelRect(priWa.X, priWa.Y, priWa.Width, priWa.Height);
+
         int w = settings.GetInt("board.w", 640), h = settings.GetInt("board.h", 480);
         if (w >= 320 && h >= 240)
-            _board.SetRect(new(settings.GetInt("board.x", 200), settings.GetInt("board.y", 150), w, h));
-        _cards = new CountdownCardsWindow();
-        _cards.SetPosition(settings.GetInt("cards.x", 880), settings.GetInt("cards.y", 150));
-        _cards.Moved += (cx, cy) => { settings.SetInt("cards.x", cx); settings.SetInt("cards.y", cy); };
-        _ttWidget = new TimetableWidgetWindow();
-        _ttWidget.SetPosition(settings.GetInt("timetable.x", 880), settings.GetInt("timetable.y", 420));
-        _ttWidget.Moved += (tx, ty) => { settings.SetInt("timetable.x", tx); settings.SetInt("timetable.y", ty); };
-        _board.RectCommitted += r =>
         {
-            settings.SetInt("board.x", r.X); settings.SetInt("board.y", r.Y);
-            settings.SetInt("board.w", r.Width); settings.SetInt("board.h", r.Height);
-        };
+            var saved = new PixelRect(settings.GetInt("board.x", 200), settings.GetInt("board.y", 150), w, h);
+            var restored = WindowBounds.RestoreOrFallback(saved, screens, primary, new(200, 150, 640, 480));
+            _board.SetRect(new(restored.X, restored.Y, restored.Width, restored.Height));
+        }
+        _cards = new CountdownCardsWindow();
+        var (cx, cy) = WindowBounds.RestorePointOrFallback(settings.GetInt("cards.x", 880), settings.GetInt("cards.y", 150), screens, primary, 880, 150);
+        _cards.SetPosition(cx, cy);
+        _ttWidget = new TimetableWidgetWindow();
+        var (tx, ty) = WindowBounds.RestorePointOrFallback(settings.GetInt("timetable.x", 880), settings.GetInt("timetable.y", 420), screens, primary, 880, 420);
+        _ttWidget.SetPosition(tx, ty);
+        if (!snapshotMode)
+        {
+            _cards.Moved += (mcx, mcy) => { settings.SetInt("cards.x", mcx); settings.SetInt("cards.y", mcy); };
+            _ttWidget.Moved += (mtx, mty) => { settings.SetInt("timetable.x", mtx); settings.SetInt("timetable.y", mty); };
+            _board.RectCommitted += r =>
+            {
+                settings.SetInt("board.x", r.X); settings.SetInt("board.y", r.Y);
+                settings.SetInt("board.w", r.Width); settings.SetInt("board.h", r.Height);
+            };
+        }
 
         var posArg = e.Args.FirstOrDefault(a => a.StartsWith("--pos="));
         if (posArg is not null && posArg[6..].Split(',') is [var px, var py] &&
@@ -374,7 +395,7 @@ public partial class App : System.Windows.Application
             () => DateOnly.FromDateTime(DateTime.Today),
             () => _board!.Settings.FirstDayOfWeek,
             AfterImport,
-            day => { _board!.GoTo(day); _board.BringToFront(); RememberVisibility(); },
+            day => { _board!.GoTo(day); _board.BringToFront(CalendarChatWindow.CurrentWindow); RememberVisibility(); },
             day => _board!.NewEvent(day),
             _semantic,
             SyncIndexAsync,
@@ -429,7 +450,7 @@ public partial class App : System.Windows.Application
         () => DateOnly.FromDateTime(DateTime.Today),
         (day, today) => new DeskCal.Ai.BriefingBuilder(_eventRepo!, _itemRepo!, _countdowns!, _timetableRepo!, _settingsStore!, _days, d => _days.Holidays.IsDayOff(d)).Build(day, today),
         last => _reviewBuilder!.Build(last), () => _aiStore!.Load(), s => DeskCal.Ai.Llm.LlmClientFactory.Create(s), _backoff!,
-        day => { _board!.GoTo(day); _board.BringToFront(); RememberVisibility(); },
+        day => { _board!.GoTo(day); _board.BringToFront(BriefingWindow.CurrentWindow); RememberVisibility(); },
         () => _rollover!.Find(DateOnly.FromDateTime(DateTime.Today)).Count, OpenRollover);
 
     /// <summary>Unfinished to-dos of past days: move them to today, or spread them over the next working days.</summary>
