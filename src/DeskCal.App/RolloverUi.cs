@@ -94,13 +94,7 @@ internal static class RolloverWindow
                     },
                 };
                 var body = new StackPanel { Children = { title, detail, warn }, Margin = new Thickness(0, 0, 12, 0) };
-                var line = new Grid();
-                line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                Grid.SetColumn(body, 1); Grid.SetColumn(picker, 2);
-                line.Children.Add(check); line.Children.Add(body); line.Children.Add(picker);
-                list.Children.Add(ModernUi.Card(line, new Thickness(12, 10, 12, 10), new Thickness(0, 0, 0, 6)));
+                list.Children.Add(ModernUi.CheckCardRow(check, body, right: picker));
                 check.Click += (_, _) => UpdateButtons();
                 rows.Add(new Row { Item = o, Check = check, To = picker });
             }
@@ -161,26 +155,9 @@ internal static class RolloverWindow
         var quickCard = ModernUi.Card(quickWrap, new Thickness(12, 10, 12, 10));
 
         var close = ModernUi.SecondaryBtn("닫기", (_, _) => win.Close());
-        close.Margin = new Thickness(0);
-        var leftBtns = new System.Windows.Controls.StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
-        leftBtns.Children.Add(moveBtn); leftBtns.Children.Add(undoBtn);
-        var rightBtns = new System.Windows.Controls.StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
-        rightBtns.Children.Add(close);
-        var footer = ModernUi.Footer(leftBtns, rightBtns);
-
+        var footer = ModernUi.ActionFooter([moveBtn, undoBtn], close);
         var header = ModernUi.Header(ModernUi.Icons.Rollover, "미완료 정리", "지난 날의 미완료 할 일을 오늘이나 다음 업무일로 옮깁니다 (반복·D-day 항목 제외)");
-        var body = new StackPanel();
-        foreach (var e in new UIElement[] { quickCard, summary, list, status })
-            body.Children.Add(e);
-        var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(18, 14, 18, 10), Content = body };
-
-        var dock = new DockPanel();
-        DockPanel.SetDock(header, Dock.Top);
-        DockPanel.SetDock(footer, Dock.Bottom);
-        dock.Children.Add(header);
-        dock.Children.Add(footer);
-        dock.Children.Add(scroll);
-        win.Content = dock;
+        win.Content = ModernUi.PageShell(header, footer, ModernUi.ScrollBody(quickCard, summary, list, status));
         win.Loaded += (_, _) => Refresh();
         return win;
     }

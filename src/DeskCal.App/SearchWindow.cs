@@ -93,14 +93,13 @@ internal sealed class SearchWindow : Window
         if (_semantic?.Available == true) filters.Children.Add(_meaning);
 
         var searchCard = ModernUi.Card(new StackPanel { Children = { top, filters } }, new Thickness(14, 12, 14, 10));
-
-        var leftBtns = new StackPanel { Orientation = Orientation.Horizontal };
-        leftBtns.Children.Add(ModernUi.PrimaryBtn("달력에서 보기", (_, _) => GoToSelected()));
-        leftBtns.Children.Add(ModernUi.SecondaryBtn("이력 보기", (_, _) => ShowHistory()));
-        leftBtns.Children.Add(ModernUi.SecondaryBtn("삭제된 항목 복원", (_, _) => Undelete()));
-        var closeBtn = ModernUi.SecondaryBtn("닫기", (_, _) => Close());
-        closeBtn.Margin = new Thickness(0);
-        var footer = ModernUi.Footer(leftBtns, closeBtn);
+        var footer = ModernUi.ActionFooter(
+            [
+                ModernUi.PrimaryBtn("달력에서 보기", (_, _) => GoToSelected()),
+                ModernUi.SecondaryBtn("이력 보기", (_, _) => ShowHistory()),
+                ModernUi.SecondaryBtn("삭제된 항목 복원", (_, _) => Undelete()),
+            ],
+            ModernUi.SecondaryBtn("닫기", (_, _) => Close()));
 
         var header = ModernUi.Header(ModernUi.Icons.Search, "일정 및 할 일 검색", "키워드, 기간, 유형, 색상으로 원하는 항목을 빠르게 찾습니다");
 
@@ -111,13 +110,7 @@ internal sealed class SearchWindow : Window
         contentDock.Children.Add(_status);
         contentDock.Children.Add(_results);
 
-        var rootDock = new DockPanel();
-        DockPanel.SetDock(header, Dock.Top);
-        DockPanel.SetDock(footer, Dock.Bottom);
-        rootDock.Children.Add(header);
-        rootDock.Children.Add(footer);
-        rootDock.Children.Add(contentDock);
-        Content = rootDock;
+        Content = ModernUi.PageShell(header, footer, contentDock);
 
         _debounce.Tick += (_, _) => { _debounce.Stop(); Run(); };
         _text.TextChanged += (_, _) => { if (_ready) { _debounce.Stop(); _debounce.Start(); } };

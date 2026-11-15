@@ -8,5 +8,6 @@
     <Company>M-DeskCal</Company>
     <Product>M-DeskCal</Product>
     <Copyright>Clean-room implementation; no code or assets from other products.</Copyright>
+    <SatelliteResourceLanguages>ko</SatelliteResourceLanguages>
   </PropertyGroup>
 </Project>

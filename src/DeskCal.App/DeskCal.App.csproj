@@ -28,17 +28,28 @@
 
   <Target Name="OptimizeDesktopPublish" AfterTargets="PrepareForILLink" Condition="'$(PublishTrimmed)' == 'true'">
     <ItemGroup>
-      <!-- Drop unreferenced desktop pack assemblies (Visual Studio designers, VB runtime, Ribbon, legacy WinXP themes). -->
+      <!-- Unroot optional desktop pack assemblies so ILLink drops them when unused. -->
       <_UnusedDesktop Include="System.Windows.Forms.Design;System.Windows.Forms.Design.Editors;System.Design;System.Drawing.Design;System.Windows.Controls.Ribbon;Microsoft.VisualBasic;Microsoft.VisualBasic.Core;Microsoft.VisualBasic.Forms;WindowsFormsIntegration;System.Windows.Presentation;PresentationFramework.Luna;PresentationFramework.Royale;PresentationFramework.Classic" />
       <TrimmerRootAssembly Remove="@(_UnusedDesktop)" />
       <ManagedAssemblyToLink Condition="'%(Filename)' == 'System.Windows.Forms.Design' or '%(Filename)' == 'System.Windows.Forms.Design.Editors' or '%(Filename)' == 'System.Design' or '%(Filename)' == 'System.Drawing.Design' or '%(Filename)' == 'System.Windows.Controls.Ribbon' or '%(Filename)' == 'Microsoft.VisualBasic' or '%(Filename)' == 'Microsoft.VisualBasic.Core' or '%(Filename)' == 'Microsoft.VisualBasic.Forms' or '%(Filename)' == 'WindowsFormsIntegration' or '%(Filename)' == 'System.Windows.Presentation' or '%(Filename)' == 'PresentationFramework.Luna' or '%(Filename)' == 'PresentationFramework.Royale' or '%(Filename)' == 'PresentationFramework.Classic'">
         <TrimMode>copyused</TrimMode>
       </ManagedAssemblyToLink>
-      <!-- Rewrite the large WPF/WinForms assemblies from IL while rooting 100% of their types/members (RootMode=All),
-           which strips the precompiled ReadyToRun native image bloat without removing any reflection/XAML targets. -->
-      <ManagedAssemblyToLink Condition="'%(Filename)' == 'PresentationFramework' or '%(Filename)' == 'PresentationCore' or '%(Filename)' == 'WindowsBase' or '%(Filename)' == 'System.Windows.Forms' or '%(Filename)' == 'System.Windows.Forms.Primitives'">
+      <!-- Root 100% of all types/members (RootMode=All) in CoreLib + WPF + WinForms + Console/Json and rewrite them from IL (TrimMode=link)
+           to strip ~38 MB of ReadyToRun native image bloat while keeping every private/internal reflection & BAML target intact. -->
+      <_R2RStrip Include="System.Private.CoreLib;PresentationFramework;PresentationCore;WindowsBase;System.Windows.Forms;System.Windows.Forms.Primitives;System.Private.Windows.Core;ReachFramework;System.Xaml;PresentationUI;System.Console;System.Text.Json" />
+      <TrimmerRootAssembly Remove="@(_R2RStrip)" />
+      <TrimmerRootAssembly Include="@(_R2RStrip)" RootMode="All" />
+      <ManagedAssemblyToLink Condition="'%(Filename)' == 'System.Private.CoreLib' or '%(Filename)' == 'PresentationFramework' or '%(Filename)' == 'PresentationCore' or '%(Filename)' == 'WindowsBase' or '%(Filename)' == 'System.Windows.Forms' or '%(Filename)' == 'System.Windows.Forms.Primitives' or '%(Filename)' == 'System.Private.Windows.Core' or '%(Filename)' == 'ReachFramework' or '%(Filename)' == 'System.Xaml' or '%(Filename)' == 'PresentationUI' or '%(Filename)' == 'System.Console' or '%(Filename)' == 'System.Text.Json'">
         <TrimMode>link</TrimMode>
       </ManagedAssemblyToLink>
+    </ItemGroup>
+  </Target>
+
+  <Target Name="PrunePublishArtifacts" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <!-- Exclude Visual Studio design-time DLLs and external crash-dump/debugger engines from the release payload. -->
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+        Condition="'%(Filename)' == 'System.Windows.Forms.Design' or '%(Filename)' == 'System.Windows.Forms.Design.Editors' or '%(Filename)' == 'System.Windows.Forms.Design.resources' or '%(Filename)' == 'System.Design' or '%(Filename)' == 'System.Drawing.Design' or '%(Filename)' == 'System.Windows.Controls.Ribbon' or '%(Filename)' == 'Microsoft.VisualBasic' or '%(Filename)' == 'Microsoft.VisualBasic.Core' or '%(Filename)' == 'Microsoft.VisualBasic.Forms' or '%(Filename)' == 'Microsoft.DiaSymReader.Native.amd64' or '%(Filename)' == 'mscordbi' or '%(Filename)' == 'mscordaccore' or '%(Filename)' == 'createdump' or $([System.String]::Copy('%(Filename)').StartsWith('mscordaccore_'))" />
     </ItemGroup>
   </Target>
 

@@ -39,8 +39,8 @@ internal sealed record ExtractHost(
 internal static class AiText
 {
     public static readonly string[] Dow = ["일", "월", "화", "수", "목", "금", "토"];
-    public static readonly SolidColorBrush Warn = new(Color.FromRgb(0xC2, 0x5E, 0x00));
-    public static readonly SolidColorBrush Accent = new(Color.FromRgb(0x2F, 0x8C, 0xFF));
+    public static readonly SolidColorBrush Warn = ModernUi.WarnBrush;
+    public static readonly SolidColorBrush Accent = ModernUi.AccentBrush;
 
     /// <summary>"11월 17일 (화) 14:00 ~ 15:00" from the arguments of a proposal.</summary>
     public static (string Title, string When, string More) Describe(Proposal p)
@@ -167,13 +167,8 @@ internal static class QuickInputWindow
         Button undo = null!;
         undo = ModernUi.SecondaryBtn("마지막 추가 되돌리기", (_, _) => { AiUndo.Run(win, host.Batch, host.Changed); UpdateUndo(); });
         var close = ModernUi.SecondaryBtn("닫기 (Esc)", (_, _) => win.Close());
-        close.Margin = new Thickness(0);
         add.IsEnabled = false;
-        var leftBtns = new StackPanel { Orientation = Orientation.Horizontal };
-        leftBtns.Children.Add(add); leftBtns.Children.Add(edit); leftBtns.Children.Add(undo);
-        var rightBtns = new StackPanel { Orientation = Orientation.Horizontal };
-        rightBtns.Children.Add(close);
-        var footer = ModernUi.Footer(leftBtns, rightBtns);
+        var footer = ModernUi.ActionFooter([add, edit, undo], close);
 
         void UpdateUndo() => undo.IsEnabled = host.Batch.Last() is not null;
 
@@ -304,18 +299,7 @@ internal static class QuickInputWindow
         win.Closed += (_, _) => cts?.Cancel();
 
         var header = ModernUi.Header(ModernUi.Icons.Bolt, "빠른 입력", "한 문장으로 일정을 추가하거나 달력 일정을 바로 조회합니다");
-        var body = new StackPanel();
-        foreach (var e in new UIElement[] { inputCard, card, answerLabel, answer, status })
-            body.Children.Add(e);
-        var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(18, 14, 18, 10), Content = body };
-
-        var dock = new DockPanel();
-        DockPanel.SetDock(header, Dock.Top);
-        DockPanel.SetDock(footer, Dock.Bottom);
-        dock.Children.Add(header);
-        dock.Children.Add(footer);
-        dock.Children.Add(scroll);
-        win.Content = dock;
+        win.Content = ModernUi.PageShell(header, footer, ModernUi.ScrollBody(inputCard, card, answerLabel, answer, status));
         UpdateUndo();
         win.Loaded += (_, _) => { box.Focus(); _ = host.Service.WarmUpAsync(CancellationToken.None); };       // start loading the model while the user types
         return win;
@@ -446,15 +430,9 @@ internal static class ExtractWindow
                 };
                 check.Click += (_, _) => UpdateCount();
 
-                var body = new StackPanel();
+        var body = new StackPanel();
                 foreach (var e in new UIElement[] { title, detail, clash, notes, source, ok }) body.Children.Add(e);
-                var line = new Grid();
-                line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                Grid.SetColumn(kindPill, 1); Grid.SetColumn(body, 2);
-                line.Children.Add(check); line.Children.Add(kindPill); line.Children.Add(body);
-                list.Children.Add(ModernUi.Card(line, new Thickness(12, 10, 12, 10), new Thickness(0, 0, 0, 8)));
+                list.Children.Add(ModernUi.CheckCardRow(check, body, badge: kindPill));
                 RefreshRow(view);
             }
 
@@ -560,25 +538,9 @@ internal static class ExtractWindow
             Children = { ModernUi.FieldLabel("원문 텍스트 또는 캡처 이미지 (드래그·Ctrl+V 지원)"), box, toolbar }
         }, new Thickness(14, 12, 14, 12));
 
-        var leftBtns = new StackPanel { Orientation = Orientation.Horizontal };
-        leftBtns.Children.Add(addBtn); leftBtns.Children.Add(undo);
-        var rightBtns = new StackPanel { Orientation = Orientation.Horizontal };
-        rightBtns.Children.Add(close);
-        var footer = ModernUi.Footer(leftBtns, rightBtns);
-
+        var footer = ModernUi.ActionFooter([addBtn, undo], close);
         var header = ModernUi.Header(ModernUi.Icons.FileText, "텍스트에서 일정 추출", "공지·메일·대화를 붙여넣거나 이미지를 불러오면 날짜가 있는 일정을 제안합니다");
-        var body = new StackPanel();
-        foreach (var e in new UIElement[] { inputCard, summary, list, skippedHead, status })
-            body.Children.Add(e);
-        var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(18, 14, 18, 10), Content = body };
-
-        var dock = new DockPanel();
-        DockPanel.SetDock(header, Dock.Top);
-        DockPanel.SetDock(footer, Dock.Bottom);
-        dock.Children.Add(header);
-        dock.Children.Add(footer);
-        dock.Children.Add(scroll);
-        win.Content = dock;
+        win.Content = ModernUi.PageShell(header, footer, ModernUi.ScrollBody(inputCard, summary, list, skippedHead, status));
         win.Loaded += (_, _) => box.Focus();
         return win;
     }

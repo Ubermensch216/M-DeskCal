@@ -166,16 +166,8 @@ internal static class BriefingWindow
 
         var header = ModernUi.Header(ModernUi.Icons.Briefing, "오늘 브리핑", "오늘 일정 요약과 지난 7일 돌아보기를 한눈에 확인합니다");
         var closeBtn = ModernUi.SecondaryBtn("닫기", (_, _) => win.Close());
-        closeBtn.Margin = new Thickness(0);
-        var footer = ModernUi.Footer(new StackPanel(), closeBtn);
-
-        var dock = new DockPanel();
-        DockPanel.SetDock(header, Dock.Top);
-        DockPanel.SetDock(footer, Dock.Bottom);
-        dock.Children.Add(header);
-        dock.Children.Add(footer);
-        dock.Children.Add(tabs);
-        win.Content = dock;
+        var footer = ModernUi.ActionFooter([], closeBtn);
+        win.Content = ModernUi.PageShell(header, footer, tabs);
         win.PreviewKeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Escape) win.Close(); };
         win.Closed += (_, _) => cts?.Cancel();
         Refresh();

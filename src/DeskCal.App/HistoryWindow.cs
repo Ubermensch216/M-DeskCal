@@ -12,17 +12,17 @@ namespace DeskCal.App;
 /// <summary>Shared look for the small tool windows (search, history, countdowns).</summary>
 internal static class Dlg
 {
-    public static Window Create(string title, double width, double height, bool topmost = true) => new()
+    public static Window Create(string title, double width, double height, bool topmost = true)
     {
-        Title = title, Width = width, Height = height, MinWidth = Math.Min(width, 360), MinHeight = Math.Min(height, 260),
-        WindowStartupLocation = WindowStartupLocation.CenterScreen, Topmost = topmost, ShowInTaskbar = false,
-        FontFamily = new System.Windows.Media.FontFamily("Segoe UI, Malgun Gothic"), FontSize = 13,
-    };
+        var w = new Window();
+        ModernUi.ConfigureWindow(w, title, width, height, topmost: topmost, showInTaskbar: false);
+        w.MinWidth = Math.Min(width, 360);
+        w.MinHeight = Math.Min(height, 260);
+        return w;
+    }
 
     public static Button Btn(string text, RoutedEventHandler click, bool isDefault = false) =>
-        Make(new Button { Content = text, Padding = new Thickness(12, 5, 12, 5), Margin = new Thickness(0, 0, 8, 0), IsDefault = isDefault }, click);
-
-    private static Button Make(Button b, RoutedEventHandler click) { b.Click += click; return b; }
+        isDefault ? ModernUi.PrimaryBtn(text, click, isDefault: true) : ModernUi.SecondaryBtn(text, click);
 
     public static string When(long ms) =>
         DateTimeOffset.FromUnixTimeMilliseconds(ms).ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);

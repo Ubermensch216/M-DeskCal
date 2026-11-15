@@ -115,13 +115,7 @@ internal static class ReviewPlanWindow
                     TextWrapping = TextWrapping.Wrap,
                 };
                 var body = new StackPanel { Children = { line1, detail } };
-                var row = new Grid();
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                Grid.SetColumn(body, 1);
-                row.Children.Add(check); row.Children.Add(body);
-                list.Children.Add(ModernUi.Card(row, new Thickness(12, 9, 12, 9), new Thickness(0, 0, 0, 6),
-                    background: step.Past ? ModernUi.CardAltBrush : ModernUi.CardBrush));
+                list.Children.Add(ModernUi.CheckCardRow(check, body, mutedBg: step.Past));
                 check.Click += (_, _) => UpdateCount();
                 views.Add(new StepView { Step = step, Check = check, Proposal = proposal, Detail = detail });
             }
@@ -181,25 +175,9 @@ internal static class ReviewPlanWindow
             }
         }, new Thickness(16, 14, 16, 14));
 
-        var leftBtns = new StackPanel { Orientation = Orientation.Horizontal };
-        leftBtns.Children.Add(addBtn); leftBtns.Children.Add(undo);
-        var rightBtns = new StackPanel { Orientation = Orientation.Horizontal };
-        rightBtns.Children.Add(close);
-        var footer = ModernUi.Footer(leftBtns, rightBtns);
-
+        var footer = ModernUi.ActionFooter([addBtn, undo], close);
         var header = ModernUi.Header(ModernUi.Icons.RepeatPlan, "복습 계획 만들기", "무엇을 복습할지 적고 날짜를 고르면 잊기 전에 다시 볼 날들을 할 일로 만들어 드립니다");
-        var body = new StackPanel();
-        foreach (var e in new UIElement[] { setupCard, summary, list, status })
-            body.Children.Add(e);
-        var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(18, 14, 18, 10), Content = body };
-
-        var dock = new DockPanel();
-        DockPanel.SetDock(header, Dock.Top);
-        DockPanel.SetDock(footer, Dock.Bottom);
-        dock.Children.Add(header);
-        dock.Children.Add(footer);
-        dock.Children.Add(scroll);
-        win.Content = dock;
+        win.Content = ModernUi.PageShell(header, footer, ModernUi.ScrollBody(setupCard, summary, list, status));
         win.Loaded += (_, _) => { Refresh(); topicBox.Focus(); };
         return win;
     }
