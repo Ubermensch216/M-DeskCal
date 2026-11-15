@@ -345,8 +345,6 @@ public partial class App : System.Windows.Application
         UpdateCards();
     }
 
-    private void OpenNotes() { if (EnsureUnlocked()) NotesWindow.ShowOrActivate(_noteRepo!, _historyRepo!); }
-
     private void OpenTimetable() { if (EnsureUnlocked()) TimetableWindow.ShowOrActivate(_timetableRepo!, _settingsStore!, UpdateCards); }
 
     private void PrintMonth()
@@ -738,7 +736,6 @@ public partial class App : System.Windows.Application
         },
         GetTimetableWidget: () => _settingsStore!.GetBool("timetable.widget", false),
         SetTimetableWidget: on => { _settingsStore!.SetBool("timetable.widget", on); UpdateCards(); },
-        OpenNotes: OpenNotes,
         OpenCountdowns: OpenCountdowns,
         OpenTimetable: OpenTimetable,
         EditHolidays: EditHolidays,
@@ -938,8 +935,7 @@ public partial class App : System.Windows.Application
         menu.Items.Add("인쇄… (현재 달)", null, (_, _) => PrintMonth());
         menu.Items.Add(new Forms.ToolStripSeparator());
 
-        // 3. 메모 · 디데이 · 시간표
-        menu.Items.Add("메모…", null, (_, _) => OpenNotes());
+        // 3. 디데이 · 시간표
         menu.Items.Add("디데이 관리…", null, (_, _) => OpenCountdowns());
         var ttMenu = new Forms.ToolStripMenuItem("시간표");
         ttMenu.DropDownItems.Add("시간표 편집…", null, (_, _) => OpenTimetable());

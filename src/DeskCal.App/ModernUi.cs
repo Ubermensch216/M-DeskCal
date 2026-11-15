@@ -78,6 +78,21 @@ internal static class ModernUi
         public const string Power = "M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10";
         public const string Check = "M20 6L9 17l-5-5";
         public const string ChevronRight = "M9 18l6-6-6-6";
+        public const string Monitor = "M3 4h18a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM8 21h8M12 18v3";
+        public const string Cloud = "M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z";
+        public const string ArrowsLeftRight = "M8 7l-4 4 4 4M4 11h16M16 17l4-4-4-4";
+        public const string Link = "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71";
+        public const string Terminal = "M4 17l6-6-6-6M12 19h8";
+        public const string Shield = "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z";
+        public const string Sparkles = "M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3zM5 17l.8 2.2L8 20l-2.2.8L5 23l-.8-2.2L2 20l2.2-.8L5 17zM19 14l.6 1.8L21.4 16.4l-1.8.6L19 18.8l-.6-1.8-1.8-.6 1.8-.6L19 14z";
+        public const string Cpu = "M9 9h6v6H9zM4 9h2M4 15h2M18 9h2M18 15h2M9 4v2M15 4v2M9 18v2M15 18v2M6 6h12v12H6z";
+        public const string ArrowRight = "M5 12h14M13 6l6 6-6 6";
+        public const string UserCheck = "M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M8.5 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM17 11l2 2 4-4";
+        public const string Layers = "M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5";
+        public const string Info = "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM12 16v-4M12 8h.01";
+        public const string Type = "M4 7V4h16v3M9 20h6M12 4v16";
+        public const string Image = "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM21 15l-5-5L5 21";
+        public const string Keyboard = "M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zM6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8";
     }
 
     /// <summary>Crisp 24x24 flat vector icon rendered inside a Viewbox so it scales cleanly at any size.</summary>
@@ -607,6 +622,14 @@ internal static class ModernUi
         return mi;
     }
 
-    public static FrameworkElement MenuDivider() =>
-        new Border { Height = 1, Background = LineBrush, Margin = new Thickness(4, 5, 4, 5) };
+    public static Separator MenuDivider()
+    {
+        var sep = new Separator { IsHitTestVisible = false, Focusable = false };
+        var bd = new FrameworkElementFactory(typeof(Border));
+        bd.SetValue(FrameworkElement.HeightProperty, 1.0);
+        bd.SetValue(Border.BackgroundProperty, LineBrush);
+        bd.SetValue(FrameworkElement.MarginProperty, new Thickness(2, 5, 2, 5));
+        sep.Template = new ControlTemplate(typeof(Separator)) { VisualTree = bd };
+        return sep;
+    }
 }

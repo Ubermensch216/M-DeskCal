@@ -30,7 +30,6 @@ internal sealed record SettingsHost(
     Action<bool> SetAutoStart,
     Func<bool> GetTimetableWidget,
     Action<bool> SetTimetableWidget,
-    Action OpenNotes,
     Action OpenCountdowns,
     Action OpenTimetable,
     Action EditHolidays,
@@ -62,10 +61,11 @@ internal sealed class SettingsWindow : Window
     private readonly List<Action> _sync = [];
     private bool _syncing;
     private readonly List<Border> _tabButtons = [];
+    private readonly List<(Shapes.Path Icon, TextBlock Label)> _tabParts = [];
     private readonly TextBlock _pageTitle = new() { FontSize = 28, FontWeight = FontWeights.SemiBold, Foreground = InkBrush, Margin = new Thickness(0, 0, 0, 14) };
     private readonly ScrollViewer _scroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
 
-    private readonly (string Title, string Glyph, Func<UIElement> Build)[] _tabs;
+    private readonly (string Group, string Title, string IconData, Func<UIElement> Build)[] _tabs;
 
     public static void ShowOrActivate(SettingsHost host, int tab = 0)
     {
@@ -91,21 +91,21 @@ internal sealed class SettingsWindow : Window
 
         _tabs =
         [
-            ("캘린더", "", CalendarTab),
-            ("셀", "", CellTab),
-            ("글꼴 및 색상", "", FontTab),
-            ("메모", "", MemoTab),
-            ("고급", "", AdvancedTab),
-            ("AI", "\uE82F", AiTab),
-            ("동기화", "", SyncTab),
-            ("제품 정보", "", AboutTab),
+            ("캘린더 설정", "캘린더", ModernUi.Icons.CalendarPlus, CalendarTab),
+            ("캘린더 설정", "셀", ModernUi.Icons.Layout, CellTab),
+            ("캘린더 설정", "글꼴 및 색상", ModernUi.Icons.Droplet, FontTab),
+            ("캘린더 설정", "고급", ModernUi.Icons.GroupSettings, AdvancedTab),
+            ("기능 · 서비스", "부가 기능", ModernUi.Icons.Layers, AddonsTab),
+            ("기능 · 서비스", "AI", ModernUi.Icons.Sparkles, AiTab),
+            ("기능 · 서비스", "동기화", ModernUi.Icons.RepeatPlan, SyncTab),
+            ("시스템", "제품 정보", ModernUi.Icons.Info, AboutTab),
         ];
 
         var root = new Grid();
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        // left: tab list and "restore defaults"
+        // left: grouped tab list and "restore defaults"
         var side = new DockPanel { Margin = new Thickness(14, 16, 6, 14) };
         var reset = new TextBlock
         {
@@ -116,16 +116,33 @@ internal sealed class SettingsWindow : Window
         DockPanel.SetDock(reset, Dock.Bottom);
         side.Children.Add(reset);
         var tabList = new StackPanel();
+        string? lastGroup = null;
         for (int i = 0; i < _tabs.Length; i++)
         {
+            if (_tabs[i].Group != lastGroup)
+            {
+                if (lastGroup is not null)
+                    tabList.Children.Add(new Border { Height = 1, Background = Frozen(Color.FromRgb(0xD8, 0xDF, 0xEA)), Margin = new Thickness(6, 8, 6, 8) });
+                tabList.Children.Add(new TextBlock
+                {
+                    Text = _tabs[i].Group,
+                    FontSize = 11,
+                    FontWeight = FontWeights.Bold,
+                    Foreground = MutedBrush,
+                    Margin = new Thickness(8, lastGroup is null ? 0 : 2, 0, 6),
+                });
+                lastGroup = _tabs[i].Group;
+            }
             int index = i;
+            var label = TabLabel(_tabs[i].IconData, _tabs[i].Title, out var iconPath, out var labelText);
             var b = new Border
             {
-                Padding = new Thickness(12, 9, 10, 9), Margin = new Thickness(0, 0, 0, 8), CornerRadius = new CornerRadius(6),
-                Cursor = Cursors.Hand, Child = TabLabel(_tabs[i].Glyph, _tabs[i].Title),
+                Padding = new Thickness(11, 8, 10, 8), Margin = new Thickness(0, 0, 0, 5), CornerRadius = new CornerRadius(7),
+                Cursor = Cursors.Hand, Child = label,
             };
             b.MouseLeftButtonUp += (_, _) => ShowTab(index);
             _tabButtons.Add(b);
+            _tabParts.Add((iconPath, labelText));
             tabList.Children.Add(b);
         }
         side.Children.Add(tabList);
@@ -151,9 +168,10 @@ internal sealed class SettingsWindow : Window
         for (int i = 0; i < _tabButtons.Count; i++)
         {
             bool on = i == index;
-            _tabButtons[i].Background = on ? Brushes.White : Frozen(Color.FromArgb(0x99, 0xD9, 0xDE, 0xE7));
-            var panel = (StackPanel)_tabButtons[i].Child;
-            foreach (var tb in panel.Children.OfType<TextBlock>()) tb.Foreground = on ? AccentBrush : MutedBrush;
+            _tabButtons[i].Background = on ? Brushes.White : Frozen(Color.FromArgb(0x70, 0xDC, 0xE2, 0xEC));
+            _tabParts[i].Icon.Stroke = on ? AccentBrush : MutedBrush;
+            _tabParts[i].Label.Foreground = on ? AccentBrush : InkBrush;
+            _tabParts[i].Label.FontWeight = on ? FontWeights.SemiBold : FontWeights.Normal;
         }
         _pageTitle.Text = _tabs[index].Title;
         _sync.Clear();
@@ -164,11 +182,16 @@ internal sealed class SettingsWindow : Window
 
     private int CurrentTab() => Math.Max(0, _tabButtons.FindIndex(b => ReferenceEquals(b.Background, Brushes.White)));
 
-    private static UIElement TabLabel(string glyph, string title)
+    private static UIElement TabLabel(string iconData, string title, out Shapes.Path iconPath, out TextBlock labelText)
     {
         var p = new StackPanel { Orientation = Orientation.Horizontal };
-        p.Children.Add(new TextBlock { Text = glyph, FontFamily = IconFont, FontSize = 17, Width = 26, VerticalAlignment = VerticalAlignment.Center });
-        p.Children.Add(new TextBlock { Text = title, FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center });
+        var vb = ModernUi.FlatIcon(iconData, MutedBrush, 16, 1.9);
+        vb.Margin = new Thickness(0, 0, 9, 0);
+        vb.VerticalAlignment = VerticalAlignment.Center;
+        iconPath = (Shapes.Path)vb.Child;
+        labelText = new TextBlock { Text = title, FontSize = 13.5, Foreground = InkBrush, VerticalAlignment = VerticalAlignment.Center };
+        p.Children.Add(vb);
+        p.Children.Add(labelText);
         return p;
     }
 
@@ -257,30 +280,30 @@ internal sealed class SettingsWindow : Window
     {
         var page = new StackPanel();
 
+        page.Children.Add(IconCard(ModernUi.Icons.GroupDisplay, "미리보기", FontPreview()));
+
         var families = Fonts.SystemFontFamilies.Select(f => f.Source).Distinct().OrderBy(n => n, StringComparer.CurrentCultureIgnoreCase).ToList();
         string Current() => S.FontFamily.Split(',')[0].Trim();
         if (!families.Contains(Current())) families.Insert(0, Current());
-        var fontRow = RowCombo("글꼴", null, families.Select(f => (f, f)).ToList(), Current,
+        var fontRow = RowCombo("글꼴", "달력 전체에 적용할 기본 글꼴", families.Select(f => (f, f)).ToList(), Current,
             name => Apply(s => s with { FontFamily = name == "Malgun Gothic" ? name : name + ", Malgun Gothic" }), width: 230);
 
-        page.Children.Add(Card("글꼴 및 글자 크기",
+        page.Children.Add(IconCard(ModernUi.Icons.Type, "글꼴 및 글자 크기",
             fontRow,
-            RowCombo("글자 크기", null, Range(9, 30), () => (int)Math.Round(S.FontSize), v => Apply(s => s with { FontSize = v })),
+            RowCombo("글자 크기", "9~30pt 사이에서 조절합니다", Range(9, 30), () => (int)Math.Round(S.FontSize), v => Apply(s => s with { FontSize = v })),
             RowColor("글자 색", () => S.TextColor, v => Apply(s => s with { TextColor = v }))));
 
-        page.Children.Add(Card("색상",
+        // shown as transparency: 0% = fully opaque, 100% = fully transparent (BackgroundOpacity is the opposite)
+        var opacity = Enumerable.Range(0, 21).Select(i => (i == 0 ? "0% (완전 불투명)" : i == 20 ? "100% (완전 투명)" : $"{i * 5}%", i * 5)).ToList();
+        page.Children.Add(IconCard(ModernUi.Icons.Droplet, "색상 및 투명도",
             RowColor("캘린더 배경", () => S.BackgroundColor, v => Apply(s => s with { BackgroundColor = v })),
+            RowCombo("배경 투명도", "0%는 완전 불투명, 100%는 완전 투명", opacity, () => (int)Math.Round((1 - S.BackgroundOpacity) * 20) * 5, v => Apply(s => s with { BackgroundOpacity = 1 - v / 100.0 })),
             RowColor("휴일 배경색", () => S.HolidayBgColor, v => Apply(s => s with { HolidayBgColor = v }), allowNone: true),
             RowColor("휴일 글자색", () => S.HolidayColor, v => Apply(s => s with { HolidayColor = v })),
             RowColor("쉬는 날 글자색", () => S.OffDayColor, v => Apply(s => s with { OffDayColor = v })),
             RowColor("24절기 글자색", () => S.TermColor, v => Apply(s => s with { TermColor = v }))));
 
-        // shown as transparency: 0% = fully opaque, 100% = fully transparent (BackgroundOpacity is the opposite)
-        var opacity = Enumerable.Range(0, 21).Select(i => (i == 0 ? "0% (완전 불투명)" : i == 20 ? "100% (완전 투명)" : $"{i * 5}%", i * 5)).ToList();
-        page.Children.Add(Card("투명도",
-            RowCombo("배경 투명도", "0%는 완전 불투명, 100%는 완전 투명", opacity, () => (int)Math.Round((1 - S.BackgroundOpacity) * 20) * 5, v => Apply(s => s with { BackgroundOpacity = 1 - v / 100.0 }))));
-
-        page.Children.Add(Card("배경 사진", SkinRow(),
+        page.Children.Add(IconCard(ModernUi.Icons.Image, "배경 사진", SkinRow(),
             RowCombo("맞춤 방식", null,
             [
                 ("채우기 (넘치는 부분 잘림)", SkinFit.Fill), ("맞추기 (전체가 보이게)", SkinFit.Fit), ("늘이기 (비율 무시)", SkinFit.Stretch),
@@ -293,14 +316,107 @@ internal sealed class SettingsWindow : Window
         return page;
     }
 
-    private UIElement MemoTab()
+    /// <summary>Live 3-cell calendar preview reflecting font, size, text/holiday/term colors, and opacity.</summary>
+    private Border FontPreview()
+    {
+        Border Cell(string dayNum, string? sub, Brush? subBrush, string? todo, out TextBlock numTb, out TextBlock? subTb, out TextBlock? todoTb)
+        {
+            var sp = new StackPanel();
+            numTb = new TextBlock { Text = dayNum, FontWeight = FontWeights.SemiBold };
+            sp.Children.Add(numTb);
+            if (sub is not null)
+            {
+                subTb = new TextBlock { Text = sub, FontSize = 10.5, Margin = new Thickness(0, 1, 0, 2) };
+                if (subBrush is not null) subTb.Foreground = subBrush;
+                sp.Children.Add(subTb);
+            }
+            else subTb = null;
+            if (todo is not null)
+            {
+                todoTb = new TextBlock { Text = todo, TextTrimming = TextTrimming.CharacterEllipsis };
+                sp.Children.Add(todoTb);
+            }
+            else todoTb = null;
+            return new Border
+            {
+                CornerRadius = new CornerRadius(6),
+                BorderBrush = Frozen(Color.FromArgb(0x38, 0xFF, 0xFF, 0xFF)),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(9, 7, 9, 8),
+                Margin = new Thickness(0, 0, 6, 0),
+                Child = sp,
+            };
+        }
+
+        var c1 = Cell("15 금", "입동", null, "• 팀 회의 10:00", out var n1, out var s1, out var t1);
+        var c2 = Cell("16 토", "주말", null, "• 운동 30분", out var n2, out var s2, out var t2);
+        var c3 = Cell("17 일", "공휴일", null, "• 가족 모임", out var n3, out var s3, out var t3);
+        c3.Margin = new Thickness(0);
+
+        var cols = new Grid();
+        for (int i = 0; i < 3; i++) cols.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(c1, 0); Grid.SetColumn(c2, 1); Grid.SetColumn(c3, 2);
+        cols.Children.Add(c1); cols.Children.Add(c2); cols.Children.Add(c3);
+
+        var boardBox = new Border
+        {
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(10),
+            Child = cols,
+        };
+
+        var wallpaper = new Border
+        {
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(12),
+            Background = new LinearGradientBrush(Color.FromRgb(0x2B, 0x4C, 0x6F), Color.FromRgb(0x47, 0x7A, 0x8F), 25),
+            Child = boardBox,
+        };
+
+        _sync.Add(() =>
+        {
+            var s = S;
+            var bg = UiColors.Parse(s.BackgroundColor, Color.FromRgb(0x10, 0x18, 0x20));
+            byte alpha = (byte)Math.Clamp((int)Math.Round(s.BackgroundOpacity * 255), 0, 255);
+            boardBox.Background = Frozen(Color.FromArgb(alpha, bg.R, bg.G, bg.B));
+
+            var holBg = string.IsNullOrEmpty(s.HolidayBgColor)
+                ? Brushes.Transparent
+                : Frozen(UiColors.Parse(s.HolidayBgColor, Colors.Transparent));
+            c1.Background = Brushes.Transparent;
+            c2.Background = holBg;
+            c3.Background = holBg;
+
+            var ff = new FontFamily(s.FontFamily);
+            double sz = Math.Clamp(s.FontSize, 10, 18);
+            var textBr = Frozen(UiColors.Parse(s.TextColor, Colors.White));
+            var holBr = Frozen(UiColors.Parse(s.HolidayColor, Color.FromRgb(0xFF, 0x6B, 0x6B)));
+            var offBr = Frozen(UiColors.Parse(s.OffDayColor, Color.FromRgb(0xFF, 0x7A, 0x7A)));
+            var termBr = Frozen(UiColors.Parse(s.TermColor, Color.FromRgb(0x8F, 0xD6, 0x94)));
+
+            foreach (var tb in new[] { n1, n2, n3, t1!, t2!, t3! }) { tb.FontFamily = ff; tb.FontSize = sz; }
+            n1.Foreground = textBr;
+            n2.Foreground = s.ShowOffDays ? offBr : textBr;
+            n3.Foreground = holBr;
+            if (s1 is not null) { s1.FontFamily = ff; s1.Foreground = termBr; }
+            if (s2 is not null) { s2.FontFamily = ff; s2.Foreground = s.ShowOffDays ? offBr : textBr; }
+            if (s3 is not null) { s3.FontFamily = ff; s3.Foreground = holBr; }
+            if (t1 is not null) t1.Foreground = textBr;
+            if (t2 is not null) t2.Foreground = textBr;
+            if (t3 is not null) t3.Foreground = textBr;
+        });
+
+        return new Border { Padding = new Thickness(14, 10, 14, 12), BorderBrush = LineBrush, Child = wallpaper };
+    }
+
+    private UIElement AddonsTab()
     {
         var page = new StackPanel();
-        page.Children.Add(Card("노트", RowLink("노트 관리", "긴 글을 적어 두는 노트를 엽니다", "열기", _h.OpenNotes)));
-        page.Children.Add(Card("디데이·시간표",
-            RowLink("디데이 관리", "바탕화면 카드와 달력 아래 줄에 표시할 디데이", "열기", _h.OpenCountdowns),
-            RowLink("시간표", "주간 시간표 편집", "열기", _h.OpenTimetable),
-            RowToggle("바탕화면에 시간표 표시", null, _h.GetTimetableWidget, _h.SetTimetableWidget)));
+        page.Children.Add(IconCard(ModernUi.Icons.Flag, "디데이",
+            RowLink("디데이 관리", "바탕화면 카드와 달력 아래 줄에 표시할 기념일·시험·생일을 관리합니다", "열기", _h.OpenCountdowns)));
+        page.Children.Add(IconCard(ModernUi.Icons.Layout, "시간표",
+            RowLink("시간표 편집", "요일·교시별 주간 시간표를 편집합니다", "열기", _h.OpenTimetable),
+            RowToggle("바탕화면에 시간표 표시", "오늘 요일과 현재 진행 중인 교시를 바탕화면 위젯으로 표시합니다", _h.GetTimetableWidget, _h.SetTimetableWidget)));
         return page;
     }
 
@@ -308,8 +424,8 @@ internal sealed class SettingsWindow : Window
     {
         var page = new StackPanel();
 
-        page.Children.Add(Card("고급 설정",
-            RowCombo("시작 요일", null,
+        page.Children.Add(IconCard(ModernUi.Icons.CalendarPlus, "달력 기준",
+            RowCombo("시작 요일", "한 주의 첫 번째 칸에 올 요일",
             [
                 ("일요일", DayOfWeek.Sunday), ("월요일", DayOfWeek.Monday), ("화요일", DayOfWeek.Tuesday), ("수요일", DayOfWeek.Wednesday),
                 ("목요일", DayOfWeek.Thursday), ("금요일", DayOfWeek.Friday), ("토요일", DayOfWeek.Saturday),
@@ -319,34 +435,76 @@ internal sealed class SettingsWindow : Window
                 ("ISO 8601 (첫 목요일이 든 주)", WeekNumberRule.Iso), ("1월 1일이 든 주", WeekNumberRule.FirstDayOfYear),
             ], () => S.WeekRule, v => Apply(s => s with { WeekRule = v }), width: 230)));
 
-        var offDays = new WrapPanel { Margin = new Thickness(0, 4, 0, 4) };
-        foreach (var (dow, name) in new[]
+        // Interactive 7-day pill selector for off-days
+        var pillRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        foreach (var (dow, shortName) in new[]
                  {
-                     (DayOfWeek.Monday, "월요일"), (DayOfWeek.Tuesday, "화요일"), (DayOfWeek.Wednesday, "수요일"), (DayOfWeek.Thursday, "목요일"),
-                     (DayOfWeek.Friday, "금요일"), (DayOfWeek.Saturday, "토요일"), (DayOfWeek.Sunday, "일요일"),
+                     (DayOfWeek.Monday, "월"), (DayOfWeek.Tuesday, "화"), (DayOfWeek.Wednesday, "수"), (DayOfWeek.Thursday, "목"),
+                     (DayOfWeek.Friday, "금"), (DayOfWeek.Saturday, "토"), (DayOfWeek.Sunday, "일"),
                  })
         {
             var d = dow;
-            var cb = new CheckBox { Content = name, Margin = new Thickness(0, 4, 18, 4), VerticalContentAlignment = VerticalAlignment.Center };
-            cb.Click += (_, _) => Apply(s => s with { OffDaysMask = cb.IsChecked == true ? s.OffDaysMask | (1 << (int)d) : s.OffDaysMask & ~(1 << (int)d) });
-            _sync.Add(() => cb.IsChecked = S.IsOffDay(d));
-            offDays.Children.Add(cb);
+            var label = new TextBlock { Text = shortName, FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            var pill = new Border
+            {
+                Width = 34, Height = 30, CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1),
+                Margin = new Thickness(4, 0, 0, 0), Cursor = Cursors.Hand, Child = label,
+            };
+            pill.MouseLeftButtonUp += (_, _) =>
+            {
+                bool on = !S.IsOffDay(d);
+                Apply(s => s with { OffDaysMask = on ? s.OffDaysMask | (1 << (int)d) : s.OffDaysMask & ~(1 << (int)d) });
+            };
+            _sync.Add(() =>
+            {
+                bool on = S.IsOffDay(d);
+                pill.Background = on ? ModernUi.DangerSoftBrush : ModernUi.CardAltBrush;
+                pill.BorderBrush = on ? ModernUi.DangerBorderBrush : LineBrush;
+                label.Foreground = on ? ModernUi.DangerBrush : MutedBrush;
+                label.FontWeight = on ? FontWeights.Bold : FontWeights.Normal;
+            });
+            pillRow.Children.Add(pill);
         }
-        var offRow = RowCustom("쉬는 날", null, null);
-        offRow.Child = Stack(new TextBlock { Text = "쉬는 날", Margin = new Thickness(0, 4, 0, 2) }, offDays);
-        page.Children.Add(Card("휴무일",
-            RowToggle("쉬는 날 색상 표시", "쉬는 날의 요일·날짜를 다른 색으로 그립니다", () => S.ShowOffDays, v => Apply(s => s with { ShowOffDays = v })),
-            offRow));
 
-        page.Children.Add(Card("단축키",
+        page.Children.Add(IconCard(ModernUi.Icons.Flag, "휴무일",
+            RowToggle("쉬는 날 색상 표시", "선택한 요일의 날짜를 쉬는 날 색으로 강조합니다", () => S.ShowOffDays, v => Apply(s => s with { ShowOffDays = v })),
+            RowCustom("쉬는 날 지정", "클릭하여 주말·휴무 요일을 켜고 끕니다", pillRow)));
+
+        // Shortcut keycap preview row
+        var keycaps = new WrapPanel { Margin = new Thickness(14, 0, 14, 10) };
+        void RefreshKeycaps()
+        {
+            keycaps.Children.Clear();
+            var p = _h.GetPrefs();
+            foreach (var (name, key) in new[]
+                     {
+                         ("앞으로", p.BringToFront.Format()), ("숨김/표시", p.ToggleVisible.Format()), ("새 일정", p.NewEvent.Format()),
+                         ("빠른 입력", p.QuickInput.Format()), ("검색", p.Search.Format()), ("잠금", p.ToggleContent.Format()),
+                     })
+            {
+                var chip = new StackPanel { Orientation = Orientation.Horizontal };
+                chip.Children.Add(new TextBlock { Text = name, FontSize = 11.5, Foreground = MutedBrush, Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center });
+                chip.Children.Add(new TextBlock { Text = key, FontSize = 11.5, FontWeight = FontWeights.SemiBold, Foreground = ModernUi.InkBrush, VerticalAlignment = VerticalAlignment.Center });
+                keycaps.Children.Add(new Border
+                {
+                    Background = ModernUi.CardAltBrush, BorderBrush = LineBrush, BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(0, 4, 6, 0),
+                    Child = chip,
+                });
+            }
+        }
+        _sync.Add(RefreshKeycaps);
+
+        page.Children.Add(IconCard(ModernUi.Icons.Keyboard, "단축키",
             RowToggle("전역 단축키 사용", "다른 프로그램을 쓰는 중에도 단축키로 달력을 부릅니다",
                 () => _h.GetPrefs().HotkeysEnabled, v => { if (!_syncing) _h.SetPrefs(_h.GetPrefs() with { HotkeysEnabled = v }); }),
-            RowLink("단축키 설정", "달력 앞으로·숨기기·일정 추가·검색·잠금", "바꾸기", EditHotkeys)));
+            RowLink("단축키 설정", "아래 조합을 원하는 키로 바꿉니다", "바꾸기", () => { EditHotkeys(); RefreshKeycaps(); }),
+            new Border { BorderBrush = LineBrush, Child = keycaps }));
 
-        page.Children.Add(Card("시작과 휴일 데이터",
-            RowToggle("Windows 시작 시 자동 실행", null, _h.GetAutoStart, v => { if (!_syncing) _h.SetAutoStart(v); }),
-            RowLink("휴일 데이터 편집", "공휴일을 직접 추가·수정하는 파일을 엽니다", "열기", _h.EditHolidays),
-            RowLink("휴일 데이터 다시 읽기", null, "실행", _h.ReloadHolidays)));
+        page.Children.Add(IconCard(ModernUi.Icons.GroupSettings, "시작 및 휴일 데이터",
+            RowToggle("Windows 시작 시 자동 실행", "컴퓨터를 켤 때 달력을 자동으로 시작합니다", _h.GetAutoStart, v => { if (!_syncing) _h.SetAutoStart(v); }),
+            RowLink("휴일 데이터 편집", "임시공휴일 등을 직접 추가·수정하는 파일을 엽니다 (holidays.json)", "열기", _h.EditHolidays),
+            RowLink("휴일 데이터 다시 읽기", "수정한 휴일 파일을 달력에 즉시 반영합니다", "실행", _h.ReloadHolidays)));
         return page;
     }
 
@@ -361,10 +519,10 @@ internal sealed class SettingsWindow : Window
         AiSettings Cur() => ai.Get();
         void Change(Func<AiSettings, AiSettings> f) { if (_syncing) return; ai.Set(f(Cur())); SyncAll(); }
 
-        page.Children.Add(Card("AI 기능",
-            RowToggle("AI 기능 사용", "꺼져 있으면 AI 는 아무것도 하지 않습니다. 켜면 '빠른 입력'에서 규칙으로 읽지 못한 문장을 AI 가 해석해 제안합니다.",
-                () => Cur().Enabled, v => Change(s => s with { Enabled = v })),
-            RowText("개인정보", "기본 설정에서는 이 PC 의 AI 서버(예: Ollama)에만 연결하므로 달력 내용이 PC 밖으로 나가지 않습니다. AI 는 제안만 하고, 일정은 항상 직접 확인한 뒤 추가됩니다.")));
+        page.Children.Add(IconCard(ModernUi.Icons.Sparkles, "AI 동작 방식 · 내 PC 안심 모드",
+            AiFlowDiagram(),
+            RowToggle("AI 기능 사용", "꺼져 있으면 AI가 동작하지 않으며, 켜면 '빠른 입력'에서 복잡한 문장을 해석해 제안합니다",
+                () => Cur().Enabled, v => Change(s => s with { Enabled = v }))));
 
         // ---- the connection
         var endpoint = new TextBox { Width = 260, MinHeight = 26, VerticalContentAlignment = VerticalAlignment.Center };
@@ -407,8 +565,8 @@ internal sealed class SettingsWindow : Window
             }
         }
 
-        page.Children.Add(Card("연결",
-            RowCombo("AI 서버 종류", "Ollama, 또는 LM Studio·llama.cpp 서버처럼 OpenAI 방식으로 말하는 서버",
+        page.Children.Add(IconCard(ModernUi.Icons.Cpu, "AI 서버 연결",
+            RowCombo("AI 서버 종류", "Ollama 또는 OpenAI 호환 서버 (LM Studio · llama.cpp 등)",
                 [("Ollama", AiProvider.Ollama), ("OpenAI 호환 (LM Studio 등)", AiProvider.OpenAiCompatible)],
                 () => Cur().Provider,
                 v => Change(s => s with
@@ -416,21 +574,11 @@ internal sealed class SettingsWindow : Window
                     Provider = v, Model = "",
                     Endpoint = s.Endpoint == AiSettings.DefaultEndpoint(s.Provider) ? AiSettings.DefaultEndpoint(v) : s.Endpoint,
                 }), width: 220),
-            RowCustom("서버 주소", "이 컴퓨터(127.0.0.1, localhost)만 쓸 수 있습니다", endpoint),
+            RowCustom("서버 주소", "기본값은 내 PC (127.0.0.1 · localhost) 전용", endpoint),
             endpointNote,
-            RowCustom("모델", "목록에서 고르거나 이름을 직접 쓰세요 (예: gemma4:e2b). 작은 모델일수록 빠르지만 틀리기 쉬우므로 결과는 항상 확인하세요", model),
-            RowLink("연결 시험", "서버에 연결해 설치된 모델 목록을 가져옵니다", "시험하기", () => _ = RunTest()),
+            RowCustom("모델", "목록 선택 또는 직접 입력 (예: gemma4:e2b)", model),
+            RowLink("연결 시험", "서버 연결 및 설치된 모델 목록 불러오기", "시험하기", () => _ = RunTest()),
             RowCustom("시험 결과", null, result)));
-
-        var keepRow = RowCombo("모델을 메모리에 유지", "마지막 사용 뒤 이만큼 지나면 AI 서버가 모델을 내립니다 (Ollama)",
-            [("바로 내림", "0"), ("5분", "5m"), ("30분", "30m"), ("2시간", "2h"), ("계속", "-1")], () => Cur().KeepAlive, v => Change(s => s with { KeepAlive = v }));
-        Gate(keepRow, () => Cur().Provider == AiProvider.Ollama);
-        page.Children.Add(Card("고급",
-            RowCombo("응답 기다리는 시간", "처음 모델을 불러올 때는 오래 걸릴 수 있습니다",
-                [("30초", 30), ("1분", 60), ("2분", 120), ("5분", 300)], () => Cur().TimeoutSeconds, v => Change(s => s with { TimeoutSeconds = v })),
-            keepRow,
-            RowToggle("다른 컴퓨터의 주소 허용", "⚠ 켜면 일정 제목·메모가 그 서버로 전송됩니다. https:// 주소만 쓸 수 있습니다. 잘 모르면 꺼 두세요.",
-                () => Cur().AllowRemote, v => Change(s => s with { AllowRemote = v }))));
 
         if (ai.Plus is { } plus)
         {
@@ -441,7 +589,6 @@ internal sealed class SettingsWindow : Window
             _sync.Add(() => { if (!embed.IsKeyboardFocusWithin) embed.Text = Cur().EmbedModel; });
             onModelsFound = models =>
             {
-                // Models that look like embedding models first; the rest stay available below them.
                 static bool LooksLikeEmbedding(string m) =>
                     new[] { "embed", "bge", "e5", "minilm", "nomic", "gte", "arctic", "mxbai", "snowflake" }
                         .Any(k => m.Contains(k, StringComparison.OrdinalIgnoreCase));
@@ -455,33 +602,44 @@ internal sealed class SettingsWindow : Window
             async Task Build()
             {
                 indexState.Text = "색인을 만드는 중… (처음에는 모델을 불러오느라 시간이 걸립니다)";
-                string result;
-                try { result = await plus.BuildIndex(); } catch (Exception ex) { result = ex.Message; }
-                indexState.Text = result;
+                string buildResult;
+                try { buildResult = await plus.BuildIndex(); } catch (Exception ex) { buildResult = ex.Message; }
+                indexState.Text = buildResult;
             }
-            page.Children.Add(Card("의미 검색",
-                RowToggle("의미 검색 사용", "검색 창에서 '의미 검색'을 고를 수 있습니다. 켜면 할 일·일정의 글을 임베딩 모델에 보내 숫자로 바꾼 색인을 이 컴퓨터에 만듭니다 (AI 기능이 켜져 있어야 합니다).",
+            page.Children.Add(IconCard(ModernUi.Icons.Search, "의미 검색",
+                RowToggle("의미 검색 사용", "단어가 달라도 뜻이 비슷한 일정·할 일을 함께 찾습니다 (AI 기능 켜짐 필요)",
                     () => Cur().SemanticSearch, v => Change(s => s with { SemanticSearch = v })),
-                RowCustom("임베딩 모델", "예: bge-m3 (한국어 지원). 위의 '연결 시험'으로 목록을 가져올 수 있습니다. 모델을 바꾸면 색인을 다시 만듭니다.", embed),
+                RowCustom("임베딩 모델", "예: bge-m3 (한국어 지원) · 모델 변경 시 색인 재생성", embed),
                 RowCustom("색인 상태", null, indexState),
-                RowLink("색인 만들기·갱신", "새로 쓰거나 고친 글만 다시 계산합니다", "실행", () => _ = Build()),
-                RowLink("색인 지우기", "색인은 글에서 만든 파생 데이터입니다. 지워도 일정은 그대로이고 언제든 다시 만들 수 있습니다", "지우기", () => { plus.ClearIndex(); SyncAll(); })));
+                RowLink("색인 만들기·갱신", "추가·수정한 항목만 빠르게 반영", "실행", () => _ = Build()),
+                RowLink("색인 지우기", "파생 데이터만 삭제 (원본 일정은 유지)", "지우기", () => { plus.ClearIndex(); SyncAll(); })));
 
             // ---- the morning briefing (needs no AI; the model only rephrases it, if asked to)
             var b = plus.GetBriefing;
             void ChangeB(Func<BriefingSettings, BriefingSettings> f) { if (_syncing) return; plus.SetBriefing(f(b())); SyncAll(); }
-            page.Children.Add(Card("아침 브리핑",
-                RowToggle("브리핑을 자동으로 띄우기", "하루에 한 번, 정한 시각부터 18시 사이에 오늘의 일정·할 일·빈 시간을 작은 창으로 보여 줍니다. 트레이의 '오늘 브리핑…'으로 언제든 열 수 있습니다.",
+            page.Children.Add(IconCard(ModernUi.Icons.Briefing, "아침 브리핑",
+                RowToggle("브리핑을 자동으로 띄우기", "정한 시각~18시 사이 하루 한 번 오늘 요약 팝업 표시",
                     () => b().Auto, v => ChangeB(s => s with { Auto = v })),
                 RowCombo("띄우는 시각", "이 시각 이후 처음 앱이 켜져 있을 때", [("7시", 7), ("8시", 8), ("9시", 9), ("10시", 10), ("11시", 11), ("12시", 12)], () => b().Hour, v => ChangeB(s => s with { Hour = v })),
                 RowToggle("평일(공휴일 제외)에만", null, () => b().WorkdaysOnly, v => ChangeB(s => s with { WorkdaysOnly = v })),
-                RowToggle("AI 로 문장 다듬기", "자동으로 띄울 때 AI 에게 문장을 다듬게 합니다. 일정이 빠지거나 없는 시각이 들어간 답은 버리고 원본을 보여 줍니다. 실패하면 간격을 늘려 다시 시도합니다.",
+                RowToggle("AI 로 문장 다듬기", "자동 표시 시 AI로 자연스럽게 요약 (오류 시 원본 유지)",
                     () => b().UseLlm, v => ChangeB(s => s with { UseLlm = v }))));
         }
 
+        var keepRow = RowCombo("모델을 메모리에 유지", "미사용 시 AI 서버가 모델을 내리는 시간 (Ollama)",
+            [("바로 내림", "0"), ("5분", "5m"), ("30분", "30m"), ("2시간", "2h"), ("계속", "-1")], () => Cur().KeepAlive, v => Change(s => s with { KeepAlive = v }));
+        Gate(keepRow, () => Cur().Provider == AiProvider.Ollama);
+
+        var advRows = new List<UIElement>
+        {
+            RowCombo("응답 기다리는 시간", "첫 모델 로딩 시 시간이 더 걸릴 수 있습니다",
+                [("30초", 30), ("1분", 60), ("2분", 120), ("5분", 300)], () => Cur().TimeoutSeconds, v => Change(s => s with { TimeoutSeconds = v })),
+            keepRow,
+            RowToggle("다른 컴퓨터의 주소 허용", "⚠ 켜면 일정·메모가 외부 https:// 서버로 전송됩니다",
+                () => Cur().AllowRemote, v => Change(s => s with { AllowRemote = v })),
+        };
         if (ai.Accuracy is { } accuracy)
         {
-            // the user's own "맞음/틀림" marks on the quick-input cards: four counters kept on this computer, never any text
             var rules = new TextBlock { Foreground = MutedBrush, TextAlignment = TextAlignment.Right };
             var llm = new TextBlock { Foreground = MutedBrush, TextAlignment = TextAlignment.Right };
             _sync.Add(() =>
@@ -490,11 +648,11 @@ internal sealed class SettingsWindow : Window
                 rules.Text = AccuracySummary.Describe(s.RulesOk, s.RulesBad);
                 llm.Text = AccuracySummary.Describe(s.LlmOk, s.LlmBad);
             });
-            page.Children.Add(Card("정확도 기록 (내 컴퓨터에만 저장)",
-                RowCustom("규칙으로 읽은 것", "빠른 입력 카드에서 누른 '맞음/틀림'의 횟수입니다. 문장 내용은 저장하지 않습니다.", rules),
-                RowCustom("AI 가 읽은 것", null, llm),
-                RowLink("기록 지우기", null, "지우기", () => { ai.ResetAccuracy?.Invoke(); SyncAll(); })));
+            advRows.Add(RowCustom("규칙 해석 정확도", "빠른 입력에서 누른 '맞음/틀림' 통계 (이 PC에만 저장)", rules));
+            advRows.Add(RowCustom("AI 해석 정확도", null, llm));
+            advRows.Add(RowLink("정확도 기록 지우기", null, "지우기", () => { ai.ResetAccuracy?.Invoke(); SyncAll(); }));
         }
+        page.Children.Add(IconCard(ModernUi.Icons.GroupSettings, "고급 설정 및 정확도", advRows.ToArray()));
         return page;
     }
 
@@ -549,21 +707,16 @@ internal sealed class SettingsWindow : Window
         }
 
         page.Children.Add(Card("처음 사용하는 방법",
-            GuideRow("이 기능은 무엇인가요?",
-                "달력의 모든 내용(할 일·일정·디데이·메모·반복 규칙·시간표·휴일 수정 파일)을 내 Git 저장소의 폴더 하나에 올려 두고, " +
-                "다른 컴퓨터의 M-DeskCal 과 함께 쓰는 기능입니다. 주소를 입력하기 전에는 아무것도 하지 않으며, 어떤 데이터도 밖으로 나가지 않습니다."),
-            GuideRow("1. 준비물",
-                "① 이 컴퓨터에 Git for Windows 설치 (https://git-scm.com)\n" +
-                "② 내 Git 저장소 하나 (GitHub 등에서 새로 만드세요. 달력 내용이 그대로 올라가므로 반드시 '비공개(Private)'로 만드세요)\n" +
-                "③ 이 컴퓨터에서 그 저장소에 로그인되어 있을 것 — 명령 창에서 'git clone 저장소주소' 를 한 번 실행해 로그인해 두면 됩니다. 이 프로그램은 비밀번호를 묻지도 저장하지도 않고, git 의 로그인(자격 증명 관리자·SSH 키)을 그대로 씁니다."),
-            GuideRow("2. 설정",
-                "아래 '저장소 주소'에 내 저장소 주소를 붙여 넣고 Enter 를 누르세요. 폴더 이름은 그대로 두어도 됩니다(저장소 안에서 달력이 쓰는 폴더이며, 없으면 만들어지고 저장소의 다른 파일은 건드리지 않습니다). 저장소의 기본 브랜치를 사용합니다."),
-            GuideRow("3. 동기화",
-                "'지금 동기화'를 누르면 저장소의 내용과 이 컴퓨터의 달력을 합치고 올립니다. 이후에는 프로그램이 켜진 동안 자동으로 합니다(간격은 아래에서 선택). 결과는 '마지막 결과'에 표시됩니다."),
-            GuideRow("4. 다른 컴퓨터에서 쓰려면",
-                "그 컴퓨터에도 M-DeskCal·Git 을 설치하고 저장소에 로그인한 뒤, 같은 주소를 입력하고 '지금 동기화'를 누르세요. 그 컴퓨터에 이미 있는 일정은 지워지지 않고 저장소의 내용과 합쳐집니다."),
-            GuideRow("문제가 생기면",
-                "'마지막 결과'에 이유가 표시됩니다. 'git 프로그램을 찾을 수 없습니다' → Git 설치, '로그인되어 있지 않습니다' → 위 ③ 을 해 보세요. 동기화 때마다 이 컴퓨터의 내용을 바꾸기 전에 데이터 폴더의 backup 에 복사본이 남습니다.")));
+            SyncFlowDiagram(),
+            GuideStep("1", ModernUi.Icons.Terminal, "준비물 (최초 1회)",
+                "Git for Windows 설치 → 비공개(Private) 저장소 생성 → 명령 창에서 git clone <주소> 로 1회 로그인"),
+            GuideStep("2", ModernUi.Icons.Link, "저장소 연결",
+                "아래 '저장소 주소'에 주소를 붙여 넣고 Enter (지정 폴더만 사용하며 저장소의 다른 파일은 건드리지 않음)"),
+            GuideStep("3", ModernUi.Icons.RepeatPlan, "동기화 및 다른 PC 연결",
+                "'지금 동기화' 클릭 시 양쪽 일정을 합쳐 올림 · 다른 PC에서도 같은 주소 입력 후 동기화하면 자동 병합"),
+            GuideStep("4", ModernUi.Icons.Shield, "안전 백업 및 문제 해결",
+                "변경 전 항상 backup 폴더에 자동 백업 · 오류 시 아래 '마지막 결과' 안내 확인 (주소 입력 전엔 전송 없음)",
+                muted: true)));
 
         page.Children.Add(Card("저장소 연결",
             RowCustom("저장소 주소", "비어 있으면 동기화하지 않습니다. 예: https://github.com/아이디/저장소.git", url),
@@ -581,13 +734,148 @@ internal sealed class SettingsWindow : Window
         return page;
     }
 
-    /// <summary>A heading with a left-aligned paragraph under it (for the first-time guide).</summary>
-    private static Border GuideRow(string heading, string text)
+    private static Border AiFlowDiagram() => FlowDiagram(
+        "기본 설정에서는 내 PC 안에서만 동작하며, AI는 제안만 하고 직접 확인해야 달력에 추가됩니다.",
+        (ModernUi.Icons.Bolt, "내 입력 · 달력", "빠른 입력 · 검색", false),
+        ModernUi.Icons.ArrowRight,
+        (ModernUi.Icons.Cpu, "로컬 AI (내 PC)", "Ollama · LM Studio", true),
+        (ModernUi.Icons.UserCheck, "확인 후 반영", "외부 전송 없음", false));
+
+    private static Border SyncFlowDiagram() => FlowDiagram(
+        "할 일 · 일정 · 디데이 · 메모 · 시간표 · 휴일 설정을 내 비공개 저장소로 안전하게 합칩니다.",
+        (ModernUi.Icons.Monitor, "내 PC", "M-DeskCal", false),
+        ModernUi.Icons.ArrowsLeftRight,
+        (ModernUi.Icons.Cloud, "비공개 Git 저장소", "전용 폴더만 사용", true),
+        (ModernUi.Icons.Monitor, "다른 PC", "M-DeskCal", false));
+
+    /// <summary>Shared visual 3-node diagram helper used in AI and Sync guide cards.</summary>
+    private static Border FlowDiagram(
+        string caption,
+        (string icon, string label, string sub, bool accent) left,
+        string arrowIcon,
+        (string icon, string label, string sub, bool accent) mid,
+        (string icon, string label, string sub, bool accent) right)
     {
+        Border Node((string icon, string label, string sub, bool accent) d)
+        {
+            var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
+            stack.Children.Add(new Border
+            {
+                Width = 30, Height = 30, CornerRadius = new CornerRadius(8),
+                Background = d.accent ? ModernUi.AccentSoftBrush : ModernUi.CardBrush,
+                BorderBrush = d.accent ? ModernUi.AccentBorderBrush : LineBrush,
+                BorderThickness = new Thickness(1),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 5),
+                Child = ModernUi.FlatIcon(d.icon, d.accent ? AccentBrush : MutedBrush, 15, 1.9),
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = d.label, FontSize = 12, FontWeight = FontWeights.SemiBold,
+                Foreground = ModernUi.InkBrush, HorizontalAlignment = HorizontalAlignment.Center,
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = d.sub, FontSize = 10.5, Foreground = MutedBrush,
+                HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 1, 0, 0),
+            });
+            return new Border
+            {
+                Background = d.accent ? ModernUi.AccentSoftBrush : ModernUi.CardBrush,
+                BorderBrush = d.accent ? ModernUi.AccentBorderBrush : LineBrush,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(10, 8, 10, 8),
+                Child = stack,
+            };
+        }
+
+        UIElement Arrow()
+        {
+            var sp = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 6, 0) };
+            sp.Children.Add(ModernUi.FlatIcon(arrowIcon, AccentBrush, 16, 1.9));
+            return sp;
+        }
+
+        var flow = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
+        flow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        flow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        flow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.15, GridUnitType.Star) });
+        flow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        flow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var n0 = Node(left); var a0 = Arrow(); var n1 = Node(mid); var a1 = Arrow(); var n2 = Node(right);
+        Grid.SetColumn(n0, 0); Grid.SetColumn(a0, 1); Grid.SetColumn(n1, 2); Grid.SetColumn(a1, 3); Grid.SetColumn(n2, 4);
+        flow.Children.Add(n0); flow.Children.Add(a0); flow.Children.Add(n1); flow.Children.Add(a1); flow.Children.Add(n2);
+
+        var wrap = new StackPanel();
+        wrap.Children.Add(flow);
+        wrap.Children.Add(new TextBlock
+        {
+            Text = caption,
+            FontSize = 11.5, Foreground = MutedBrush, HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap,
+        });
+
+        return new Border
+        {
+            Background = ModernUi.CardAltBrush,
+            BorderBrush = LineBrush,
+            Padding = new Thickness(14, 12, 14, 10),
+            Child = wrap,
+        };
+    }
+
+    /// <summary>Compact numbered step row with a flat icon badge and concise summary.</summary>
+    private static Border GuideStep(string step, string iconData, string heading, string text, bool muted = false)
+    {
+        var row = new Grid();
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var badge = new Border
+        {
+            Width = 28, Height = 28, CornerRadius = new CornerRadius(7),
+            Background = muted ? ModernUi.CardAltBrush : ModernUi.AccentSoftBrush,
+            BorderBrush = muted ? LineBrush : ModernUi.AccentBorderBrush,
+            BorderThickness = new Thickness(1),
+            Margin = new Thickness(0, 1, 11, 0),
+            VerticalAlignment = VerticalAlignment.Top,
+            Child = ModernUi.FlatIcon(iconData, muted ? MutedBrush : AccentBrush, 14, 1.9),
+        };
+        Grid.SetColumn(badge, 0);
+        row.Children.Add(badge);
+
         var p = new StackPanel();
-        p.Children.Add(new TextBlock { Text = heading, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 3) });
-        p.Children.Add(new TextBlock { Text = text, Foreground = MutedBrush, TextWrapping = TextWrapping.Wrap, LineHeight = 19 });
-        return new Border { Padding = new Thickness(14, 9, 14, 10), BorderBrush = LineBrush, Child = p };
+        var titleRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 2) };
+        titleRow.Children.Add(new Border
+        {
+            Background = muted ? ModernUi.CardAltBrush : AccentBrush,
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(5, 1, 5, 1),
+            Margin = new Thickness(0, 0, 6, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = step, FontSize = 10.5, FontWeight = FontWeights.Bold,
+                Foreground = muted ? MutedBrush : Brushes.White,
+            },
+        });
+        titleRow.Children.Add(new TextBlock
+        {
+            Text = heading, FontSize = 13, FontWeight = FontWeights.SemiBold,
+            Foreground = ModernUi.InkBrush, VerticalAlignment = VerticalAlignment.Center,
+        });
+        p.Children.Add(titleRow);
+        p.Children.Add(new TextBlock
+        {
+            Text = text, FontSize = 12, Foreground = MutedBrush,
+            TextWrapping = TextWrapping.Wrap, LineHeight = 17,
+        });
+        Grid.SetColumn(p, 1);
+        row.Children.Add(p);
+
+        return new Border { Padding = new Thickness(14, 9, 14, 9), BorderBrush = LineBrush, Child = row };
     }
 
     private UIElement AboutTab()
@@ -622,12 +910,27 @@ internal sealed class SettingsWindow : Window
     }
 
     /// <summary>A white panel with a blue-barred heading; rows are separated by hairlines.</summary>
-    private static UIElement Card(string title, params UIElement[] rows)
+    private static UIElement Card(string title, params UIElement[] rows) => CardCore(null, title, rows);
+
+    /// <summary>A white panel with a flat vector icon badge next to the heading.</summary>
+    private static UIElement IconCard(string iconData, string title, params UIElement[] rows) => CardCore(iconData, title, rows);
+
+    private static UIElement CardCore(string? iconData, string title, UIElement[] rows)
     {
         var inner = new StackPanel();
         var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(14, 10, 14, 9) };
-        head.Children.Add(new Border { Width = 3, Height = 14, Background = AccentBrush, CornerRadius = new CornerRadius(2), Margin = new Thickness(0, 0, 8, 0) });
-        head.Children.Add(new TextBlock { Text = title, FontWeight = FontWeights.SemiBold });
+        if (iconData is not null)
+        {
+            var icon = ModernUi.FlatIcon(iconData, AccentBrush, 14, 2.0);
+            icon.Margin = new Thickness(0, 0, 7, 0);
+            icon.VerticalAlignment = VerticalAlignment.Center;
+            head.Children.Add(icon);
+        }
+        else
+        {
+            head.Children.Add(new Border { Width = 3, Height = 14, Background = AccentBrush, CornerRadius = new CornerRadius(2), Margin = new Thickness(0, 0, 8, 0) });
+        }
+        head.Children.Add(new TextBlock { Text = title, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
         inner.Children.Add(head);
         foreach (var r in rows)
         {

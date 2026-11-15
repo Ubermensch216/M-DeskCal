@@ -169,7 +169,7 @@ internal static class DevHarness
             GetPrefs: () => new AppPreferences(), SetPrefs: _ => { },
             GetAutoStart: () => false, SetAutoStart: _ => { },
             GetTimetableWidget: () => false, SetTimetableWidget: _ => { },
-            OpenNotes: () => { }, OpenCountdowns: () => { }, OpenTimetable: () => { },
+            OpenCountdowns: () => { }, OpenTimetable: () => { },
             EditHolidays: () => { }, ReloadHolidays: () => { }, OpenDataFolder: () => { }, ShowDiagnostics: () => { });
 
         board.ApplySettings(new BoardSettings());
