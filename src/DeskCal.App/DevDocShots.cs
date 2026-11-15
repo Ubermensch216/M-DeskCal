@@ -61,6 +61,18 @@ public partial class App
 
         var modernBg = WpfColor.FromRgb(0xF4, 0xF6, 0xFA);
 
+        // the unified Calendar Chat window: a natural-language sentence turned into an actionable proposal card
+        var chatHost = new CalendarChatHost(
+            _quickInput!, _batch!, _query!, _accuracy!,
+            _searchService!, _itemRepo!, _historyRepo!,
+            () => new DateOnly(2026, 11, 14), () => board.Settings.FirstDayOfWeek,
+            () => { }, _ => { }, _ => { },
+            _semantic, SyncIndexAsync, () => _aiStore!.Load(), s => DeskCal.Ai.Llm.LlmClientFactory.Create(s));
+        var chatWin = CalendarChatWindow.Build(chatHost, out var chatBox, out var chatSend);
+        chatBox.Text = "다음 주 화요일 오후 2시 A사 미팅 1시간, 15분 전 알림";
+        chatSend();
+        DevHarness.RenderToPng((FrameworkElement)chatWin.Content, P("doc-calendar-chat.png"), 740, 720, modernBg);
+
         // the quick-input window: a sentence the rules read, and one they cannot
         var quickHost = new QuickInputHost(_quickInput!, _batch!, _query!, _accuracy!, () => DateOnly.FromDateTime(DateTime.Today), () => board.Settings.FirstDayOfWeek, () => { }, _ => { }, _ => { });
         foreach (var (file, text) in new[] { ("doc-quick-input.png", "다음 주 화요일 오후 2시 A사 미팅 1시간, 15분 전 알림"), ("doc-quick-input-miss.png", "치과 예약 잡아줘") })

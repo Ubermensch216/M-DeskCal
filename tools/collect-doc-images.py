@@ -46,6 +46,7 @@ COPY = {
     "mcp-approvals.png": "doc-mcp-approvals.png",
     "extract.png": "doc-extract.png",
     "quick-input.png": "doc-quick-input.png",
+    "calendar-chat.png": "doc-calendar-chat.png",
     "briefing.png": "doc-briefing.png",
     "review-plan.png": "doc-review-plan.png",
     "rollover.png": "doc-rollover.png",

@@ -532,7 +532,7 @@ public class AccuracyAndHotkeyTests : IDisposable
     public void Quick_input_has_its_own_default_shortcut_that_clashes_with_none_of_the_others()
     {
         var p = new AppPreferences();
-        Assert.Equal("Ctrl+Alt+Q", p.QuickInput.Format());
+        Assert.Equal("Ctrl+Alt+Shift+C", p.QuickInput.Format());
         Assert.Equal(p.QuickInput, p.Get(HotkeyAction.QuickInput));
         Assert.Null(p.Validate());
         Assert.Contains(HotkeyAction.QuickInput, Enum.GetValues<HotkeyAction>());
@@ -549,6 +549,6 @@ public class AccuracyAndHotkeyTests : IDisposable
         Assert.Equal("Ctrl+Alt+G", store.Load().QuickInput.Format());
 
         _f.Settings.Remove("app.hotkey_quick_input");                                          // what an older database looks like
-        Assert.Equal("Ctrl+Alt+Q", store.Load().QuickInput.Format());
+        Assert.Equal("Ctrl+Alt+Shift+C", store.Load().QuickInput.Format());
     }
 }

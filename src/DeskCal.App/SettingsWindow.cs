@@ -470,16 +470,21 @@ internal sealed class SettingsWindow : Window
             RowToggle("쉬는 날 색상 표시", "선택한 요일의 날짜를 쉬는 날 색으로 강조합니다", () => S.ShowOffDays, v => Apply(s => s with { ShowOffDays = v })),
             RowCustom("쉬는 날 지정", "클릭하여 주말·휴무 요일을 켜고 끕니다", pillRow)));
 
-        // Shortcut keycap preview row
+        // deskPet_Bugi style click-to-capture hotkey row for 캘린더 채팅
+        var chatHkHint = new TextBlock { FontSize = 11.5, Foreground = AccentBrush, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(14, 0, 14, 8), Visibility = Visibility.Collapsed };
         var keycaps = new WrapPanel { Margin = new Thickness(14, 0, 14, 10) };
+        var chatHkBox = new HotkeyCaptureBox(_h.GetPrefs().QuickInput);
+        Button chatHkReset = null!;
         void RefreshKeycaps()
         {
-            keycaps.Children.Clear();
             var p = _h.GetPrefs();
+            chatHkBox.IsEnabled = chatHkReset.IsEnabled = p.HotkeysEnabled;
+            if (!chatHkBox.IsKeyboardFocusWithin) chatHkBox.SetValue(p.QuickInput);
+            keycaps.Children.Clear();
             foreach (var (name, key) in new[]
                      {
-                         ("앞으로", p.BringToFront.Format()), ("숨김/표시", p.ToggleVisible.Format()), ("새 일정", p.NewEvent.Format()),
-                         ("빠른 입력", p.QuickInput.Format()), ("검색", p.Search.Format()), ("잠금", p.ToggleContent.Format()),
+                         ("캘린더 채팅", p.QuickInput.Format()), ("앞으로", p.BringToFront.Format()),
+                         ("숨김/표시", p.ToggleVisible.Format()), ("새 일정", p.NewEvent.Format()), ("잠금", p.ToggleContent.Format()),
                      })
             {
                 var chip = new StackPanel { Orientation = Orientation.Horizontal };
@@ -493,12 +498,47 @@ internal sealed class SettingsWindow : Window
                 });
             }
         }
+        chatHkBox.ValidateConflict = hk =>
+        {
+            var cur = _h.GetPrefs();
+            foreach (var action in Enum.GetValues<HotkeyAction>())
+            {
+                if (action == HotkeyAction.QuickInput) continue;
+                if (cur.Get(action) == hk) return $"'{HotkeyManager.ActionName(action)}' 단축키와 겹칩니다.";
+            }
+            return null;
+        };
+        chatHkReset = ModernUi.ChipBtn("기본값", (_, _) =>
+        {
+            var def = new AppPreferences().QuickInput;
+            chatHkBox.SetValue(def);
+            chatHkHint.Visibility = Visibility.Collapsed;
+            _h.SetPrefs(_h.GetPrefs() with { QuickInput = def });
+            RefreshKeycaps();
+        });
+        chatHkReset.Margin = new Thickness(6, 0, 0, 0);
+        chatHkBox.Hint += msg =>
+        {
+            chatHkHint.Text = msg ?? "";
+            chatHkHint.Foreground = msg is not null && (msg.Contains("겹칩") || msg.Contains("눌러야") || msg.Contains("없습니다")) ? ModernUi.DangerBrush : AccentBrush;
+            chatHkHint.Visibility = string.IsNullOrEmpty(msg) ? Visibility.Collapsed : Visibility.Visible;
+        };
+        chatHkBox.HotkeyChanged += hk =>
+        {
+            if (!_syncing) _h.SetPrefs(_h.GetPrefs() with { QuickInput = hk });
+            RefreshKeycaps();
+        };
+        var chatHkCtrl = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        chatHkCtrl.Children.Add(chatHkBox);
+        chatHkCtrl.Children.Add(chatHkReset);
         _sync.Add(RefreshKeycaps);
 
         page.Children.Add(IconCard(ModernUi.Icons.Keyboard, "단축키",
             RowToggle("전역 단축키 사용", "다른 프로그램을 쓰는 중에도 단축키로 달력을 부릅니다",
-                () => _h.GetPrefs().HotkeysEnabled, v => { if (!_syncing) _h.SetPrefs(_h.GetPrefs() with { HotkeysEnabled = v }); }),
-            RowLink("단축키 설정", "아래 조합을 원하는 키로 바꿉니다", "바꾸기", () => { EditHotkeys(); RefreshKeycaps(); }),
+                () => _h.GetPrefs().HotkeysEnabled, v => { if (!_syncing) { _h.SetPrefs(_h.GetPrefs() with { HotkeysEnabled = v }); RefreshKeycaps(); } }),
+            RowCustom("캘린더 채팅 바로 가기", "클릭 후 보조키 2개 이상 + 글쇠 1개 입력 (Esc 취소 · Backspace 지우기)", chatHkCtrl),
+            chatHkHint,
+            RowLink("기타 단축키 설정", "앞으로·숨김·새 일정·잠금 단축키를 바꿉니다", "바꾸기", () => { EditHotkeys(); RefreshKeycaps(); }),
             new Border { BorderBrush = LineBrush, Child = keycaps }));
 
         page.Children.Add(IconCard(ModernUi.Icons.GroupSettings, "시작 및 휴일 데이터",

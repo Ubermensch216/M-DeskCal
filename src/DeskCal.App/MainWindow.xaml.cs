@@ -366,6 +366,47 @@ public partial class MainWindow : Window
         GearClicked?.Invoke();
     }
 
+    /// <summary>Raised when the user submits a prompt from the header Calendar Chat box.</summary>
+    internal event Action<string>? ChatSubmitted;
+
+    private void ChatPrompt_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount != 2 || _editMode || !Guard()) return;
+        e.Handled = true;
+        if (_editingDay is not null) CommitEditor();
+        ChatPromptPlaceholder.Visibility = Visibility.Collapsed;
+        ChatPromptBox.Visibility = Visibility.Visible;
+        Activate();
+        ChatPromptBox.Focus();
+        ChatPromptBox.SelectAll();
+        Keyboard.Focus(ChatPromptBox);
+    }
+
+    private void ChatPromptBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            e.Handled = true;
+            string prompt = ChatPromptBox.Text.Trim();
+            CloseChatPromptBox();
+            ChatSubmitted?.Invoke(prompt);
+        }
+        else if (e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            CloseChatPromptBox();
+        }
+    }
+
+    private void ChatPromptBox_LostFocus(object sender, KeyboardFocusChangedEventArgs e) => CloseChatPromptBox();
+
+    private void CloseChatPromptBox()
+    {
+        ChatPromptBox.Text = "";
+        ChatPromptBox.Visibility = Visibility.Collapsed;
+        ChatPromptPlaceholder.Visibility = Visibility.Visible;
+    }
+
     private void Resize_DragDelta(object sender, DragDeltaEventArgs e)
     {
         if (sender is not Thumb { Tag: string dir }) return;

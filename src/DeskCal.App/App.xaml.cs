@@ -198,6 +198,7 @@ public partial class App : System.Windows.Application
         _board.ApplySettings(_boardStore.Load());
         _board.EnsureUnlocked = EnsureUnlocked;
         _board.GearClicked += ShowQuickMenu;
+        _board.ChatSubmitted += prompt => OpenCalendarChat(prompt);
         if (_lock.Hidden) _board.SetContentHidden(true);      // a restart must not undo the lock
 
         // Restore the saved board rectangle (physical pixels), ignoring implausible values.
@@ -364,12 +365,22 @@ public partial class App : System.Windows.Application
 
     private void CountdownsChanged() { UpdateCards(); _board?.Refresh(); }
 
-    private void OpenSearch()
+    private void OpenCalendarChat(string? initialPrompt = null)
     {
         if (!EnsureUnlocked()) return;
-        SearchWindow.ShowOrActivate(_searchService!, _itemRepo!, _historyRepo!,
+        CalendarChatWindow.ShowOrActivate(new CalendarChatHost(
+            _quickInput!, _batch!, _query!, _accuracy!,
+            _searchService!, _itemRepo!, _historyRepo!,
+            () => DateOnly.FromDateTime(DateTime.Today),
+            () => _board!.Settings.FirstDayOfWeek,
+            AfterImport,
             day => { _board!.GoTo(day); _board.BringToFront(); RememberVisibility(); },
-            () => _board!.Refresh(), _semantic, SyncIndexAsync, () => _board!.Settings.FirstDayOfWeek);
+            day => _board!.NewEvent(day),
+            _semantic,
+            SyncIndexAsync,
+            () => _aiStore!.Load(),
+            s => DeskCal.Ai.Llm.LlmClientFactory.Create(s)),
+            initialPrompt);
     }
 
     // ---- meaning search index, morning briefing -----------------------------------------------------
@@ -629,13 +640,13 @@ public partial class App : System.Windows.Application
                 _board.NewEvent(DateOnly.FromDateTime(DateTime.Today));
                 break;
             case HotkeyAction.Search:
-                OpenSearch();
+                OpenCalendarChat();
                 break;
             case HotkeyAction.ToggleContent:
                 if (_board!.ContentHidden) EnsureUnlocked(); else SetLocked(true);
                 break;
             case HotkeyAction.QuickInput:
-                OpenQuickInput();
+                OpenCalendarChat();
                 break;
         }
     }
@@ -822,12 +833,11 @@ public partial class App : System.Windows.Application
         // Group 1: 일정 · 도구
         menu.Items.Add(ModernUi.MenuGroupHeader(ModernUi.Icons.GroupTools, "일정 · 도구", topDivider: false));
         menu.Items.Add(Entry("새 일정 (오늘)", ModernUi.Icons.CalendarPlus, () => OnHotkey(HotkeyAction.NewEvent)));
-        menu.Items.Add(Entry("빠른 입력", ModernUi.Icons.Bolt, OpenQuickInput));
+        menu.Items.Add(Entry("캘린더 채팅", ModernUi.Icons.Sparkles, () => OpenCalendarChat()));
         menu.Items.Add(Entry("텍스트에서 일정 추출", ModernUi.Icons.FileText, OpenExtract));
         menu.Items.Add(Entry("복습 계획 만들기", ModernUi.Icons.RepeatPlan, OpenReviewPlan));
         menu.Items.Add(Entry("미완료 정리", ModernUi.Icons.Rollover, OpenRollover));
         menu.Items.Add(Entry("오늘 브리핑", ModernUi.Icons.Briefing, () => OpenBriefing()));
-        menu.Items.Add(Entry("검색", ModernUi.Icons.Search, OpenSearch));
 
         // Group 2: 화면 표시
         menu.Items.Add(ModernUi.MenuGroupHeader(ModernUi.Icons.GroupDisplay, "화면 표시"));
@@ -876,9 +886,8 @@ public partial class App : System.Windows.Application
         var refresh = new List<Action>();   // re-sync check marks and dynamic labels each time the menu opens
 
         // 1. 검색 · 일정 탐색
-        menu.Items.Add("검색…", null, (_, _) => OpenSearch());
+        menu.Items.Add("캘린더 채팅…", null, (_, _) => OpenCalendarChat());
         menu.Items.Add("새 일정 (오늘)…", null, (_, _) => OnHotkey(HotkeyAction.NewEvent));
-        menu.Items.Add("빠른 입력…", null, (_, _) => OpenQuickInput());
         menu.Items.Add("텍스트에서 일정 추출…", null, (_, _) => OpenExtract());
         menu.Items.Add("복습 계획 만들기…", null, (_, _) => OpenReviewPlan());
         menu.Items.Add("미완료 정리…", null, (_, _) => OpenRollover());

@@ -106,7 +106,7 @@ public sealed record AppPreferences
     public Hotkey NewEvent { get; init; } = new(HotkeyMods.Ctrl | HotkeyMods.Alt, 'E');
     public Hotkey Search { get; init; } = new(HotkeyMods.Ctrl | HotkeyMods.Alt, 'F');
     public Hotkey ToggleContent { get; init; } = new(HotkeyMods.Ctrl | HotkeyMods.Alt, 'L');
-    public Hotkey QuickInput { get; init; } = new(HotkeyMods.Ctrl | HotkeyMods.Alt, 'Q');
+    public Hotkey QuickInput { get; init; } = new(HotkeyMods.Ctrl | HotkeyMods.Alt | HotkeyMods.Shift, 'C');
 
     /// <summary>Whether the board was visible when the app last ran (restored only for auto-start launches).</summary>
     public bool BoardVisible { get; init; } = true;
