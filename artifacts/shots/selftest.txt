@@ -1,0 +1,29 @@
+PASS: settings window change reaches the board and the database
+PASS: settings reset to defaults
+PASS: day editor -> 기획서 검토 | 새 항목 | 운동
+PASS: editor done/colour buttons -> 기획서 검토[done=False,fg=#E53935,bg=#FFE08A] | 새 항목[done=True,fg=,bg=] | 운동[done=False,fg=,bg=]
+PASS: editor lines show the state -> 기획서 검토[struck=False,fg=#FFE53935] | 새 항목[struck=True,fg=#FFFFFFFF] | 운동[struck=False,fg=#FFFFFFFF]
+PASS: editor done button toggles back
+PASS: option dialogs and palette rendered (opt-*.png)
+PASS: repeat + countdown marks on the board (opt-board-marks.png)
+PASS: new weekly event -> FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE;COUNT=6 2026-11-16T14:00-2026-11-16T15:30 reminders=30
+PASS: all-day monthly event -> FREQ=MONTHLY;BYDAY=3SU reminders=1440@08:30
+PASS: invalid input refused (title=True time=True order=True interval=True stored-nothing=True)
+PASS: edit single event (prefilled=True, saved=True)
+PASS: repeating event shows the occurrence date 2026-11-29
+FAIL: history lists earlier versions newest first -> 운동 30분 | 운동 | 운동 1시간 | 운동 30분 | 운동
+FAIL: restore brings the old text back and keeps the replaced one
+PASS: search finds 회의 in a to-do line and an event -> Item:월간 회의 준비, Event:팀 회의, Event:팀 회의
+PASS: done filter -> 2
+PASS: colour filter -> 1
+FAIL: countdowns computed -> D-12 기말시험, D-12 기말시험, D-30 민수 생일 (만 36세), D-30 민수 생일 (만 36세), D-84 설날, D-84 설날, 100일째 만난 날 (1주년 D-266), 100일째 만난 날 (1주년 D-266)
+PASS: snapshots written
+PASS: export Json -> 19821 bytes, read back items=66/66 events=16/16 warnings=0
+PASS: export Csv -> 6661 bytes, read back items=66/66 events=16/16 warnings=0
+PASS: export Ics -> 17271 bytes, read back items=66/66 events=16/16 warnings=0
+FAIL: notes written and rendered
+PASS: timetable cells stored
+PASS: skin: unreadable picture is skipped
+PASS: content lock render
+PASS: print page rendered
+PASS: xlsx written -> 21242 bytes
