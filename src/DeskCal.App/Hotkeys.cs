@@ -105,8 +105,11 @@ internal sealed class HotkeyCaptureBox : TextBox
         IsReadOnly = true;
         IsReadOnlyCaretVisible = false;
         Cursor = System.Windows.Input.Cursors.Hand;
-        Width = 175;
+        Width = 172;
         MinHeight = 28;
+        FontSize = 12.5;
+        FontWeight = FontWeights.SemiBold;
+        TextAlignment = TextAlignment.Center;
         VerticalContentAlignment = VerticalAlignment.Center;
         Padding = new Thickness(9, 4, 9, 4);
         SetValue(initial);

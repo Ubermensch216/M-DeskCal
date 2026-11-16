@@ -88,6 +88,9 @@ internal sealed class SettingsWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterScreen; ShowInTaskbar = true; Topmost = true;
         FontFamily = new FontFamily("Segoe UI, Malgun Gothic"); FontSize = 13; Foreground = InkBrush;
         Background = Frozen(Color.FromRgb(0xEE, 0xF1, 0xF6));
+        UseLayoutRounding = true;
+        TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
+        ModernUi.ApplyControlStyles(Resources);
 
         _tabs =
         [
@@ -175,7 +178,9 @@ internal sealed class SettingsWindow : Window
         }
         _pageTitle.Text = _tabs[index].Title;
         _sync.Clear();
-        _scroll.Content = _tabs[index].Build();
+        var content = _tabs[index].Build();
+        if (content is FrameworkElement fe) fe.Margin = new Thickness(0, 0, 8, 12);
+        _scroll.Content = content;
         _scroll.ScrollToTop();
         SyncAll();
     }
@@ -458,10 +463,10 @@ internal sealed class SettingsWindow : Window
             _sync.Add(() =>
             {
                 bool on = S.IsOffDay(d);
-                pill.Background = on ? ModernUi.DangerSoftBrush : ModernUi.CardAltBrush;
-                pill.BorderBrush = on ? ModernUi.DangerBorderBrush : LineBrush;
-                label.Foreground = on ? ModernUi.DangerBrush : MutedBrush;
-                label.FontWeight = on ? FontWeights.Bold : FontWeights.Normal;
+                pill.Background = on ? ModernUi.DangerSoftBrush : ModernUi.CardBrush;
+                pill.BorderBrush = on ? ModernUi.DangerBorderBrush : ModernUi.InputBorderBrush;
+                label.Foreground = on ? ModernUi.DangerBrush : InkBrush;
+                label.FontWeight = on ? FontWeights.Bold : FontWeights.Medium;
             });
             pillRow.Children.Add(pill);
         }
@@ -471,8 +476,8 @@ internal sealed class SettingsWindow : Window
             RowCustom("쉬는 날 지정", "클릭하여 주말·휴무 요일을 켜고 끕니다", pillRow)));
 
         // deskPet_Bugi style click-to-capture hotkey row for 캘린더 채팅
-        var chatHkHint = new TextBlock { FontSize = 11.5, Foreground = AccentBrush, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(14, 0, 14, 8), Visibility = Visibility.Collapsed };
-        var keycaps = new WrapPanel { Margin = new Thickness(14, 0, 14, 10) };
+        var chatHkHint = new TextBlock { FontSize = 11.5, Foreground = AccentBrush, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(15, 0, 15, 10), Visibility = Visibility.Collapsed };
+        var keycapsGrid = new UniformGrid { Columns = 2 };
         var chatHkBox = new HotkeyCaptureBox(_h.GetPrefs().QuickInput);
         Button chatHkReset = null!;
         void RefreshKeycaps()
@@ -480,21 +485,58 @@ internal sealed class SettingsWindow : Window
             var p = _h.GetPrefs();
             chatHkBox.IsEnabled = chatHkReset.IsEnabled = p.HotkeysEnabled;
             if (!chatHkBox.IsKeyboardFocusWithin) chatHkBox.SetValue(p.QuickInput);
-            keycaps.Children.Clear();
+            keycapsGrid.Children.Clear();
             foreach (var (name, key) in new[]
                      {
-                         ("캘린더 채팅", p.QuickInput.Format()), ("앞으로", p.BringToFront.Format()),
-                         ("숨김/표시", p.ToggleVisible.Format()), ("새 일정", p.NewEvent.Format()), ("잠금", p.ToggleContent.Format()),
+                         ("달력 앞으로", p.BringToFront.Format()),
+                         ("숨김 / 표시", p.ToggleVisible.Format()),
+                         ("오늘 일정 추가", p.NewEvent.Format()),
+                         ("콘텐츠 잠금", p.ToggleContent.Format()),
                      })
             {
-                var chip = new StackPanel { Orientation = Orientation.Horizontal };
-                chip.Children.Add(new TextBlock { Text = name, FontSize = 11.5, Foreground = MutedBrush, Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center });
-                chip.Children.Add(new TextBlock { Text = key, FontSize = 11.5, FontWeight = FontWeights.SemiBold, Foreground = ModernUi.InkBrush, VerticalAlignment = VerticalAlignment.Center });
-                keycaps.Children.Add(new Border
+                var cell = new DockPanel();
+                var keysPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                var parts = key.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                for (int i = 0; i < parts.Length; i++)
                 {
-                    Background = ModernUi.CardAltBrush, BorderBrush = LineBrush, BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(0, 4, 6, 0),
-                    Child = chip,
+                    if (i > 0)
+                        keysPanel.Children.Add(new TextBlock { Text = "+", FontSize = 10.5, Foreground = MutedBrush, Margin = new Thickness(2, 0, 2, 0), VerticalAlignment = VerticalAlignment.Center });
+                    keysPanel.Children.Add(new Border
+                    {
+                        Background = ModernUi.CardBrush,
+                        BorderBrush = ModernUi.InputBorderBrush,
+                        BorderThickness = new Thickness(1, 1, 1, 1.5),
+                        CornerRadius = new CornerRadius(4),
+                        Padding = new Thickness(6, 2, 6, 2),
+                        Child = new TextBlock
+                        {
+                            Text = parts[i],
+                            FontSize = 11,
+                            FontWeight = FontWeights.SemiBold,
+                            Foreground = InkBrush,
+                        },
+                    });
+                }
+                DockPanel.SetDock(keysPanel, Dock.Right);
+                cell.Children.Add(keysPanel);
+                cell.Children.Add(new TextBlock
+                {
+                    Text = name,
+                    FontSize = 12,
+                    FontWeight = FontWeights.Medium,
+                    Foreground = InkBrush,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 8, 0),
+                });
+                keycapsGrid.Children.Add(new Border
+                {
+                    Background = ModernUi.CardAltBrush,
+                    BorderBrush = LineBrush,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(6),
+                    Padding = new Thickness(10, 7, 10, 7),
+                    Margin = new Thickness(0, 0, 8, 8),
+                    Child = cell,
                 });
             }
         }
@@ -508,7 +550,7 @@ internal sealed class SettingsWindow : Window
             }
             return null;
         };
-        chatHkReset = ModernUi.ChipBtn("기본값", (_, _) =>
+        chatHkReset = ModernUi.SecondaryBtn("기본값", (_, _) =>
         {
             var def = new AppPreferences().QuickInput;
             chatHkBox.SetValue(def);
@@ -516,6 +558,9 @@ internal sealed class SettingsWindow : Window
             _h.SetPrefs(_h.GetPrefs() with { QuickInput = def });
             RefreshKeycaps();
         });
+        chatHkReset.Padding = new Thickness(11, 4, 11, 4);
+        chatHkReset.FontSize = 12;
+        chatHkReset.MinHeight = 28;
         chatHkReset.Margin = new Thickness(6, 0, 0, 0);
         chatHkBox.Hint += msg =>
         {
@@ -533,13 +578,31 @@ internal sealed class SettingsWindow : Window
         chatHkCtrl.Children.Add(chatHkReset);
         _sync.Add(RefreshKeycaps);
 
+        var chatHkRow = RowCustom("캘린더 채팅 바로 가기", "클릭 후 키 입력 · Esc 취소 · Backspace 지우기", chatHkCtrl);
+        var otherHkRow = RowLink("기타 단축키 설정", "앞으로 불러오기 · 숨김/표시 · 오늘 일정 추가 · 콘텐츠 잠금", "바꾸기", () => { EditHotkeys(); RefreshKeycaps(); });
+        var keycapsWrap = new StackPanel { Margin = new Thickness(15, 10, 7, 4) };
+        keycapsWrap.Children.Add(new TextBlock
+        {
+            Text = "적용 중인 기타 단축키",
+            FontSize = 11.5,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = MutedBrush,
+            Margin = new Thickness(0, 0, 0, 7),
+        });
+        keycapsWrap.Children.Add(keycapsGrid);
+        var keycapsRow = new Border { BorderBrush = LineBrush, Child = keycapsWrap };
+
+        Gate(chatHkRow, () => _h.GetPrefs().HotkeysEnabled);
+        Gate(otherHkRow, () => _h.GetPrefs().HotkeysEnabled);
+        Gate(keycapsRow, () => _h.GetPrefs().HotkeysEnabled);
+
         page.Children.Add(IconCard(ModernUi.Icons.Keyboard, "단축키",
             RowToggle("전역 단축키 사용", "다른 프로그램을 쓰는 중에도 단축키로 달력을 부릅니다",
-                () => _h.GetPrefs().HotkeysEnabled, v => { if (!_syncing) { _h.SetPrefs(_h.GetPrefs() with { HotkeysEnabled = v }); RefreshKeycaps(); } }),
-            RowCustom("캘린더 채팅 바로 가기", "클릭 후 보조키 2개 이상 + 글쇠 1개 입력 (Esc 취소 · Backspace 지우기)", chatHkCtrl),
+                () => _h.GetPrefs().HotkeysEnabled, v => { if (!_syncing) { _h.SetPrefs(_h.GetPrefs() with { HotkeysEnabled = v }); SyncAll(); } }),
+            chatHkRow,
             chatHkHint,
-            RowLink("기타 단축키 설정", "앞으로·숨김·새 일정·잠금 단축키를 바꿉니다", "바꾸기", () => { EditHotkeys(); RefreshKeycaps(); }),
-            new Border { BorderBrush = LineBrush, Child = keycaps }));
+            otherHkRow,
+            keycapsRow));
 
         page.Children.Add(IconCard(ModernUi.Icons.GroupSettings, "시작 및 휴일 데이터",
             RowToggle("Windows 시작 시 자동 실행", "컴퓨터를 켤 때 달력을 자동으로 시작합니다", _h.GetAutoStart, v => { if (!_syncing) _h.SetAutoStart(v); }),
@@ -977,7 +1040,7 @@ internal sealed class SettingsWindow : Window
     private static UIElement CardCore(string? iconData, string title, UIElement[] rows)
     {
         var inner = new StackPanel();
-        var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(14, 10, 14, 9) };
+        var head = new StackPanel { Orientation = Orientation.Horizontal };
         if (iconData is not null)
         {
             var icon = ModernUi.FlatIcon(iconData, AccentBrush, 14, 2.0);
@@ -989,8 +1052,21 @@ internal sealed class SettingsWindow : Window
         {
             head.Children.Add(new Border { Width = 3, Height = 14, Background = AccentBrush, CornerRadius = new CornerRadius(2), Margin = new Thickness(0, 0, 8, 0) });
         }
-        head.Children.Add(new TextBlock { Text = title, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
-        inner.Children.Add(head);
+        head.Children.Add(new TextBlock
+        {
+            Text = title,
+            FontSize = 13.5,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = InkBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        inner.Children.Add(new Border
+        {
+            Background = ModernUi.CardAltBrush,
+            CornerRadius = new CornerRadius(8, 8, 0, 0),
+            Padding = new Thickness(15, 10, 15, 9),
+            Child = head,
+        });
         foreach (var r in rows)
         {
             if (r is Border b) b.BorderThickness = new Thickness(0, 1, 0, 0);
@@ -998,8 +1074,12 @@ internal sealed class SettingsWindow : Window
         }
         return new Border
         {
-            Background = Frozen(Color.FromArgb(0xE6, 0xFF, 0xFF, 0xFF)), CornerRadius = new CornerRadius(8),
-            Margin = new Thickness(0, 0, 0, 14), Child = inner,
+            Background = Frozen(Color.FromArgb(0xF5, 0xFF, 0xFF, 0xFF)),
+            BorderBrush = LineBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(9),
+            Margin = new Thickness(0, 0, 0, 14),
+            Child = inner,
         };
     }
 
@@ -1009,9 +1089,9 @@ internal sealed class SettingsWindow : Window
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
-        text.Children.Add(new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap });
-        if (hint is not null) text.Children.Add(new TextBlock { Text = hint, FontSize = 11.5, Foreground = MutedBrush, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 1, 0, 0) });
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) };
+        text.Children.Add(new TextBlock { Text = label, FontWeight = FontWeights.SemiBold, Foreground = InkBrush, TextWrapping = TextWrapping.Wrap });
+        if (hint is not null) text.Children.Add(new TextBlock { Text = hint, FontSize = 12, Foreground = MutedBrush, TextWrapping = TextWrapping.Wrap, LineHeight = 17, Margin = new Thickness(0, 3, 0, 0) });
         grid.Children.Add(text);
         if (right is not null)
         {
@@ -1019,7 +1099,7 @@ internal sealed class SettingsWindow : Window
             ((FrameworkElement)right).VerticalAlignment = VerticalAlignment.Center;
             grid.Children.Add(right);
         }
-        return new Border { Padding = new Thickness(14, 9, 14, 9), BorderBrush = LineBrush, Child = grid };
+        return new Border { Padding = new Thickness(15, 11, 15, 11), BorderBrush = LineBrush, Child = grid };
     }
 
     private static UIElement Pad(UIElement inner)
@@ -1066,12 +1146,24 @@ internal sealed class SettingsWindow : Window
 
     private static Border RowLink(string label, string? hint, string action, Action click)
     {
-        var link = new StackPanel { Orientation = Orientation.Horizontal, Cursor = Cursors.Hand, Background = Brushes.Transparent };
-        link.Children.Add(new TextBlock { Text = action, Foreground = AccentBrush, VerticalAlignment = VerticalAlignment.Center });
-        link.Children.Add(new TextBlock { Text = "", FontFamily = IconFont, FontSize = 11, Foreground = MutedBrush, Margin = new Thickness(6, 1, 0, 0), VerticalAlignment = VerticalAlignment.Center });
-        var row = RowCustom(label, hint, link);
+        var linkContent = new StackPanel { Orientation = Orientation.Horizontal };
+        linkContent.Children.Add(new TextBlock { Text = action, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = AccentBrush, VerticalAlignment = VerticalAlignment.Center });
+        linkContent.Children.Add(new TextBlock { Text = "", FontFamily = IconFont, FontSize = 10, Foreground = AccentBrush, Margin = new Thickness(5, 1, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+        var linkPill = new Border
+        {
+            Background = ModernUi.AccentSoftBrush,
+            BorderBrush = ModernUi.AccentBorderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(10, 4, 8, 4),
+            Cursor = Cursors.Hand,
+            Child = linkContent,
+        };
+        var row = RowCustom(label, hint, linkPill);
         row.Cursor = Cursors.Hand;
         row.Background = Brushes.Transparent;
+        row.MouseEnter += (_, _) => row.Background = ModernUi.CardAltBrush;
+        row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
         row.MouseLeftButtonUp += (_, _) => click();
         return row;
     }
