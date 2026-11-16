@@ -1,4 +1,5 @@
-﻿using System.IO;
+﻿using System.Globalization;
+using System.IO;
 using System.Windows;
 using DeskCal.Core;
 using DeskCal.Core.Calendars;
@@ -204,6 +205,9 @@ public partial class App : System.Windows.Application
         _board.ApplySettings(_boardStore.Load());
         _board.EnsureUnlocked = EnsureUnlocked;
         _board.GearClicked += ShowQuickMenu;
+        _board.SyncClicked += OnHeaderSyncClick;
+        _board.SyncResultClicked += OpenPreferredSyncSettings;
+        _board.SyncAnchor.ContextMenu = BuildSyncButtonMenu();
         _board.ChatSubmitted += prompt => OpenCalendarChat(prompt);
         if (_lock.Hidden) _board.SetContentHidden(true);      // a restart must not undo the lock
 
@@ -523,9 +527,11 @@ public partial class App : System.Windows.Application
     {
         StartMaintenance();
         StartAiWork();
-        _sync!.Finished += (account, report, error) =>
+        _sync!.StateChanged += UpdateHeaderSyncRunning;
+        _sync.Finished += (account, report, error) =>
         {
             if (report?.ChangedLocal == true) AfterImport();
+            if (!_headerSyncActive) _board?.SetSyncResult(BuildCalDavBadge(account.Name, report, error));
             if (error is not null && _syncUserVisible) _tray?.ShowBalloonTip(5000, "외부 캘린더 동기화", error, Forms.ToolTipIcon.Warning);
         };
 
@@ -542,10 +548,12 @@ public partial class App : System.Windows.Application
         _syncTimer.Start();
 
         // Git sync: a little after start-up (so changes made on another computer arrive), then at the chosen interval
-        _gitSync!.Finished += (report, error) =>
+        _gitSync!.StateChanged += UpdateHeaderSyncRunning;
+        _gitSync.Finished += (report, error) =>
         {
             if (report?.HolidaysChanged == true) ApplyHolidaysFile();
             if (report?.ChangedLocal == true) AfterImport();
+            if (!_headerSyncActive) _board?.SetSyncResult(BuildGitBadge(report, error));
             if (error is not null && _gitUserVisible) _tray?.ShowBalloonTip(5000, "Git 동기화", error, Forms.ToolTipIcon.Warning);
         };
         _gitTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(20) };
@@ -582,6 +590,122 @@ public partial class App : System.Windows.Application
     }
 
     private bool _syncUserVisible;
+    private bool _headerSyncActive;
+
+    private void UpdateHeaderSyncRunning() =>
+        _board?.SetSyncRunning(_headerSyncActive || (_sync?.Running ?? false) || (_gitSync?.Running ?? false));
+
+    private void OpenPreferredSyncSettings()
+    {
+        if (!EnsureUnlocked()) return;
+        bool hasGit = _gitSync?.Configured == true;
+        bool hasCalDav = _sync?.Accounts.ListAccounts().Any(a => a.Enabled) == true;
+        if (!hasGit && hasCalDav) OpenSync();
+        else OpenSettings(SettingsWindow.SyncTabIndex);
+    }
+
+    private WpfMenu BuildSyncButtonMenu()
+    {
+        var menu = ModernUi.CreateModernContextMenu();
+        menu.Items.Add(ModernUi.MenuEntry("지금 동기화", ModernUi.Icons.RepeatPlan, OnHeaderSyncClick));
+        menu.Items.Add(ModernUi.MenuDivider());
+        menu.Items.Add(ModernUi.MenuEntry("Git 저장소 동기화 설정…", ModernUi.Icons.Cloud, () => OpenSettings(SettingsWindow.SyncTabIndex)));
+        menu.Items.Add(ModernUi.MenuEntry("외부 캘린더(CalDAV) 설정…", ModernUi.Icons.Link, OpenSync));
+        return menu;
+    }
+
+    private static MainWindow.SyncStatusBadgeData BuildGitBadge(DeskCal.Sync.GitSyncReport? report, string? error)
+    {
+        string stamp = DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
+        if (error is not null || report is null)
+            return new(0, 0, 0, 1, $"{stamp} Git 동기화 실패: {error ?? "알 수 없는 오류"}\n클릭하면 설정을 엽니다.");
+        int pulled = report.Received + report.RemovedHere;
+        int pushed = report.Sent + report.RemovedThere;
+        int warnings = report.Conflicts + report.Skipped;
+        return new(pulled, pushed, warnings, 0, $"{stamp} Git 동기화: {report.Summary()}\n클릭하면 설정을 엽니다.");
+    }
+
+    private static MainWindow.SyncStatusBadgeData BuildCalDavBadge(string accountName, DeskCal.Sync.SyncReport? report, string? error)
+    {
+        string stamp = DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
+        if (error is not null || report is null)
+            return new(0, 0, 0, 1, $"{stamp} {accountName} 동기화 실패: {error ?? "알 수 없는 오류"}\n클릭하면 설정을 엽니다.");
+        int pulled = report.PulledNew + report.PulledUpdated + report.DeletedLocal;
+        int pushed = report.PushedNew + report.PushedUpdated + report.DeletedRemote;
+        int warnings = report.Conflicts + report.Deferred;
+        int errors = report.Errors.Count;
+        return new(pulled, pushed, warnings, errors, $"{stamp} {accountName}: {report.Summary()}\n클릭하면 설정을 엽니다.");
+    }
+
+    private async void OnHeaderSyncClick()
+    {
+        if (!EnsureUnlocked()) return;
+        if (_headerSyncActive || (_sync?.Running ?? false) || (_gitSync?.Running ?? false)) return;
+
+        bool hasGit = _gitSync!.Configured;
+        var accounts = _sync!.Accounts.ListAccounts().Where(a => a.Enabled).ToList();
+        if (!hasGit && accounts.Count == 0)
+        {
+            OpenPreferredSyncSettings();
+            return;
+        }
+
+        _headerSyncActive = true;
+        UpdateHeaderSyncRunning();
+        int pulled = 0, pushed = 0, warnings = 0, errors = 0;
+        var details = new List<string>();
+        try
+        {
+            if (hasGit)
+            {
+                _gitUserVisible = false;
+                var (report, error) = await _gitSync.RunAsync();
+                if (error is not null || report is null)
+                {
+                    errors++;
+                    details.Add("Git 실패: " + (error ?? "오류"));
+                }
+                else
+                {
+                    pulled += report.Received + report.RemovedHere;
+                    pushed += report.Sent + report.RemovedThere;
+                    warnings += report.Conflicts + report.Skipped;
+                    details.Add("Git: " + report.Summary());
+                }
+            }
+
+            if (accounts.Count > 0)
+            {
+                _syncUserVisible = false;
+                foreach (var a in accounts)
+                {
+                    var (report, error) = await _sync.RunAsync(a);
+                    if (error is not null || report is null)
+                    {
+                        errors++;
+                        details.Add($"{a.Name} 실패: {error ?? "오류"}");
+                    }
+                    else
+                    {
+                        pulled += report.PulledNew + report.PulledUpdated + report.DeletedLocal;
+                        pushed += report.PushedNew + report.PushedUpdated + report.DeletedRemote;
+                        warnings += report.Conflicts + report.Deferred;
+                        errors += report.Errors.Count;
+                        details.Add($"{a.Name}: {report.Summary()}");
+                    }
+                }
+            }
+
+            string stamp = DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
+            string tooltip = $"{stamp} 동기화 결과\n{string.Join("\n", details)}\n클릭하면 동기화 설정을 엽니다.";
+            _board?.SetSyncResult(new MainWindow.SyncStatusBadgeData(pulled, pushed, warnings, errors, tooltip));
+        }
+        finally
+        {
+            _headerSyncActive = false;
+            UpdateHeaderSyncRunning();
+        }
+    }
 
     private static void SyncCheck(SyncCoordinator sync, string[] p)
     {

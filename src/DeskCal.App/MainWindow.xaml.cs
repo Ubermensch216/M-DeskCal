@@ -8,6 +8,7 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 using DeskCal.Core;
 using DeskCal.Core.Calendars;
@@ -399,6 +400,145 @@ public partial class MainWindow : Window
         e.Handled = true;
         if (_editingDay is not null) CommitEditor();
         GearClicked?.Invoke();
+    }
+
+    internal sealed record SyncStatusBadgeData(int Pulled, int Pushed, int Warnings, int Errors, string Tooltip);
+
+    /// <summary>Raised when the header sync icon is clicked.</summary>
+    internal event Action? SyncClicked;
+    /// <summary>Raised when the header sync result badge is clicked.</summary>
+    internal event Action? SyncResultClicked;
+    internal FrameworkElement SyncAnchor => SyncBtn;
+
+    private bool _syncRunning;
+    private SyncStatusBadgeData? _syncStatus;
+
+    private void Sync_Click(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        if (_editMode) return;
+        if (_editingDay is not null) CommitEditor();
+        SyncClicked?.Invoke();
+    }
+
+    private void SyncResult_Click(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        if (_editMode) return;
+        if (_editingDay is not null) CommitEditor();
+        SyncResultClicked?.Invoke();
+    }
+
+    internal void SetSyncRunning(bool running)
+    {
+        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(() => SetSyncRunning(running)); return; }
+        if (_syncRunning == running) return;
+        _syncRunning = running;
+        if (running)
+        {
+            SyncBtn.ToolTip = "동기화하는 중…";
+            SyncIcon.Stroke = UiColors.Frozen(Color.FromRgb(0x7E, 0xB6, 0xFF));
+            var anim = new DoubleAnimation(0, 360, TimeSpan.FromMilliseconds(950))
+            {
+                RepeatBehavior = RepeatBehavior.Forever,
+            };
+            SyncIconRotate.BeginAnimation(RotateTransform.AngleProperty, anim);
+        }
+        else
+        {
+            SyncIconRotate.BeginAnimation(RotateTransform.AngleProperty, null);
+            SyncIconRotate.Angle = 0;
+            SyncIcon.Stroke = Brush(_settings.TextColor, Colors.White);
+            SyncBtn.ToolTip = "동기화 실행 (우클릭: 동기화 설정)";
+        }
+        if (_syncStatus is not null) SyncResultBadge.Opacity = running ? 0.55 : 1.0;
+    }
+
+    internal void SetSyncResult(SyncStatusBadgeData? status)
+    {
+        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(() => SetSyncResult(status)); return; }
+        _syncStatus = status;
+        RenderSyncResult();
+    }
+
+    private void RenderSyncResult()
+    {
+        SyncResultContent.Children.Clear();
+        if (_syncStatus is null || _contentHidden)
+        {
+            SyncResultBadge.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var textBrush = Brush(_settings.TextColor, Colors.White);
+        var green = UiColors.Frozen(Color.FromRgb(0x6E, 0xE7, 0xB7));
+        var blue = UiColors.Frozen(Color.FromRgb(0x7E, 0xB6, 0xFF));
+        var amber = UiColors.Frozen(Color.FromRgb(0xFB, 0xBF, 0x24));
+        var red = UiColors.Frozen(Color.FromRgb(0xFC, 0xA5, 0xA5));
+
+        static System.Windows.Shapes.Path MiniIcon(string data, WpfBrush stroke, double size = 10, double thickness = 2.2) => new()
+        {
+            Width = size,
+            Height = size,
+            Stretch = Stretch.Uniform,
+            Stroke = stroke,
+            StrokeThickness = thickness,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round,
+            StrokeLineJoin = PenLineJoin.Round,
+            VerticalAlignment = VerticalAlignment.Center,
+            Data = Geometry.Parse(data),
+        };
+
+        void AddPair(string iconData, WpfBrush iconStroke, int count, double leftMargin = 0, double iconSize = 9.5)
+        {
+            var pair = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(leftMargin, 0, 0, 0) };
+            pair.Children.Add(MiniIcon(iconData, iconStroke, iconSize, 2.2));
+            pair.Children.Add(new TextBlock
+            {
+                Text = count.ToString(CultureInfo.InvariantCulture),
+                Foreground = textBrush,
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(2.5, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            SyncResultContent.Children.Add(pair);
+        }
+
+        const string checkPath = "M20 6L9 17l-5-5";
+        const string downPath = "M12 5v14M6 13l6 6 6-6";
+        const string upPath = "M12 19V5M6 11l6-6 6 6";
+        const string warnPath = "M12 3L2 20h20L12 3zM12 10v4M12 17h.01";
+        const string errorPath = "M18 6L6 18M6 6l12 12";
+
+        var s = _syncStatus;
+        if (s.Errors > 0)
+        {
+            AddPair(errorPath, red, s.Errors, iconSize: 10);
+            if (s.Pulled > 0) AddPair(downPath, blue, s.Pulled, leftMargin: 6);
+            if (s.Pushed > 0) AddPair(upPath, green, s.Pushed, leftMargin: 6);
+            if (s.Warnings > 0) AddPair(warnPath, amber, s.Warnings, leftMargin: 6);
+        }
+        else if (s.Pulled == 0 && s.Pushed == 0 && s.Warnings == 0)
+        {
+            AddPair(checkPath, green, 0, iconSize: 10.5);
+        }
+        else if (s.Pulled == 0 && s.Pushed == 0 && s.Warnings > 0)
+        {
+            AddPair(warnPath, amber, s.Warnings, iconSize: 10);
+        }
+        else
+        {
+            SyncResultContent.Children.Add(MiniIcon(checkPath, green, 10.5, 2.4));
+            if (s.Pulled > 0) AddPair(downPath, blue, s.Pulled, leftMargin: 5);
+            if (s.Pushed > 0) AddPair(upPath, green, s.Pushed, leftMargin: 5);
+            if (s.Warnings > 0) AddPair(warnPath, amber, s.Warnings, leftMargin: 5);
+        }
+
+        SyncResultBadge.ToolTip = s.Tooltip;
+        SyncResultBadge.Opacity = _syncRunning ? 0.55 : 1.0;
+        SyncResultBadge.Visibility = Visibility.Visible;
     }
 
     /// <summary>Raised when the user submits a prompt from the header Calendar Chat box.</summary>
@@ -859,6 +999,8 @@ public partial class MainWindow : Window
 
         foreach (var tb in new[] { MonthTitle, PrevText, TodayText, NextText }) { tb.Foreground = text; tb.FontFamily = font; }
         GearText.Foreground = text;   // keeps its own icon font
+        if (!_syncRunning) SyncIcon.Stroke = text;
+        RenderSyncResult();
         MonthTitle.FontSize = s.FontSize + 7;
         MonthTitle.Text = FormatTitle(grid, culture) + (_contentHidden ? "  🔒" : "");
 

@@ -27,7 +27,7 @@
                 <TextBlock x:Name="MonthTitle" Grid.Column="0" FontWeight="SemiBold" VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis"/>
                 <Border x:Name="ChatPromptBar" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center"
-                        MinWidth="210" MaxWidth="430" Margin="16,0,16,0" Padding="10,4"
+                        MinWidth="96" MaxWidth="430" Margin="10,0,10,0" Padding="10,4"
                         CornerRadius="14" Background="#24FFFFFF" BorderBrush="#44FFFFFF" BorderThickness="1"
                         Cursor="Hand" MouseLeftButtonDown="ChatPrompt_MouseDown"
                         ToolTip="더블 클릭하여 캘린더 채팅 프롬프트 입력 (Enter 전송)">
@@ -52,6 +52,47 @@
                     </DockPanel>
                 </Border>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- Compact sync result indicator: icons and numbers only -->
+                    <Border x:Name="SyncResultBadge" Visibility="Collapsed" CornerRadius="10"
+                            Padding="7,3" Margin="0,0,4,0" VerticalAlignment="Center"
+                            BorderBrush="#44FFFFFF" BorderThickness="1"
+                            Cursor="Hand" MouseLeftButtonDown="SyncResult_Click">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="#24FFFFFF"/>
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="#38FFFFFF"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <StackPanel x:Name="SyncResultContent" Orientation="Horizontal" VerticalAlignment="Center"/>
+                    </Border>
+                    <!-- Sync action button: icon only -->
+                    <Border x:Name="SyncBtn" Padding="6,4" Margin="0,0,4,0" CornerRadius="6"
+                            Cursor="Hand" VerticalAlignment="Center"
+                            MouseLeftButtonDown="Sync_Click" ToolTip="동기화 실행 (우클릭: 동기화 설정)">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="#01FFFFFF"/>
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="#24FFFFFF"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <Path x:Name="SyncIcon" Width="15" Height="15" Stretch="Uniform"
+                              Stroke="White" StrokeThickness="1.9"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                              RenderTransformOrigin="0.5,0.5"
+                              Data="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16M16 16h5v5">
+                            <Path.RenderTransform>
+                                <RotateTransform x:Name="SyncIconRotate" Angle="0"/>
+                            </Path.RenderTransform>
+                        </Path>
+                    </Border>
                     <Border x:Name="PrevBtn" Padding="10,2" Cursor="Hand" Background="#01FFFFFF"
                             MouseLeftButtonDown="Prev_Click" ToolTip="이전">
                         <TextBlock x:Name="PrevText" Text="◀" FontSize="14"/>

@@ -1,10 +1,10 @@
 {
   "format": "M-DeskCal",
   "version": 1,
-  "exportedAt": "2026-11-16T12:16:14+09:00",
+  "exportedAt": "2026-11-16T17:41:37+09:00",
   "items": [
     {
-      "id": "ddc515a046084af3a2ca188f3ec350d3",
+      "id": "18efe0e3bdc84d0d87235c5b1a519261",
       "day": "2026-11-13",
       "content": "보고서 제출",
       "done": true,
@@ -12,7 +12,7 @@
       "reminders": []
     },
     {
-      "id": "6a5ddc55787043189b1496c4cc728271",
+      "id": "9933459059954939a8e8ff4afab53fd8",
       "day": "2026-11-13",
       "content": "팀 회식",
       "done": false,
@@ -20,7 +20,7 @@
       "reminders": []
     },
     {
-      "id": "56e9cbab300046339fe17c79a485e455",
+      "id": "4cb391258982429c948ebaa4cf370172",
       "day": "2026-11-16",
       "content": "기획서 검토",
       "done": false,
@@ -30,7 +30,7 @@
       "reminders": []
     },
     {
-      "id": "0db2368cd63145389693e4c33177d72e",
+      "id": "185563bcb4a4480c9f2c8504501cba38",
       "day": "2026-11-16",
       "content": "새 항목",
       "done": false,
@@ -43,7 +43,7 @@
       ]
     },
     {
-      "id": "100f591ce9d141d08a6e8ef38c7fe7c2",
+      "id": "0c7d9a9425d041c2a9db994f17a99a14",
       "day": "2026-11-16",
       "content": "운동",
       "done": false,
@@ -51,7 +51,7 @@
       "reminders": []
     },
     {
-      "id": "0d5a49ec22e845d3a7a26a13dd440db4",
+      "id": "61414ddd89db4e2f8c46ad23f4f596c7",
       "day": "2026-11-18",
       "content": "치과 예약",
       "done": false,
@@ -60,7 +60,7 @@
       "reminders": []
     },
     {
-      "id": "1c45ce30010b4f3bbad976b969a62be3",
+      "id": "59a313d98fc9463b85733000e6a675b6",
       "day": "2026-11-18",
       "content": "세금 신고",
       "done": true,
@@ -68,7 +68,7 @@
       "reminders": []
     },
     {
-      "id": "82f7a27d52da407bbfcf322ad9058ece",
+      "id": "33f476f43b694c8aaf7064492919828c",
       "day": "2026-11-21",
       "content": "월간 회의 준비",
       "done": false,
@@ -76,7 +76,7 @@
       "reminders": []
     },
     {
-      "id": "302d01e4dd7cfac51735d7b9c6aeb5a9",
+      "id": "1f3d7b7d3e5e9b9ceb9a11869fb56934",
       "day": "2026-11-23",
       "content": "운동",
       "done": false,
@@ -84,7 +84,7 @@
       "reminders": []
     },
     {
-      "id": "5fa1acebb7ae5e49c3591de62656cf28",
+      "id": "3f7fcc9585d4b2fe5ce34061317a678e",
       "day": "2026-11-30",
       "content": "운동",
       "done": false,
@@ -92,7 +92,7 @@
       "reminders": []
     },
     {
-      "id": "c8991b5eec9be00d9f73954dbe24e13a",
+      "id": "3828426a42b0063acc4160cc7400adcc",
       "day": "2026-12-07",
       "content": "운동",
       "done": false,
@@ -100,7 +100,7 @@
       "reminders": []
     },
     {
-      "id": "fcf039e443f700a850f2d86e05842fe9",
+      "id": "64846ce23c12ded392c219f008bfe505",
       "day": "2026-12-14",
       "content": "운동",
       "done": false,
@@ -108,7 +108,7 @@
       "reminders": []
     },
     {
-      "id": "c36badf64dccc71e67527ac344ce86a7",
+      "id": "8b6c7fb58ac809aba340853c785ee962",
       "day": "2026-12-21",
       "content": "운동",
       "done": false,
@@ -116,7 +116,7 @@
       "reminders": []
     },
     {
-      "id": "a045b6d4a26923f4dd88f4988128d468",
+      "id": "c786484fad6a62527c7c7dbdae6bbbfb",
       "day": "2026-12-28",
       "content": "운동",
       "done": false,
@@ -124,7 +124,7 @@
       "reminders": []
     },
     {
-      "id": "9559cdfcab2fa5bdd0e8e40455152d4b",
+      "id": "c348dacdfe2beba7253ca0685f45297c",
       "day": "2027-01-04",
       "content": "운동",
       "done": false,
@@ -132,7 +132,7 @@
       "reminders": []
     },
     {
-      "id": "f36c8fd2eb47267fe811494e5c1a506d",
+      "id": "d97201a044d73986d3710d3de9fede12",
       "day": "2027-01-11",
       "content": "운동",
       "done": false,
@@ -140,7 +140,7 @@
       "reminders": []
     },
     {
-      "id": "d2a4727086ed55494fac8931b2159920",
+      "id": "a21c260d982ecea2bb1a6c89f27cc5c2",
       "day": "2027-01-18",
       "content": "운동",
       "done": false,
@@ -148,7 +148,7 @@
       "reminders": []
     },
     {
-      "id": "93ba5cfaeadb258959fa13e31e2f46ef",
+      "id": "d65631accf47856b850b9bfa5f915582",
       "day": "2027-01-25",
       "content": "운동",
       "done": false,
@@ -156,7 +156,7 @@
       "reminders": []
     },
     {
-      "id": "5c7e9ef774d66d515cc435e2f14b3a9d",
+      "id": "590549dbf03c045807229265dbcf2548",
       "day": "2027-02-01",
       "content": "운동",
       "done": false,
@@ -164,7 +164,7 @@
       "reminders": []
     },
     {
-      "id": "63961af61251c0a17ed18f7f2d7afbc7",
+      "id": "b0c44c633a0e82c51220cada7f7bed36",
       "day": "2027-02-08",
       "content": "운동",
       "done": false,
@@ -172,7 +172,7 @@
       "reminders": []
     },
     {
-      "id": "1e62993c2e3d2e1049a797972d532ffc",
+      "id": "de3c97c8529db878837348729c32bb46",
       "day": "2027-02-15",
       "content": "운동",
       "done": false,
@@ -180,7 +180,7 @@
       "reminders": []
     },
     {
-      "id": "b5a11f523e921cb62352e49e25feca99",
+      "id": "e2f1b8a7e72351e322c68901b2b42592",
       "day": "2027-02-22",
       "content": "운동",
       "done": false,
@@ -188,7 +188,7 @@
       "reminders": []
     },
     {
-      "id": "1b4a6d3c260b7b9cee4863985d164818",
+      "id": "86ba2137d0b3512f88a3bf282bc6668c",
       "day": "2027-03-01",
       "content": "운동",
       "done": false,
@@ -196,7 +196,7 @@
       "reminders": []
     },
     {
-      "id": "65bbe4b993a78efcda44d147e86cd3f4",
+      "id": "8403b9116e56c56aa0e857c9f2e28832",
       "day": "2027-03-08",
       "content": "운동",
       "done": false,
@@ -204,7 +204,7 @@
       "reminders": []
     },
     {
-      "id": "0a3e3406f71b08ca4794ba44f04979e5",
+      "id": "a503873b6882e08f4bf85deaa0b455a6",
       "day": "2027-03-15",
       "content": "운동",
       "done": false,
@@ -212,7 +212,7 @@
       "reminders": []
     },
     {
-      "id": "1f99abba884c96f8af355a5d40ce0257",
+      "id": "54c0c6bca31cf10e60dec3b831294582",
       "day": "2027-03-22",
       "content": "운동",
       "done": false,
@@ -220,7 +220,7 @@
       "reminders": []
     },
     {
-      "id": "f78976def6e8ef2fd062ddde008a66c3",
+      "id": "5c3d7d687a2832afe91f94372c91af70",
       "day": "2027-03-29",
       "content": "운동",
       "done": false,
@@ -228,7 +228,7 @@
       "reminders": []
     },
     {
-      "id": "d17d132cd1a17c6c8002e8a9b5e399e8",
+      "id": "dec8e43d038c10e645a454cda799aa3b",
       "day": "2027-04-05",
       "content": "운동",
       "done": false,
@@ -236,7 +236,7 @@
       "reminders": []
     },
     {
-      "id": "1d6113cf690cfec76ce0fc1418a3773a",
+      "id": "0245977968f83363af7b614f6883f728",
       "day": "2027-04-12",
       "content": "운동",
       "done": false,
@@ -244,7 +244,7 @@
       "reminders": []
     },
     {
-      "id": "49355120244542f578dcb3925fce15a8",
+      "id": "3f1471a20baf59c8f2ca32a5ccf31c5a",
       "day": "2027-04-19",
       "content": "운동",
       "done": false,
@@ -252,7 +252,7 @@
       "reminders": []
     },
     {
-      "id": "fdb6bc3523ddd9cfd41967c75320212c",
+      "id": "edb2ba8e5edb3e6207140108b57f9bc3",
       "day": "2027-04-26",
       "content": "운동",
       "done": false,
@@ -260,7 +260,7 @@
       "reminders": []
     },
     {
-      "id": "b00a1e4f7754fc862afbb88d8e15d500",
+      "id": "b449a2061e897435841e433f67a727cf",
       "day": "2027-05-03",
       "content": "운동",
       "done": false,
@@ -268,7 +268,7 @@
       "reminders": []
     },
     {
-      "id": "a38950c4f4d9359abe9ab4df97ee7834",
+      "id": "7eb7e1eba89acb46a36bcb8154f5d79b",
       "day": "2027-05-10",
       "content": "운동",
       "done": false,
@@ -276,7 +276,7 @@
       "reminders": []
     },
     {
-      "id": "605a73f6e5b4b78b3d27936fdb7d46be",
+      "id": "9d9fb8c2b231d8217cd32ae802e8e9c9",
       "day": "2027-05-17",
       "content": "운동",
       "done": false,
@@ -284,7 +284,7 @@
       "reminders": []
     },
     {
-      "id": "cd9af653070ed3ccef745b39251a4a53",
+      "id": "5bea1fa55b46d01d95fd0f20b94eeed6",
       "day": "2027-05-24",
       "content": "운동",
       "done": false,
@@ -292,7 +292,7 @@
       "reminders": []
     },
     {
-      "id": "fd300d4eaa9f7343173d16af894197b8",
+      "id": "1b0315cf736176e67fac8217d73d1fef",
       "day": "2027-05-31",
       "content": "운동",
       "done": false,
@@ -300,7 +300,7 @@
       "reminders": []
     },
     {
-      "id": "6d404ae05f531adde09b83f459d0c0b1",
+      "id": "00fe28966c7c4816e9987d1de9a13fcd",
       "day": "2027-06-07",
       "content": "운동",
       "done": false,
@@ -308,7 +308,7 @@
       "reminders": []
     },
     {
-      "id": "9327f6d6fc24eb31f4c8ebf9e3a6dcd5",
+      "id": "877b53f277fe3e8955d197b6d10b5ac6",
       "day": "2027-06-14",
       "content": "운동",
       "done": false,
@@ -316,7 +316,7 @@
       "reminders": []
     },
     {
-      "id": "0828119a715fbd7d9f493459291923a1",
+      "id": "92eab6297cfd80f82361d1893dcc11ce",
       "day": "2027-06-21",
       "content": "운동",
       "done": false,
@@ -324,7 +324,7 @@
       "reminders": []
     },
     {
-      "id": "2cf6299b62293ef47fd08316e34d33de",
+      "id": "2b25558e9fe4e86590ef8d086fb7dc9f",
       "day": "2027-06-28",
       "content": "운동",
       "done": false,
@@ -332,7 +332,7 @@
       "reminders": []
     },
     {
-      "id": "7769275877d4c26f72d7e4036fbe52f5",
+      "id": "3f050692615d2884d10279926dae3e43",
       "day": "2027-07-05",
       "content": "운동",
       "done": false,
@@ -340,7 +340,7 @@
       "reminders": []
     },
     {
-      "id": "1d1a1f102eb2daa02972d6b207aedc12",
+      "id": "e71d88ad714c60a5e53eda5702ae493b",
       "day": "2027-07-12",
       "content": "운동",
       "done": false,
@@ -348,7 +348,7 @@
       "reminders": []
     },
     {
-      "id": "8b68a0ace8a8eb22c4a66fc33c741662",
+      "id": "c40815749600c2431fe523caa4f6c68f",
       "day": "2027-07-19",
       "content": "운동",
       "done": false,
@@ -356,7 +356,7 @@
       "reminders": []
     },
     {
-      "id": "bdaf02f3c60d31ddbf102b16fc8d06f4",
+      "id": "2f8df0b93e95ed1e5c98396f140fd176",
       "day": "2027-07-26",
       "content": "운동",
       "done": false,
@@ -364,7 +364,7 @@
       "reminders": []
     },
     {
-      "id": "da1f6550b72bfb89793a8698cd6abc93",
+      "id": "30f127919dff2f3372c56840310844a4",
       "day": "2027-08-02",
       "content": "운동",
       "done": false,
@@ -372,7 +372,7 @@
       "reminders": []
     },
     {
-      "id": "1f9188909b9f6133b6849c58ca69c7a8",
+      "id": "fb762a8dacecc302eda106d47984058b",
       "day": "2027-08-09",
       "content": "운동",
       "done": false,
@@ -380,7 +380,7 @@
       "reminders": []
     },
     {
-      "id": "1f3130d0e2f3251dfdefc39166320202",
+      "id": "589e1320d2387f259a7eef8d11a40ef8",
       "day": "2027-08-16",
       "content": "운동",
       "done": false,
@@ -388,7 +388,7 @@
       "reminders": []
     },
     {
-      "id": "b41d8baa5477a07c1bf877adbe9e14d5",
+      "id": "738ee87ec1559fd2101fd33b3f0269f9",
       "day": "2027-08-23",
       "content": "운동",
       "done": false,
@@ -396,7 +396,7 @@
       "reminders": []
     },
     {
-      "id": "5074d5d6f81a5783b7d580807812b835",
+      "id": "4d56bea36aa786115010ac96ec8f5064",
       "day": "2027-08-30",
       "content": "운동",
       "done": false,
@@ -404,7 +404,7 @@
       "reminders": []
     },
     {
-      "id": "0647fd922200ee7f55a6a247e4fadf67",
+      "id": "c685282d128d14f9cbf1de15d918dd90",
       "day": "2027-09-06",
       "content": "운동",
       "done": false,
@@ -412,7 +412,7 @@
       "reminders": []
     },
     {
-      "id": "357395a08b551a8d2d33ad95d4d829ed",
+      "id": "6b55006b4d72238e4b45ba23519e10e9",
       "day": "2027-09-13",
       "content": "운동",
       "done": false,
@@ -420,7 +420,7 @@
       "reminders": []
     },
     {
-      "id": "455fede51085b10a53e0fe8bdd5cf8ee",
+      "id": "aa369885dc9e5c8140c18083dae5c29d",
       "day": "2027-09-20",
       "content": "운동",
       "done": false,
@@ -428,7 +428,7 @@
       "reminders": []
     },
     {
-      "id": "655e5e26e0e41923e9337b6b5f60133c",
+      "id": "fac28f680f96fd7647c73d82b66048d9",
       "day": "2027-09-27",
       "content": "운동",
       "done": false,
@@ -436,7 +436,7 @@
       "reminders": []
     },
     {
-      "id": "bf15df5cfc7a1018f715f8f0d2d62619",
+      "id": "78e4d05d06617784f82385b71c2490f8",
       "day": "2027-10-04",
       "content": "운동",
       "done": false,
@@ -444,7 +444,7 @@
       "reminders": []
     },
     {
-      "id": "dbbd1ae051407886f662a2c73e13f250",
+      "id": "81f54dddc616027e5a3b265161415f74",
       "day": "2027-10-11",
       "content": "운동",
       "done": false,
@@ -452,7 +452,7 @@
       "reminders": []
     },
     {
-      "id": "53bb16445724006615141706b7314338",
+      "id": "d4efaaba5ceb73234f490828183b7752",
       "day": "2027-10-18",
       "content": "운동",
       "done": false,
@@ -460,7 +460,7 @@
       "reminders": []
     },
     {
-      "id": "6b7dd601e545bd284731861256cfc413",
+      "id": "e0777e4221eaceabe466356fa5ab1ef8",
       "day": "2027-10-25",
       "content": "운동",
       "done": false,
@@ -468,7 +468,7 @@
       "reminders": []
     },
     {
-      "id": "15e7cb0e045c56d75911e69337a903cf",
+      "id": "f972a13a5b770ec22af6d7d73b739b6c",
       "day": "2027-11-01",
       "content": "운동",
       "done": false,
@@ -476,7 +476,7 @@
       "reminders": []
     },
     {
-      "id": "aba7f101eded020521f2fec2bbeff542",
+      "id": "4e8199844463876228be585407722b53",
       "day": "2027-11-08",
       "content": "운동",
       "done": false,
@@ -484,7 +484,7 @@
       "reminders": []
     },
     {
-      "id": "0b14099f60b8e24fb177335f315d5ce2",
+      "id": "c5ce72ea1ee602c42b3d06268753c905",
       "day": "2027-11-15",
       "content": "운동",
       "done": false,
@@ -494,7 +494,7 @@
   ],
   "events": [
     {
-      "id": "9a4fc08022f142d98c596832d0e4de27",
+      "id": "66fd999b82bf4daea023f18aed1b3d04",
       "title": "월말 정산",
       "body": "",
       "start": "2026-11-01",
@@ -504,7 +504,7 @@
       "reminders": []
     },
     {
-      "id": "63400dda4a6b48ffb831b0074b1c6429",
+      "id": "85cfaeeeeb3d4263ae562cad4ad1f201",
       "title": "스탠드업",
       "body": "",
       "start": "2026-11-02T09:30",
@@ -514,7 +514,7 @@
       "reminders": []
     },
     {
-      "id": "c870b2e94bd046c4b6cb3fc46750a913",
+      "id": "64bd7a58447d461f871b7fda508efeb7",
       "title": "영단어 복습",
       "body": "",
       "start": "2026-11-15",
@@ -525,7 +525,7 @@
       "reminders": []
     },
     {
-      "id": "72f5305b7802420d9ad865f45e790125",
+      "id": "6eec97deff3f42ae859f120755abea8b",
       "title": "UI 자체점검 월례회",
       "body": "",
       "start": "2026-11-16",
@@ -540,7 +540,7 @@
       ]
     },
     {
-      "id": "c31e38c1d88949339814e4610654349d",
+      "id": "ca91ea4ed6d34cfcad5d540cdd62a2a6",
       "title": "팀 회의",
       "body": "",
       "start": "2026-11-16T10:00",
@@ -555,7 +555,7 @@
       ]
     },
     {
-      "id": "3edae9b26ee74575b42b7fddb8cc2dc8",
+      "id": "0ed0ad3d272540ccae13259639cb9690",
       "title": "출장",
       "body": "",
       "start": "2026-11-17",
@@ -566,7 +566,7 @@
       "reminders": []
     },
     {
-      "id": "e7a9a51bc0614a3b95c1c235d2e18626",
+      "id": "5a2216ed65664c2a983232361786bed3",
       "title": "UI 자체점검 스터디",
       "body": "",
       "start": "2026-11-17T14:00",
@@ -581,7 +581,7 @@
       ]
     },
     {
-      "id": "90c59e08f0c040969934f2b41f9d923b",
+      "id": "8a47ccb98b1e48ba9fb08a6830976c5b",
       "title": "프로젝트 마감(수정)",
       "body": "",
       "start": "2026-11-20",
@@ -598,7 +598,7 @@
   ],
   "countdowns": [
     {
-      "id": "d642c90569b94b309749f3d4b2da5e3f",
+      "id": "95d11e28701f4a7a8380d9a948034d80",
       "title": "민수 생일",
       "date": "1990-12-16",
       "type": "Birthday",
@@ -607,7 +607,7 @@
       "lunar": false
     },
     {
-      "id": "bb51c9745722494aa1385d71c337a2cd",
+      "id": "75bd0df84ba34ae1bc58cf9ac183931d",
       "title": "설날",
       "date": "2000-01-01",
       "type": "Festival",
@@ -616,7 +616,7 @@
       "lunar": true
     },
     {
-      "id": "c90cba21bba0482180bc73d88d0edbd6",
+      "id": "bcc6aaea14654bb1a36840d68e67269b",
       "title": "만난 날",
       "date": "2026-08-09",
       "type": "Memorial",
@@ -625,7 +625,7 @@
       "lunar": false
     },
     {
-      "id": "55014782367b444089b4c2403954f778",
+      "id": "15c51fefd68e4035a1697684698ff7bc",
       "title": "기말시험",
       "date": "2026-11-28",
       "type": "Exam",

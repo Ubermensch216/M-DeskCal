@@ -36,6 +36,9 @@ internal sealed class SyncCoordinator(DeskCalDb db, IClock clock, Func<DateOnly,
     /// <summary>Raised on the UI thread after every run: the report, or the error that stopped it.</summary>
     public event Action<SyncAccount, SyncReport?, string?>? Finished;
 
+    /// <summary>Raised on the UI thread whenever <see cref="Running"/> changes.</summary>
+    public event Action? StateChanged;
+
     public int IntervalMinutes
     {
         get => settings.GetInt(IntervalKey, 30);
@@ -48,6 +51,7 @@ internal sealed class SyncCoordinator(DeskCalDb db, IClock clock, Func<DateOnly,
     {
         if (Running) return (null, "이미 동기화 중입니다.");
         Running = true;
+        StateChanged?.Invoke();
         SyncReport? report = null; string? error = null;
         try
         {
@@ -62,6 +66,7 @@ internal sealed class SyncCoordinator(DeskCalDb db, IClock clock, Func<DateOnly,
         finally { Running = false; }
         if (error is not null) Accounts.RecordResult(account.Id, "실패: " + error);
         Finished?.Invoke(Accounts.GetAccount(account.Id) ?? account, report, error);
+        StateChanged?.Invoke();
         return (report, error);
     }
 

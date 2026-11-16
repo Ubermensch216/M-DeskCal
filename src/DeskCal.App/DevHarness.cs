@@ -60,6 +60,9 @@ internal static class DevHarness
         }
         board.GoToday();
         board.SaveSnapshot(Path.Combine(dir, "m5-board.png"));
+        board.SetSyncResult(new MainWindow.SyncStatusBadgeData(3, 2, 0, 0, "17:40 동기화 완료"));
+        board.SaveSnapshot(Path.Combine(dir, "m5-board-sync.png"));
+        board.SetSyncResult(null);
         board.ApplySettings(new BoardSettings { Mode = DisplayMode.FixedMonth, Bullet = BulletStyle.Number });
         board.SaveSnapshot(Path.Combine(dir, "m3-numbered.png"));
         board.ApplySettings(new BoardSettings { Mode = DisplayMode.FixedMonth, Bullet = BulletStyle.None, ShowCompleted = false });
