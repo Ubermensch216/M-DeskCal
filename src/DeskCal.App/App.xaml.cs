@@ -777,8 +777,10 @@ public partial class App : System.Windows.Application
         Ai: new AiHost(() => _aiStore!.Load(), s => _aiStore!.Save(s), (s, ct) => DeskCal.Ai.Llm.LlmClientFactory.TestAsync(s, ct),
                        () => _accuracy!.Summary(), () => _accuracy!.Reset(),
                        new AiPlusHost(() => _briefStore!.Load(), b => _briefStore!.Save(b), IndexStatus, BuildIndexAsync, () => _embedRepo!.Clear())),
-        Git: new GitSyncHost(() => _gitSync!.Config, c => _gitSync!.Config = c, GitSyncFromSettings, () => _gitSync!.LastResult,
-                             () => OpenFolder(_gitSync!.WorkDir)));
+        Git: new GitSyncHost(() => _gitSync!.Config, c => _gitSync!.Config = c, GitSyncFromSettings,
+                             () => _gitSync!.Running ? "동기화하는 중… (처음에는 저장소를 받아오느라 시간이 걸립니다)" : _gitSync!.LastResult,
+                             () => OpenFolder(_gitSync!.WorkDir),
+                             cb => { _gitSync!.StateChanged += cb; return () => _gitSync.StateChanged -= cb; }));
 
     private static void OpenFolder(string dir)
     {

@@ -141,25 +141,27 @@ internal static class SyncWindow
         testBtn = Dlg.Btn("연결 시험", async (_, _) =>
         {
             var a = Save(); if (a is null) return;
-            Busy(true); status.Text = "연결하는 중…";
+            Busy(true); status.Text = "연결하는 중…"; status.Foreground = ModernUi.AccentBrush;
             try
             {
                 var list = await CalDavProvider.Create(a, sync.Protector).ListAsync(CancellationToken.None);
                 status.Text = $"연결되었습니다. 서버에 일정 {list.Count}건이 있습니다.";
+                status.Foreground = ModernUi.SuccessBrush;
             }
-            catch (CalendarServerException ex) { status.Text = "연결하지 못했습니다: " + ex.Message; }
+            catch (CalendarServerException ex) { status.Text = "연결하지 못했습니다: " + ex.Message; status.Foreground = ModernUi.DangerBrush; }
             finally { Busy(false); }
         });
         syncBtn = Dlg.Btn("지금 동기화", async (_, _) =>
         {
             var a = Save(); if (a is null) return;
-            Busy(true); status.Text = "동기화하는 중…";
+            Busy(true); status.Text = "동기화하는 중…"; status.Foreground = ModernUi.AccentBrush;
             var (report, error) = await sync.RunAsync(a);
             Busy(false);
             status.Text = error is not null ? "실패: " + error
                 : report!.Summary() + (report.Notes.Count > 0 ? "\n\n" + string.Join("\n", report.Notes.Take(8)) : "") + (report.Errors.Count > 0 ? "\n\n오류:\n" + string.Join("\n", report.Errors.Take(5)) : "");
+            status.Foreground = error is not null ? ModernUi.DangerBrush : ModernUi.SuccessBrush;
         }, isDefault: true);
-        var save = Dlg.Btn("저장", (_, _) => { if (Save() is not null) status.Text = "저장했습니다."; });
+        var save = Dlg.Btn("저장", (_, _) => { if (Save() is not null) { status.Text = "저장했습니다."; status.Foreground = ModernUi.SuccessBrush; } });
         var remove = Dlg.Btn("연결 끊기", (_, _) =>
         {
             if (account is null) return;

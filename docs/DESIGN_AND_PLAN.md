@@ -1,9 +1,9 @@
 # 바탕화면 달력 프로그램(M-DeskCal) 설계 및 구현 계획
 
 대상 분석 프로그램: `CalendarTask` (desktopcal.exe v3.32.310.9371, Beijing Xiaowei Cloud Inc.)
-작성일: 2026-11-06 · 최종 현행화: 2026-11-15
+작성일: 2026-11-06 · 최종 현행화: 2026-11-16
 
-> **현재 상태(2026-11-15)**: 베타 `0.1.0-beta.1`. M0~M17 및 UI/UX 전면 개편·경량 패키징 완료(제외 항목은 3장 표), 단위 테스트 937개 통과.
+> **현재 상태(2026-11-16)**: 베타 `0.1.0-beta.1`. M0~M18(캘린더 채팅 통합·UI/UX 전면 개편·경량 패키징) 완료(제외 항목은 3장 표), 단위 테스트 941개 통과.
 > 이 문서의 1~2장은 착수 시점의 **분석과 계획**이고, 구현하면서 바뀐 결정은 각 절의 "구현 결과" 메모와 3.0 진행 기록에 적었습니다.
 > 실제 프로젝트 구성은 **2.3**, 실제 스키마는 `src/DeskCal.Data/DeskCalDb.cs`(마이그레이션 v1~v8)가 기준입니다.
 
@@ -254,6 +254,7 @@ sync_accounts(...), sync_events(... etag, dirty, deleted, remote_id ...)
 | **M12. MCP 도구 확장** ✅ | (추가) | 조회·계산 도구, 디데이·메모 요청, 프롬프트 | 도구별 단위 테스트 |
 | **M13~M16. AI 도입 0~3단계** ✅ | (추가) | 빠른 입력, 텍스트·이미지 추출, 브리핑, 의미 검색, 복습 계획, 미완료 정리 (`docs/AI_FEATURE_REVIEW.md`) | 단계별 단위 테스트·실측 |
 | **M17. Git 저장소 동기화 & 모던 UI/UX·경량 배포** ✅ | (추가) | 내 Git 저장소 기반 다중 PC 동기화, 빠른 메뉴·7개 주요 도구 창 모던 카드형 UI 개편, ReadyToRun·Trimming 경량화 | 단위 테스트 937개·65종 스냅샷 |
+| **M18. 캘린더 채팅 통합 & 설정·동기화 UX 개선** ✅ | (추가) | 빠른 입력·검색을 통합한 대화형 `캘린더 채팅`(`CalendarChatWindow`), 달력 헤더 인라인 채팅창, 설정 창 3그룹 분류·다이어그램·상태 색상 표시 | 스냅샷·단위 테스트 941개 |
 
 총 MVP(M0~M8): 약 9~10주, 전체: 약 16~20주 (1인 개발 기준 추정).
 
@@ -455,6 +456,14 @@ sync_accounts(...), sync_events(... etag, dirty, deleted, remote_id ...)
 - **코드 리팩토링 및 배포 용량 경량화**:
   - 7개 모던 창의 공통 셸·스크롤 본문·푸터 바·체크 카드 행 패턴을 `ModernUi.PageShell`/`ScrollBody`/`ActionFooter`/`CheckCardRow`로 통합하고, `JsonExchange.cs`에 소스 생성기(`DocContext : JsonSerializerContext`)를 적용해 리플렉션 경고를 제거.
   - `DeskCal.App`과 `DeskCal.Mcp`를 동일 폴더에 게시해 .NET 런타임 중복 포함을 제거하고, `PublishReadyToRun=false` + 핵심 프레임워크 어셈블리 선택적 IL Trimming(`_R2RStrip`, `RootMode="All"` + `TrimMode="link"`) 및 `Fluent` 테마 리소스 제외를 적용하여 자체 포함(self-contained) 배포 크기를 **설치 후 178.0 MB → 67.5 MB, 배포 zip 78.0 MB → 26.5 MB(약 66% 감소)** 로 축소. 오프스크린 스냅샷 65종 렌더링 자체 점검(종료 코드 0) 및 단위 테스트 937개 통과 확인.
+
+**M18(캘린더 채팅 통합 · 달력 헤더 프롬프트 · 설정 창 그룹화 및 동기화 상태 색상 표시) 구현 (2026-11-15 ~ 2026-11-16)** — 코드: `App/CalendarChatWindow.cs`, `App/MainWindow.xaml`·`MainWindow.xaml.cs`, `App/SettingsWindow.cs`, `App/Hotkeys.cs`, `Core/Hotkey.cs`, `App/SyncUi.cs`, `App/DevDocShots.cs`, `tools/collect-doc-images.py`.
+- **캘린더 채팅(`CalendarChatWindow`) 통합**: 기존의 `빠른 입력`과 `검색` 창을 하나의 대화형 비서 창으로 통합(전역 단축키 기본값 `Ctrl+Alt+Shift+C`, 기존 `Ctrl+Alt+F` 도 캘린더 채팅으로 연결). 한 창에서 ① 자연어 일정·할 일 즉시 제안 카드 생성, ② 기간·빈 시간 결정적 조회, ③ 키워드·의미 검색 및 접이식 **상세 필터 ▾**(기간·종류·완료 여부·글자색·의미 검색·삭제된 할 일 포함, 이력 보기·복원 포함), ④ 로컬/호환 AI 자유 대화를 모두 수행.
+- **달력 상단 인라인 프롬프트 바**: 달력 보드 헤더 중앙에 `✨ 캘린더 채팅` 입력창을 배치해 더블클릭 후 바로 문장을 입력하고 `Enter`를 누르면 캘린더 채팅 창이 열리며 즉시 실행.
+- **설정 창 3개 구획 분류 및 시각 가이드·상태 색상 개선**:
+  - 왼쪽 탭 목록을 `캘린더 설정`(`캘린더`, `셀`, `글꼴 및 색상`, `고급`) · `기능 · 서비스`(`부가 기능`, `AI`, `동기화`) · `시스템`(`제품 정보`) 3개 구획으로 그룹화하고 플랫 벡터 아이콘을 적용.
+  - `글꼴 및 색상` 탭 상단에 실시간 3칸 달력 미리보기, `고급` 탭에 요일별 알약형(pill) 휴무일 토글 및 클릭 캡처식 단축키 설정 상자(`HotkeyCaptureBox`), `AI` 및 `동기화` 탭 상단에 3노드 동작 흐름 다이어그램과 단계별 가이드 카드를 추가.
+  - Git 동기화·외부 캘린더(CalDAV) 동기화·AI 연결 시험 및 의미 검색 색인 생성 시 **진행 중에는 파란색(`AccentBrush`), 성공 시 초록색(`SuccessBrush`), 실패·오류 시 빨간색(`DangerBrush`)** 으로 상태 문구 색상을 구분해 진행 상태를 직관적으로 인지하도록 개선.
 
 실행: `dotnet run --project src/DeskCal.App`. 개발용 인자: `--edit`(편집 모드로 시작), `--db=<파일>`(다른 DB), `--seed`(예시 데이터), `--snapshot=<폴더>`(오프스크린 PNG 렌더링), `--docshots`(문서용 스크린샷). 로그: `%AppData%\DeskCal\m0.log`.
 

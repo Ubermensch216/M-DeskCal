@@ -589,7 +589,7 @@ internal sealed class SettingsWindow : Window
         var result = new TextBlock { Foreground = MutedBrush, TextWrapping = TextWrapping.Wrap, MaxWidth = 420, TextAlignment = TextAlignment.Right, Text = "아직 시험하지 않았습니다." };
         async Task RunTest()
         {
-            result.Text = "연결하는 중…"; result.Foreground = MutedBrush;
+            result.Text = "연결하는 중…"; result.Foreground = AccentBrush;
             ConnectionReport report;
             try { report = await ai.Test(Cur(), CancellationToken.None); }
             catch (Exception ex) { report = new ConnectionReport(false, ex.Message, [], false); }
@@ -638,13 +638,17 @@ internal sealed class SettingsWindow : Window
                 embed.Text = keep;
             };
             var indexState = new TextBlock { Foreground = MutedBrush, TextWrapping = TextWrapping.Wrap, MaxWidth = 420, TextAlignment = TextAlignment.Right };
-            _sync.Add(() => indexState.Text = plus.IndexStatus());
+            _sync.Add(() => { indexState.Text = plus.IndexStatus(); indexState.Foreground = MutedBrush; });
             async Task Build()
             {
                 indexState.Text = "색인을 만드는 중… (처음에는 모델을 불러오느라 시간이 걸립니다)";
+                indexState.Foreground = AccentBrush;
                 string buildResult;
-                try { buildResult = await plus.BuildIndex(); } catch (Exception ex) { buildResult = ex.Message; }
+                bool ok = true;
+                try { buildResult = await plus.BuildIndex(); ok = !buildResult.Contains("오류:"); }
+                catch (Exception ex) { buildResult = ex.Message; ok = false; }
                 indexState.Text = buildResult;
+                indexState.Foreground = ok ? ModernUi.SuccessBrush : ModernUi.DangerBrush;
             }
             page.Children.Add(IconCard(ModernUi.Icons.Search, "의미 검색",
                 RowToggle("의미 검색 사용", "단어가 달라도 뜻이 비슷한 일정·할 일을 함께 찾습니다 (AI 기능 켜짐 필요)",
@@ -734,16 +738,31 @@ internal sealed class SettingsWindow : Window
         }, 200);
 
         var status = new TextBlock { Foreground = MutedBrush, TextWrapping = TextWrapping.Wrap, MaxWidth = 420, TextAlignment = TextAlignment.Right };
-        _sync.Add(() => status.Text = git.Status());
+        void ShowGitStatus(string text)
+        {
+            bool running = text.Contains("동기화하는 중");
+            status.Text = text;
+            status.Foreground = running ? AccentBrush
+                              : text.Contains("실패") || text.Contains("먼저 입력") ? ModernUi.DangerBrush
+                              : text.Contains("성공") ? ModernUi.SuccessBrush
+                              : MutedBrush;
+            status.FontWeight = running ? FontWeights.SemiBold : FontWeights.Normal;
+        }
         bool busy = false;
+        _sync.Add(() => { if (!busy) ShowGitStatus(git.Status()); });
+        if (git.Subscribe is { } sub)
+        {
+            var unsub = sub(() => Dispatcher.BeginInvoke(() => { if (!busy) ShowGitStatus(git.Status()); }));
+            page.Unloaded += (_, _) => unsub();
+        }
         async Task Run()
         {
             if (busy) return;
-            if (git.Get().Url.Length == 0) { status.Text = "저장소 주소를 먼저 입력하세요."; return; }
+            if (git.Get().Url.Length == 0) { ShowGitStatus("저장소 주소를 먼저 입력하세요."); return; }
             busy = true;
-            status.Text = "동기화하는 중… (처음에는 저장소를 받아오느라 시간이 걸립니다)";
+            ShowGitStatus("동기화하는 중… (처음에는 저장소를 받아오느라 시간이 걸립니다)");
             try { await git.RunNow(); } finally { busy = false; }
-            status.Text = git.Status();
+            ShowGitStatus(git.Status());
         }
 
         page.Children.Add(Card("처음 사용하는 방법",

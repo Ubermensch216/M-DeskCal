@@ -67,14 +67,19 @@ for i, key in enumerate(SETTINGS):
         continue
     im = Image.open(f).convert("RGB")
     w, h = im.size
-    # 오른쪽(페이지) 영역에서 배경색이 아닌 마지막 줄을 찾는다
-    last = 0
+    # 오른쪽(페이지)과 왼쪽(사이드바) 모두 잘리지 않는 마지막 줄을 찾는다
+    last_right = 0
     px = im.load()
     for y in range(h - 1, -1, -1):
         if any(px[x, y] != BG for x in range(210, w - 20, 7)):
-            last = y
+            last_right = y
             break
-    bottom = min(h, last + 24)
+    last_left = 0
+    for y in range(h - 60, -1, -1):
+        if any(px[x, y] != BG for x in range(10, 195, 5)):
+            last_left = y
+            break
+    bottom = min(h, max(last_right, last_left + 44) + 24)
     link = im.crop((0, h - 40, 200, h))          # 왼쪽 아래 "기본 설정으로 사용" 링크
     page = im.crop((0, 0, w, bottom))
     page.paste(link, (0, bottom - 40))

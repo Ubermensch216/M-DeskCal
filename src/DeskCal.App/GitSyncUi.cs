@@ -14,7 +14,8 @@ internal sealed record GitSyncHost(
     Action<GitSyncConfig> Set,
     Func<Task<string>> RunNow,
     Func<string> Status,
-    Action OpenFolder);
+    Action OpenFolder,
+    Func<Action, Action>? Subscribe = null);
 
 /// <summary>
 /// Runs the Git sync (<see cref="GitCalendarSync"/>) in the background, one at a time, with the settings kept in the database, and
@@ -30,6 +31,9 @@ internal sealed class GitSyncCoordinator(DeskCalDb db, IClock clock, SettingsSto
 
     /// <summary>Raised on the UI thread after every run: the report, or the error that stopped it.</summary>
     public event Action<GitSyncReport?, string?>? Finished;
+
+    /// <summary>Raised on the UI thread whenever Running or LastResult changes.</summary>
+    public event Action? StateChanged;
 
     public GitSyncConfig Config
     {
@@ -56,6 +60,7 @@ internal sealed class GitSyncCoordinator(DeskCalDb db, IClock clock, SettingsSto
         var cfg = Config;
         if (cfg.Url.Length == 0) return (null, "저장소 주소를 먼저 입력하세요.");
         Running = true;
+        StateChanged?.Invoke();
         GitSyncReport? report = null; string? error = null;
         try
         {
@@ -74,6 +79,7 @@ internal sealed class GitSyncCoordinator(DeskCalDb db, IClock clock, SettingsSto
                                     : $"{stamp} 실패 - {error}";
         settings.SetString(P + "last_result", text);
         Finished?.Invoke(report, error);
+        StateChanged?.Invoke();
         return (report, error);
     }
 }

@@ -186,7 +186,7 @@ internal static class ModernUi
         Background = bg,
         BorderBrush = border ?? Brushes.Transparent,
         BorderThickness = new Thickness(border is null ? 0 : 1),
-        CornerRadius = new CornerRadius(999),
+        CornerRadius = new CornerRadius(6),
         Padding = new Thickness(8, 2, 8, 2),
         VerticalAlignment = VerticalAlignment.Center,
         Child = new TextBlock { Text = text, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = fg },

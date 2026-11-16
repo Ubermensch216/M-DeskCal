@@ -56,22 +56,24 @@ public partial class App
         for (int tab = 0; tab < SettingsWindow.TabCount; tab++)
         {
             var win = SettingsWindow.CreateForSnapshot(host, tab);
-            DevHarness.RenderToPng(win.Surface, P($"doc-settings-{tab}.png"), 800, 1300, WpfColor.FromRgb(0xEE, 0xF1, 0xF6));
+            DevHarness.RenderToPng(win.Surface, P($"doc-settings-{tab}.png"), 800, 1700, WpfColor.FromRgb(0xEE, 0xF1, 0xF6));
         }
 
         var modernBg = WpfColor.FromRgb(0xF4, 0xF6, 0xFA);
 
-        // the unified Calendar Chat window: a natural-language sentence turned into an actionable proposal card
+        // the unified Calendar Chat window: a schedule query and a natural-language sentence turned into an actionable proposal card
         var chatHost = new CalendarChatHost(
             _quickInput!, _batch!, _query!, _accuracy!,
             _searchService!, _itemRepo!, _historyRepo!,
-            () => new DateOnly(2026, 11, 14), () => board.Settings.FirstDayOfWeek,
+            () => DateOnly.FromDateTime(DateTime.Today), () => board.Settings.FirstDayOfWeek,
             () => { }, _ => { }, _ => { },
             _semantic, SyncIndexAsync, () => _aiStore!.Load(), s => DeskCal.Ai.Llm.LlmClientFactory.Create(s));
         var chatWin = CalendarChatWindow.Build(chatHost, out var chatBox, out var chatSend);
+        chatBox.Text = "오늘 할 일 보여줘";
+        chatSend();
         chatBox.Text = "다음 주 화요일 오후 2시 A사 미팅 1시간, 15분 전 알림";
         chatSend();
-        DevHarness.RenderToPng((FrameworkElement)chatWin.Content, P("doc-calendar-chat.png"), 740, 720, modernBg);
+        DevHarness.RenderToPng((FrameworkElement)chatWin.Content, P("doc-calendar-chat.png"), 760, 880, modernBg);
 
         // the quick-input window: a sentence the rules read, and one they cannot
         var quickHost = new QuickInputHost(_quickInput!, _batch!, _query!, _accuracy!, () => DateOnly.FromDateTime(DateTime.Today), () => board.Settings.FirstDayOfWeek, () => { }, _ => { }, _ => { });

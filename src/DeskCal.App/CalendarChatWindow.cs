@@ -38,7 +38,12 @@ internal static class CalendarChatWindow
 {
     private static Window? _open;
     private static Action<string>? _openSend;
+    private static TextBox? _openInput;
     internal static Window? CurrentWindow => _open;
+
+    private static readonly SolidColorBrush ChipHoverBrush = ModernUi.Frozen(Color.FromRgb(0xDB, 0xEA, 0xFE));
+    private static readonly SolidColorBrush SundayBrush = ModernUi.Frozen(Color.FromRgb(0xDC, 0x26, 0x26));
+    private static readonly SolidColorBrush SaturdayBrush = ModernUi.Frozen(Color.FromRgb(0x25, 0x63, 0xEB));
 
     private sealed record FilterState(
         ComboBox Range, ComboBox Kind, ComboBox Done, ComboBox Color,
@@ -48,14 +53,18 @@ internal static class CalendarChatWindow
     {
         if (_open is not null)
         {
+            if (_open.WindowState == WindowState.Minimized) _open.WindowState = WindowState.Normal;
+            _open.Show();
             _open.Activate();
             if (!string.IsNullOrWhiteSpace(initialPrompt)) _openSend?.Invoke(initialPrompt);
+            else _openInput?.Focus();
             return;
         }
-        var win = Build(host, out _, out var send, out var sendPrompt);
+        var win = Build(host, out var box, out _, out var sendPrompt);
         _open = win;
         _openSend = sendPrompt;
-        win.Closed += (_, _) => { _open = null; _openSend = null; };
+        _openInput = box;
+        win.Closed += (_, _) => { _open = null; _openSend = null; _openInput = null; };
         win.Show();
         win.Activate();
         if (!string.IsNullOrWhiteSpace(initialPrompt))
@@ -67,108 +76,174 @@ internal static class CalendarChatWindow
 
     private static Window Build(CalendarChatHost host, out TextBox input, out Action send, out Action<string> sendPrompt)
     {
-        var win = new Window
-        {
-            Title = "캘린더 채팅",
-            Width = 740,
-            Height = 720,
-            MinWidth = 560,
-            MinHeight = 520,
-            ResizeMode = ResizeMode.CanResize,
-            WindowStartupLocation = WindowStartupLocation.CenterScreen,
-            Background = ModernUi.BgBrush,
-            FontFamily = ModernUi.AppFont,
-        };
+        var win = new Window();
+        ModernUi.ConfigureWindow(win, "캘린더 채팅", 760, 740, topmost: false);
+        win.MinWidth = 580;
+        win.MinHeight = 540;
 
-        var messages = new StackPanel { Margin = new Thickness(0, 2, 0, 6) };
+        var messages = new StackPanel { Margin = new Thickness(0, 4, 4, 8) };
         var feed = new ScrollViewer
         {
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             Content = messages,
+            Padding = new Thickness(0, 2, 2, 4),
         };
 
         // ---- Collapsible advanced search filter bar (preserves full SearchWindow capabilities) ----
-        var range = new ComboBox { Width = 112, Margin = new Thickness(0, 0, 6, 0) };
+        var range = new ComboBox { Width = 114, Margin = new Thickness(0, 0, 8, 0), Padding = new Thickness(8, 4, 8, 4), VerticalContentAlignment = VerticalAlignment.Center };
         foreach (var s in new[] { "전체 기간", "오늘", "이번 주", "이번 달", "지난 30일", "앞으로 30일" })
             range.Items.Add(s);
         range.SelectedIndex = 0;
 
-        var kind = new ComboBox { Width = 104, Margin = new Thickness(0, 0, 6, 0) };
+        var kind = new ComboBox { Width = 108, Margin = new Thickness(0, 0, 8, 0), Padding = new Thickness(8, 4, 8, 4), VerticalContentAlignment = VerticalAlignment.Center };
         foreach (var s in new[] { "할 일 + 일정", "할 일만", "일정만" }) kind.Items.Add(s);
         kind.SelectedIndex = 0;
 
-        var done = new ComboBox { Width = 108, Margin = new Thickness(0, 0, 6, 0) };
+        var done = new ComboBox { Width = 114, Margin = new Thickness(0, 0, 8, 0), Padding = new Thickness(8, 4, 8, 4), VerticalContentAlignment = VerticalAlignment.Center };
         foreach (var s in new[] { "완료 여부 무관", "완료한 것만", "미완료만" }) done.Items.Add(s);
         done.SelectedIndex = 0;
 
-        var color = new ComboBox { Width = 104, Margin = new Thickness(0, 0, 8, 0) };
+        var color = new ComboBox { Width = 112, Margin = new Thickness(0, 0, 8, 0), Padding = new Thickness(8, 4, 8, 4), VerticalContentAlignment = VerticalAlignment.Center };
         color.Items.Add("모든 글자색");
         color.Items.Add("기본색");
         foreach (var (name, hex) in MainWindow.Palette.Where(p => p.Hex is not null))
-            color.Items.Add(new ComboBoxItem { Content = name, Tag = hex, Foreground = UiColors.TryBrush(hex), Background = Brushes.Black });
+        {
+            var swatchRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            swatchRow.Children.Add(new Border
+            {
+                Width = 10,
+                Height = 10,
+                CornerRadius = new CornerRadius(5),
+                Background = UiColors.TryBrush(hex) ?? ModernUi.MutedBrush,
+                BorderBrush = ModernUi.InputBorderBrush,
+                BorderThickness = new Thickness(0.8),
+                Margin = new Thickness(0, 0, 6, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            swatchRow.Children.Add(new TextBlock
+            {
+                Text = name,
+                Foreground = ModernUi.InkBrush,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            color.Items.Add(new ComboBoxItem { Content = swatchRow, Tag = hex });
+        }
         color.SelectedIndex = 0;
 
         var meaning = new CheckBox
         {
             Content = "의미 검색",
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 10, 0),
+            Margin = new Thickness(0, 0, 14, 0),
             IsEnabled = host.Semantic is not null,
             ToolTip = host.Semantic is not null ? "표현이 달라도 뜻이 비슷한 일정·할 일을 찾습니다" : "설정 → AI 에서 의미 검색 색인을 만들면 쓸 수 있습니다",
         };
-        var deleted = new CheckBox { Content = "삭제된 할 일 포함", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
+        var deleted = new CheckBox { Content = "삭제된 할 일 포함", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) };
 
-        var filterRunBtn = ModernUi.SecondaryBtn("필터로 검색", (_, _) => { });
-        filterRunBtn.Padding = new Thickness(10, 4, 10, 4);
+        var filterRunBtn = ModernUi.PrimaryBtn("필터로 검색", (_, _) => { });
+        filterRunBtn.Padding = new Thickness(12, 5, 12, 5);
         filterRunBtn.FontSize = 12;
 
-        var filterRow1 = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
-        filterRow1.Children.Add(range);
-        filterRow1.Children.Add(kind);
-        filterRow1.Children.Add(done);
-        filterRow1.Children.Add(color);
+        var filterResetBtn = ModernUi.SecondaryBtn("초기화", (_, _) => { });
+        filterResetBtn.Padding = new Thickness(10, 5, 10, 5);
+        filterResetBtn.FontSize = 12;
+        filterResetBtn.Margin = new Thickness(0);
 
-        var filterRow2 = new WrapPanel { Orientation = Orientation.Horizontal };
-        filterRow2.Children.Add(meaning);
-        filterRow2.Children.Add(deleted);
-        filterRow2.Children.Add(filterRunBtn);
+        var filterRow1 = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
+        filterRow1.Children.Add(LabeledFilter("기간", range));
+        filterRow1.Children.Add(LabeledFilter("유형", kind));
+        filterRow1.Children.Add(LabeledFilter("상태", done));
+        filterRow1.Children.Add(LabeledFilter("색상", color));
+
+        var filterRow2 = new DockPanel();
+        var filterActions = new StackPanel { Orientation = Orientation.Horizontal };
+        filterActions.Children.Add(filterRunBtn);
+        filterActions.Children.Add(filterResetBtn);
+        DockPanel.SetDock(filterActions, Dock.Right);
+        var filterChecks = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        filterChecks.Children.Add(meaning);
+        filterChecks.Children.Add(deleted);
+        filterRow2.Children.Add(filterActions);
+        filterRow2.Children.Add(filterChecks);
 
         var filterStack = new StackPanel();
         filterStack.Children.Add(filterRow1);
         filterStack.Children.Add(filterRow2);
-        var filterCard = ModernUi.Card(filterStack, padding: new Thickness(12, 10, 12, 10), margin: new Thickness(0, 0, 0, 8));
+        var filterCard = ModernUi.Card(filterStack, padding: new Thickness(14, 10, 14, 10), margin: new Thickness(0, 0, 0, 10), background: ModernUi.CardAltBrush);
         filterCard.Visibility = Visibility.Collapsed;
 
         var filters = new FilterState(range, kind, done, color, meaning, deleted);
 
         // ---- Quick prompt chips + Filter toggle ----
         var chipRow = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
-        var filterToggle = new Button
+        var filterToggle = MakePillButton(
+            "상세 필터 ▾",
+            ModernUi.CardBrush,
+            ModernUi.HoverBrush,
+            ModernUi.InkBrush,
+            ModernUi.InputBorderBrush,
+            iconData: ModernUi.Icons.GroupSettings);
+
+        int ActiveFilterCount()
         {
-            Content = "상세 필터 ▾",
-            Padding = new Thickness(10, 4, 10, 4),
-            FontSize = 11.5,
-            Margin = new Thickness(0, 0, 6, 4),
-            Cursor = Cursors.Hand,
-            Background = ModernUi.CardBrush,
-            Foreground = ModernUi.MutedBrush,
-            BorderBrush = ModernUi.InputBorderBrush,
-            BorderThickness = new Thickness(1),
-        };
+            int count = 0;
+            if (range.SelectedIndex != 0) count++;
+            if (kind.SelectedIndex != 0) count++;
+            if (done.SelectedIndex != 0) count++;
+            if (color.SelectedIndex != 0) count++;
+            if (meaning.IsChecked == true) count++;
+            if (deleted.IsChecked == true) count++;
+            return count;
+        }
+        bool HasActiveFilter() => ActiveFilterCount() > 0;
+
+        void UpdateFilterToggleVisual()
+        {
+            bool open = filterCard.Visibility == Visibility.Visible;
+            int activeCount = ActiveFilterCount();
+            bool active = activeCount > 0;
+            string label = active ? $"상세 필터 ({activeCount})" : "상세 필터";
+            var fg = (open || active) ? ModernUi.AccentBrush : ModernUi.InkBrush;
+            var bg = (open || active) ? ModernUi.AccentSoftBrush : ModernUi.CardBrush;
+            var bd = (open || active) ? ModernUi.AccentBorderBrush : ModernUi.InputBorderBrush;
+            SetPillButtonVisual(filterToggle, open ? $"{label} ▴" : $"{label} ▾", fg, bg, bd);
+        }
+
         filterToggle.Click += (_, _) =>
         {
             bool open = filterCard.Visibility == Visibility.Visible;
             filterCard.Visibility = open ? Visibility.Collapsed : Visibility.Visible;
-            filterToggle.Content = open ? "상세 필터 ▾" : "상세 필터 ▴";
+            UpdateFilterToggleVisual();
         };
+
+        filterResetBtn.Click += (_, _) =>
+        {
+            range.SelectedIndex = 0;
+            kind.SelectedIndex = 0;
+            done.SelectedIndex = 0;
+            color.SelectedIndex = 0;
+            meaning.IsChecked = false;
+            deleted.IsChecked = false;
+            UpdateFilterToggleVisual();
+        };
+
+        foreach (var c in new[] { range, kind, done, color })
+            c.SelectionChanged += (_, _) => UpdateFilterToggleVisual();
+        meaning.Click += (_, _) =>
+        {
+            UpdateFilterToggleVisual();
+            if (meaning.IsChecked == true && host.SyncIndex is not null) _ = host.SyncIndex();
+        };
+        deleted.Click += (_, _) => UpdateFilterToggleVisual();
+
         chipRow.Children.Add(filterToggle);
 
         // ---- Composer ----
         var box = new TextBox
         {
             FontSize = 13.5,
-            Padding = new Thickness(10, 8, 10, 8),
+            Padding = new Thickness(12, 9, 32, 9),
             AcceptsReturn = false,
             VerticalContentAlignment = VerticalAlignment.Center,
             Background = ModernUi.CardBrush,
@@ -178,30 +253,81 @@ internal static class CalendarChatWindow
         };
         input = box;
 
+        var placeholder = new TextBlock
+        {
+            Text = "일정 등록, 조회, 검색어를 입력하세요… (예: 내일 오후 2시 팀 회의 1시간)",
+            FontSize = 13,
+            Foreground = ModernUi.MutedBrush,
+            Opacity = 0.75,
+            Margin = new Thickness(13, 0, 34, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+
+        var clearInputBtn = new Button
+        {
+            Content = "✕",
+            Width = 22,
+            Height = 22,
+            FontSize = 11,
+            Foreground = ModernUi.MutedBrush,
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 6, 0),
+            Cursor = Cursors.Hand,
+            Visibility = Visibility.Collapsed,
+            ToolTip = "입력 지우기",
+            Template = FlatHoverButtonTemplate(ModernUi.HoverBrush, new CornerRadius(11)),
+        };
+        clearInputBtn.Click += (_, _) => { box.Text = ""; box.Focus(); };
+
+        var boxContainer = new Grid();
+        boxContainer.Children.Add(box);
+        boxContainer.Children.Add(placeholder);
+        boxContainer.Children.Add(clearInputBtn);
+
         var sendBtn = ModernUi.PrimaryBtn("보내기 (Enter)", (_, _) => { }, isDefault: true);
         sendBtn.Margin = new Thickness(8, 0, 0, 0);
+        sendBtn.Padding = new Thickness(16, 9, 16, 9);
 
         var inputGrid = new Grid();
         inputGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         inputGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        Grid.SetColumn(box, 0);
+        Grid.SetColumn(boxContainer, 0);
         Grid.SetColumn(sendBtn, 1);
-        inputGrid.Children.Add(box);
+        inputGrid.Children.Add(boxContainer);
         inputGrid.Children.Add(sendBtn);
+
+        var liveBadge = ModernUi.Pill("안내", ModernUi.MutedBrush, ModernUi.HoverBrush);
+        liveBadge.Margin = new Thickness(0, 0, 8, 0);
 
         var livePreview = new TextBlock
         {
             FontSize = 11.5,
             Foreground = ModernUi.MutedBrush,
-            Margin = new Thickness(2, 6, 2, 0),
-            TextWrapping = TextWrapping.Wrap,
-            Text = "예) \"내일 오후 2시 팀 회의 1시간\" · \"이번 주 일정 보여줘\" · \"유엔파인\" · \"다음 주 비는 시간 알려줘\"",
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Text = "\"이번 주 일정 보여줘\" · \"오늘 빈 시간\" · \"주간보고 찾아줘\" · \"다음 주 화요일 3시 치과\"",
         };
+
+        var previewRow = new DockPanel { Margin = new Thickness(2, 7, 2, 0) };
+        DockPanel.SetDock(liveBadge, Dock.Left);
+        previewRow.Children.Add(liveBadge);
+        previewRow.Children.Add(livePreview);
 
         var composerStack = new StackPanel();
         composerStack.Children.Add(inputGrid);
-        composerStack.Children.Add(livePreview);
-        var composerCard = ModernUi.Card(composerStack, padding: new Thickness(12, 10, 12, 10), margin: new Thickness(0, 8, 0, 0));
+        composerStack.Children.Add(previewRow);
+        var composerCard = ModernUi.Card(composerStack, padding: new Thickness(12, 10, 12, 9), margin: new Thickness(0, 8, 0, 0));
+
+        CancellationTokenSource? cts = null;
+        bool busy = false;
+        var promptHistory = new List<string>();
+        int historyIdx = -1;
+        string draftBeforeHistory = "";
 
         // ---- Footer ----
         Button undo = null!;
@@ -209,17 +335,32 @@ internal static class CalendarChatWindow
         undo = ModernUi.SecondaryBtn("마지막 추가 되돌리기", (_, _) => { AiUndo.Run(win, host.Batch, host.Changed); UpdateUndo(); });
         var clearBtn = ModernUi.SecondaryBtn("대화 지우기", (_, _) =>
         {
+            cts?.Cancel();
             messages.Children.Clear();
-            AddWelcome(messages, host.Service.AiAvailable);
+            AddWelcome(messages, host.Service.AiAvailable, p => SendPrompt(p));
             feed.ScrollToEnd();
+            box.Focus();
         });
         var closeBtn = ModernUi.SecondaryBtn("닫기 (Esc)", (_, _) => win.Close());
         var footer = ModernUi.ActionFooter([undo, clearBtn], closeBtn);
 
-        CancellationTokenSource? cts = null;
-        bool busy = false;
+        void ScrollBottom()
+        {
+            feed.ScrollToEnd();
+            win.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () => feed.ScrollToEnd());
+        }
 
-        void ScrollBottom() => win.Dispatcher.BeginInvoke(() => feed.ScrollToEnd());
+        void SetLiveBadge(string tag, Brush fg, Brush bg, string message)
+        {
+            if (liveBadge.Child is TextBlock tb)
+            {
+                tb.Text = tag;
+                tb.Foreground = fg;
+            }
+            liveBadge.Background = bg;
+            livePreview.Foreground = fg == ModernUi.MutedBrush ? ModernUi.MutedBrush : fg;
+            livePreview.Text = message;
+        }
 
         void AppendUserBubble(string text)
         {
@@ -229,18 +370,44 @@ internal static class CalendarChatWindow
                 TextWrapping = TextWrapping.Wrap,
                 Foreground = Brushes.White,
                 FontSize = 13,
+                LineHeight = 19,
             };
             var bubble = new Border
             {
                 Background = ModernUi.AccentBrush,
-                CornerRadius = new CornerRadius(12, 12, 2, 12),
-                Padding = new Thickness(12, 8, 12, 8),
-                Margin = new Thickness(64, 4, 0, 6),
+                CornerRadius = new CornerRadius(14, 14, 3, 14),
+                Padding = new Thickness(14, 8, 14, 8),
+                Margin = new Thickness(72, 4, 2, 8),
                 HorizontalAlignment = HorizontalAlignment.Right,
                 Child = tb,
             };
             messages.Children.Add(bubble);
             ScrollBottom();
+        }
+
+        UIElement WrapWithAssistantAvatar(UIElement cardOrBubble)
+        {
+            var row = new Grid { Margin = new Thickness(0, 2, 16, 8) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var avatar = new Border
+            {
+                Width = 28,
+                Height = 28,
+                CornerRadius = new CornerRadius(8),
+                Background = ModernUi.AccentSoftBrush,
+                BorderBrush = ModernUi.AccentBorderBrush,
+                BorderThickness = new Thickness(1),
+                Margin = new Thickness(0, 2, 10, 0),
+                VerticalAlignment = VerticalAlignment.Top,
+                Child = ModernUi.FlatIcon(ModernUi.Icons.Sparkles, ModernUi.AccentBrush, 14, 2.0),
+            };
+            Grid.SetColumn(avatar, 0);
+            Grid.SetColumn(cardOrBubble, 1);
+            row.Children.Add(avatar);
+            row.Children.Add(cardOrBubble);
+            return row;
         }
 
         void AppendAssistantText(string text, Brush? bg = null, Brush? fg = null)
@@ -258,13 +425,12 @@ internal static class CalendarChatWindow
                 Background = bg ?? ModernUi.CardBrush,
                 BorderBrush = ModernUi.LineBrush,
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(12, 12, 12, 2),
-                Padding = new Thickness(12, 9, 12, 9),
-                Margin = new Thickness(0, 4, 48, 6),
+                CornerRadius = new CornerRadius(3, 12, 12, 12),
+                Padding = new Thickness(14, 10, 14, 10),
                 HorizontalAlignment = HorizontalAlignment.Left,
                 Child = tb,
             };
-            messages.Children.Add(bubble);
+            messages.Children.Add(WrapWithAssistantAvatar(bubble));
             ScrollBottom();
         }
 
@@ -275,22 +441,107 @@ internal static class CalendarChatWindow
             bool viaAi = p.Source == ParseSource.Llm;
 
             var cardBody = new StackPanel();
+
+            // Top row: Interpretation badge on left + Accuracy feedback on right
+            var topRow = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
             var badge = ModernUi.Pill(
                 viaAi ? "AI 해석 (날짜·시각 확인)" : "규칙 해석",
                 viaAi ? ModernUi.WarnBrush : ModernUi.AccentBrush,
                 viaAi ? ModernUi.WarnSoftBrush : ModernUi.AccentSoftBrush);
-            badge.HorizontalAlignment = HorizontalAlignment.Left;
-            badge.Margin = new Thickness(0, 0, 0, 6);
-            cardBody.Children.Add(badge);
+            DockPanel.SetDock(badge, Dock.Left);
 
-            cardBody.Children.Add(new TextBlock { Text = title, FontSize = 15, FontWeight = FontWeights.SemiBold, Foreground = ModernUi.InkBrush, TextWrapping = TextWrapping.Wrap });
-            cardBody.Children.Add(new TextBlock { Text = when, FontSize = 12.5, Foreground = ModernUi.InkBrush, Margin = new Thickness(0, 3, 0, 0) });
+            var rightBtn = ModernUi.ChipBtn("맞음", (_, _) => { });
+            var wrongBtn = ModernUi.ChipBtn("틀림", (_, _) => { });
+            rightBtn.Padding = wrongBtn.Padding = new Thickness(8, 2, 8, 2);
+            rightBtn.FontSize = wrongBtn.FontSize = 11;
+            rightBtn.Margin = new Thickness(0, 0, 4, 0);
+            wrongBtn.Margin = new Thickness(0);
+            var fbLabel = new TextBlock
+            {
+                Text = "해석 정확도:",
+                FontSize = 11,
+                Foreground = ModernUi.MutedBrush,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0),
+            };
+            bool fbDone = false;
+            void Mark(bool ok)
+            {
+                if (fbDone) return;
+                fbDone = true;
+                host.Accuracy.Record(p.Source, ok);
+                fbLabel.Text = ok ? "기록됨 (맞음 ✓)" : "기록됨 (틀림)";
+                rightBtn.Visibility = wrongBtn.Visibility = Visibility.Collapsed;
+            }
+            rightBtn.Click += (_, _) => Mark(true);
+            wrongBtn.Click += (_, _) => Mark(false);
+
+            var fbPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+            fbPanel.Children.Add(fbLabel);
+            fbPanel.Children.Add(rightBtn);
+            fbPanel.Children.Add(wrongBtn);
+            DockPanel.SetDock(fbPanel, Dock.Right);
+
+            topRow.Children.Add(badge);
+            topRow.Children.Add(fbPanel);
+            cardBody.Children.Add(topRow);
+
+            cardBody.Children.Add(new TextBlock
+            {
+                Text = title,
+                FontSize = 15,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = ModernUi.InkBrush,
+                TextWrapping = TextWrapping.Wrap,
+            });
+            cardBody.Children.Add(new TextBlock
+            {
+                Text = when,
+                FontSize = 12.5,
+                Foreground = ModernUi.InkBrush,
+                Margin = new Thickness(0, 4, 0, 0),
+            });
             if (more.Length > 0)
-                cardBody.Children.Add(new TextBlock { Text = more, FontSize = 12, Foreground = ModernUi.MutedBrush, Margin = new Thickness(0, 2, 0, 0), TextWrapping = TextWrapping.Wrap });
+                cardBody.Children.Add(new TextBlock
+                {
+                    Text = more,
+                    FontSize = 12,
+                    Foreground = ModernUi.MutedBrush,
+                    Margin = new Thickness(0, 2, 0, 0),
+                    TextWrapping = TextWrapping.Wrap,
+                });
+            var notes = p.Warnings.Where(w => !w.StartsWith("AI 가 해석", StringComparison.Ordinal)).ToList();
+            if (notes.Count > 0)
+                cardBody.Children.Add(new TextBlock
+                {
+                    Text = string.Join("\n", notes.Select(n => "· " + n)),
+                    FontSize = 11.5,
+                    Foreground = ModernUi.MutedBrush,
+                    Margin = new Thickness(0, 4, 0, 0),
+                    TextWrapping = TextWrapping.Wrap,
+                });
             if (p.ConflictList.Count > 0)
-                cardBody.Children.Add(new TextBlock { Text = "⚠ " + string.Join("\n⚠ ", p.ConflictList), FontSize = 12, Foreground = ModernUi.DangerBrush, Margin = new Thickness(0, 5, 0, 0), TextWrapping = TextWrapping.Wrap });
+            {
+                var clashBox = new Border
+                {
+                    Background = ModernUi.DangerSoftBrush,
+                    BorderBrush = ModernUi.DangerBorderBrush,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(6),
+                    Padding = new Thickness(10, 6, 10, 6),
+                    Margin = new Thickness(0, 8, 0, 0),
+                    Child = new TextBlock
+                    {
+                        Text = "⚠ " + string.Join("\n⚠ ", p.ConflictList),
+                        FontSize = 12,
+                        Foreground = ModernUi.DangerBrush,
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                };
+                cardBody.Children.Add(clashBox);
+            }
 
-            var statusNote = new TextBlock { FontSize = 11.5, Foreground = ModernUi.SuccessBrush, Margin = new Thickness(0, 6, 0, 0), Visibility = Visibility.Collapsed };
+            var statusNote = new TextBlock { FontSize = 11.5, Foreground = ModernUi.SuccessBrush, Margin = new Thickness(0, 8, 0, 0), Visibility = Visibility.Collapsed };
 
             Button addBtn = null!;
             Button editBtn = null!;
@@ -310,114 +561,250 @@ internal static class CalendarChatWindow
                 addBtn.IsEnabled = false;
                 addBtn.Content = "추가됨 ✓";
                 statusNote.Foreground = ModernUi.SuccessBrush;
-                statusNote.Text = $"{targetDate:yyyy-MM-dd} 날짜에 등록했습니다.";
+                statusNote.Text = $"{targetDate:yyyy-MM-dd} 날짜에 등록하고 달력을 이동했습니다.";
                 statusNote.Visibility = Visibility.Visible;
             });
-            editBtn = ModernUi.SecondaryBtn("편집기로 열기", (_, _) =>
-            {
-                host.OpenEditor(targetDate);
-            });
+            editBtn = ModernUi.SecondaryBtn("편집기로 열기", (_, _) => host.OpenEditor(targetDate));
 
-            var rightBtn = ModernUi.SecondaryBtn("맞음", (_, _) => { });
-            var wrongBtn = ModernUi.SecondaryBtn("틀림", (_, _) => { });
-            rightBtn.Padding = wrongBtn.Padding = new Thickness(8, 3, 8, 3);
-            rightBtn.FontSize = wrongBtn.FontSize = 11.5;
-            var fbLabel = new TextBlock { Text = "정확도:", FontSize = 11.5, Foreground = ModernUi.MutedBrush, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 4, 0) };
-            bool fbDone = false;
-            void Mark(bool ok)
-            {
-                if (fbDone) return;
-                fbDone = true;
-                host.Accuracy.Record(p.Source, ok);
-                fbLabel.Text = ok ? "기록됨 (맞음)" : "기록됨 (틀림)";
-                rightBtn.Visibility = wrongBtn.Visibility = Visibility.Collapsed;
-            }
-            rightBtn.Click += (_, _) => Mark(true);
-            wrongBtn.Click += (_, _) => Mark(false);
-
-            var actions = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
-            addBtn.Margin = new Thickness(0, 0, 6, 4);
-            editBtn.Margin = new Thickness(0, 0, 6, 4);
-            rightBtn.Margin = new Thickness(0, 0, 4, 4);
-            wrongBtn.Margin = new Thickness(0, 0, 0, 4);
+            var actions = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
             actions.Children.Add(addBtn);
             actions.Children.Add(editBtn);
-            actions.Children.Add(fbLabel);
-            actions.Children.Add(rightBtn);
-            actions.Children.Add(wrongBtn);
 
             cardBody.Children.Add(actions);
             cardBody.Children.Add(statusNote);
 
-            var card = ModernUi.Card(cardBody, padding: new Thickness(12, 10, 12, 10), margin: new Thickness(0, 4, 36, 8));
-            card.BorderBrush = ModernUi.AccentBrush;
-            messages.Children.Add(card);
+            var card = ModernUi.Card(cardBody, padding: new Thickness(14, 12, 14, 12), margin: new Thickness(0));
+            card.BorderBrush = ModernUi.AccentBorderBrush;
+            card.BorderThickness = new Thickness(1.5);
+            messages.Children.Add(WrapWithAssistantAvatar(card));
             ScrollBottom();
         }
 
         void AppendQueryCard(QueryRequest q, IReadOnlyList<QueryRow> rows)
         {
             var stack = new StackPanel();
-            stack.Children.Add(new TextBlock
+
+            var headerRow = new DockPanel { Margin = new Thickness(2, 0, 2, rows.Count == 0 ? 0 : 8) };
+            var countPill = ModernUi.Pill(
+                rows.Count == 0 ? "없음" : $"{rows.Count}건",
+                rows.Count == 0 ? ModernUi.MutedBrush : ModernUi.AccentBrush,
+                rows.Count == 0 ? ModernUi.HoverBrush : ModernUi.AccentSoftBrush);
+            DockPanel.SetDock(countPill, Dock.Right);
+            headerRow.Children.Add(countPill);
+            headerRow.Children.Add(new TextBlock
             {
-                Text = $"{q.Label} — {(rows.Count == 0 ? "일정이 없습니다" : $"{rows.Count}건")}",
-                FontSize = 13,
+                Text = q.Label,
+                FontSize = 13.5,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = ModernUi.InkBrush,
-                Margin = new Thickness(0, 0, 0, rows.Count == 0 ? 0 : 6),
+                VerticalAlignment = VerticalAlignment.Center,
             });
+            stack.Children.Add(headerRow);
 
+            if (rows.Count == 0)
+            {
+                stack.Children.Add(new TextBlock
+                {
+                    Text = "해당 기간에 등록된 일정이나 할 일이 없습니다.",
+                    FontSize = 12.5,
+                    Foreground = ModernUi.MutedBrush,
+                    Margin = new Thickness(2, 4, 2, 2),
+                });
+            }
+            else
+            {
+                stack.Children.Add(new Border { Height = 1, Background = ModernUi.LineBrush, Margin = new Thickness(0, 0, 0, 4) });
+            }
+
+            DateOnly? prevDate = null;
             foreach (var r in rows.Take(40))
             {
+                bool sameDayAsPrev = prevDate == r.Date;
+                bool isFirstRow = prevDate is null;
+                prevDate = r.Date;
+
+                if (!isFirstRow && !sameDayAsPrev)
+                {
+                    stack.Children.Add(new Border
+                    {
+                        Height = 1,
+                        Background = ModernUi.CardAltBrush,
+                        Margin = new Thickness(4, 2, 4, 2),
+                    });
+                }
+
+                var rowGrid = new Grid();
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(82) });
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                Brush dateFg = r.Date.DayOfWeek switch
+                {
+                    DayOfWeek.Sunday => SundayBrush,
+                    DayOfWeek.Saturday => SaturdayBrush,
+                    _ => ModernUi.InkBrush,
+                };
+
+                var dateBlock = new TextBlock
+                {
+                    Text = sameDayAsPrev ? "" : $"{r.Date:MM-dd} ({AiText.Dow[(int)r.Date.DayOfWeek]})",
+                    FontSize = 12,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = dateFg,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                Grid.SetColumn(dateBlock, 0);
+
+                Border kindBadge;
+                if (r.IsItem)
+                {
+                    kindBadge = ModernUi.Pill(
+                        r.Done ? "✓ 완료" : "할 일",
+                        r.Done ? ModernUi.MutedBrush : ModernUi.SuccessBrush,
+                        r.Done ? ModernUi.HoverBrush : ModernUi.SuccessSoftBrush);
+                }
+                else if (q.FreeTime)
+                {
+                    kindBadge = ModernUi.Pill(r.Time, ModernUi.SuccessBrush, ModernUi.SuccessSoftBrush);
+                }
+                else
+                {
+                    kindBadge = ModernUi.Pill(
+                        r.Time,
+                        r.Time == "종일" ? ModernUi.AccentBrush : ModernUi.InkBrush,
+                        r.Time == "종일" ? ModernUi.AccentSoftBrush : ModernUi.CardAltBrush,
+                        border: r.Time == "종일" ? null : ModernUi.LineBrush);
+                }
+                kindBadge.HorizontalAlignment = HorizontalAlignment.Left;
+                kindBadge.Margin = new Thickness(0, 0, 8, 0);
+                Grid.SetColumn(kindBadge, 1);
+
+                var titleBlock = new TextBlock
+                {
+                    Text = r.Title,
+                    FontSize = 12.5,
+                    Foreground = r.IsItem && r.Done ? ModernUi.MutedBrush : ModernUi.InkBrush,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                if (r.IsItem && r.Done)
+                {
+                    titleBlock.TextDecorations = TextDecorations.Strikethrough;
+                    titleBlock.Opacity = 0.65;
+                }
+                Grid.SetColumn(titleBlock, 2);
+
+                var jumpHint = new TextBlock
+                {
+                    Text = "이동 ›",
+                    FontSize = 11,
+                    Foreground = ModernUi.MutedBrush,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(8, 0, 2, 0),
+                };
+                Grid.SetColumn(jumpHint, 3);
+
+                rowGrid.Children.Add(dateBlock);
+                rowGrid.Children.Add(kindBadge);
+                rowGrid.Children.Add(titleBlock);
+                rowGrid.Children.Add(jumpHint);
+
                 var rowBtn = new Button
                 {
-                    HorizontalContentAlignment = HorizontalAlignment.Left,
+                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
                     Background = Brushes.Transparent,
                     BorderThickness = new Thickness(0),
-                    Padding = new Thickness(6, 4, 6, 4),
+                    Padding = new Thickness(6, 5, 6, 5),
+                    Margin = new Thickness(0, 1, 0, 1),
                     Cursor = Cursors.Hand,
-                    Content = new TextBlock
-                    {
-                        Text = $"{r.Date:MM-dd} ({AiText.Dow[(int)r.Date.DayOfWeek]})   {(r.IsItem ? (r.Done ? "✓ " : "☐ ") : r.Time + "  ")}{r.Title}",
-                        FontSize = 12.5,
-                        Foreground = r.IsItem && r.Done ? ModernUi.MutedBrush : ModernUi.InkBrush,
-                        TextTrimming = TextTrimming.CharacterEllipsis,
-                    },
-                    ToolTip = "클릭하면 달력에서 해당 날짜로 이동합니다",
+                    Content = rowGrid,
+                    ToolTip = $"{r.Date:yyyy-MM-dd} 날짜로 달력 이동",
+                    Template = FlatHoverButtonTemplate(ModernUi.HoverBrush, new CornerRadius(6)),
                 };
                 rowBtn.Click += (_, _) => host.GoTo(r.Date);
                 stack.Children.Add(rowBtn);
             }
-            if (rows.Count > 0)
-                stack.Children.Add(new TextBlock { Text = "항목을 클릭하면 달력이 그 날짜로 이동합니다.", FontSize = 11, Foreground = ModernUi.MutedBrush, Margin = new Thickness(0, 4, 0, 0) });
 
-            messages.Children.Add(ModernUi.Card(stack, padding: new Thickness(12, 10, 12, 10), margin: new Thickness(0, 4, 24, 8)));
+            if (rows.Count > 40)
+            {
+                stack.Children.Add(new TextBlock
+                {
+                    Text = $"…외 {rows.Count - 40}건 더 있습니다. (상세 필터나 더 짧은 기간으로 좁혀 보세요)",
+                    FontSize = 11,
+                    Foreground = ModernUi.MutedBrush,
+                    Margin = new Thickness(4, 6, 0, 0),
+                });
+            }
+            else if (rows.Count > 0)
+            {
+                stack.Children.Add(new TextBlock
+                {
+                    Text = "항목을 클릭하면 달력이 해당 날짜로 이동합니다.",
+                    FontSize = 11,
+                    Foreground = ModernUi.MutedBrush,
+                    Margin = new Thickness(4, 6, 0, 0),
+                });
+            }
+
+            var card = ModernUi.Card(stack, padding: new Thickness(14, 12, 14, 10), margin: new Thickness(0));
+            messages.Children.Add(WrapWithAssistantAvatar(card));
             ScrollBottom();
         }
 
         void AppendSearchCard(string titleText, IReadOnlyList<SearchHit> hits, string? note = null)
         {
             var stack = new StackPanel();
-            stack.Children.Add(new TextBlock
+            var headerRow = new DockPanel { Margin = new Thickness(2, 0, 2, hits.Count == 0 ? 0 : 8) };
+            var countPill = ModernUi.Pill(
+                hits.Count == 0 ? "0건" : $"{hits.Count}건",
+                hits.Count == 0 ? ModernUi.MutedBrush : ModernUi.AccentBrush,
+                hits.Count == 0 ? ModernUi.HoverBrush : ModernUi.AccentSoftBrush);
+            DockPanel.SetDock(countPill, Dock.Right);
+            headerRow.Children.Add(countPill);
+            headerRow.Children.Add(new TextBlock
             {
-                Text = $"{titleText} — {(hits.Count == 0 ? "결과가 없습니다" : $"{hits.Count}건")}",
-                FontSize = 13,
+                Text = titleText,
+                FontSize = 13.5,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = ModernUi.InkBrush,
-                Margin = new Thickness(0, 0, 0, hits.Count == 0 ? 0 : 6),
+                VerticalAlignment = VerticalAlignment.Center,
             });
+            stack.Children.Add(headerRow);
+
             if (!string.IsNullOrWhiteSpace(note))
-                stack.Children.Add(new TextBlock { Text = note, FontSize = 11.5, Foreground = ModernUi.MutedBrush, Margin = new Thickness(0, 0, 0, 6), TextWrapping = TextWrapping.Wrap });
+                stack.Children.Add(new TextBlock { Text = note, FontSize = 11.5, Foreground = ModernUi.MutedBrush, Margin = new Thickness(2, 0, 2, 6), TextWrapping = TextWrapping.Wrap });
+
+            if (hits.Count == 0)
+            {
+                stack.Children.Add(new TextBlock
+                {
+                    Text = "일치하는 일정이나 할 일을 찾지 못했습니다.",
+                    FontSize = 12.5,
+                    Foreground = ModernUi.MutedBrush,
+                    Margin = new Thickness(2, 4, 2, 2),
+                });
+            }
+            else
+            {
+                stack.Children.Add(new Border { Height = 1, Background = ModernUi.LineBrush, Margin = new Thickness(0, 0, 0, 4) });
+            }
 
             foreach (var h in hits.Take(35))
             {
-                var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
+                var row = new DockPanel { Margin = new Thickness(0, 1, 0, 1) };
+                Brush hitDateFg = h.Date.DayOfWeek switch
+                {
+                    DayOfWeek.Sunday => SundayBrush,
+                    DayOfWeek.Saturday => SaturdayBrush,
+                    _ => ModernUi.MutedBrush,
+                };
                 var dateText = new TextBlock
                 {
-                    Text = h.Date.ToString("yyyy-MM-dd ddd", CultureInfo.CurrentCulture),
-                    Width = 108,
+                    Text = h.Date.ToString("yyyy-MM-dd (ddd)", CultureInfo.CurrentCulture),
+                    Width = 112,
                     FontSize = 11.5,
-                    Foreground = ModernUi.MutedBrush,
+                    Foreground = hitDateFg,
                     VerticalAlignment = VerticalAlignment.Center,
                 };
                 var pill = ModernUi.Pill(
@@ -426,10 +813,11 @@ internal static class CalendarChatWindow
                     h.Kind == SearchKind.Event ? ModernUi.AccentSoftBrush : h.Done ? ModernUi.HoverBrush : ModernUi.SuccessSoftBrush);
                 pill.Margin = new Thickness(0, 0, 8, 0);
 
-                var actionPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                var actionPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
                 var goBtn = ModernUi.SecondaryBtn("이동", (_, _) => host.GoTo(h.Date));
-                goBtn.Padding = new Thickness(7, 2, 7, 2);
+                goBtn.Padding = new Thickness(8, 2, 8, 2);
                 goBtn.FontSize = 11;
+                goBtn.Margin = new Thickness(0);
                 actionPanel.Children.Add(goBtn);
 
                 if (h.Kind == SearchKind.Item && !h.Deleted)
@@ -439,7 +827,7 @@ internal static class CalendarChatWindow
                         var item = host.Items.Get(h.Id);
                         if (item is not null && HistoryWindow.Show(win, host.Items, host.History, item)) host.Changed();
                     });
-                    histBtn.Padding = new Thickness(7, 2, 7, 2);
+                    histBtn.Padding = new Thickness(8, 2, 8, 2);
                     histBtn.FontSize = 11;
                     histBtn.Margin = new Thickness(4, 0, 0, 0);
                     actionPanel.Children.Add(histBtn);
@@ -451,7 +839,7 @@ internal static class CalendarChatWindow
                     {
                         if (host.Items.Undelete(h.Id)) { host.Changed(); restoreBtn.IsEnabled = false; restoreBtn.Content = "복원됨"; }
                     });
-                    restoreBtn.Padding = new Thickness(7, 2, 7, 2);
+                    restoreBtn.Padding = new Thickness(8, 2, 8, 2);
                     restoreBtn.FontSize = 11;
                     restoreBtn.Margin = new Thickness(4, 0, 0, 0);
                     actionPanel.Children.Add(restoreBtn);
@@ -463,7 +851,7 @@ internal static class CalendarChatWindow
                     FontSize = 12.5,
                     TextTrimming = TextTrimming.CharacterEllipsis,
                     VerticalAlignment = VerticalAlignment.Center,
-                    Foreground = h.TextColor is { Length: > 0 } hex && UiColors.TryBrush(hex) is { } b ? b : ModernUi.InkBrush,
+                    Foreground = ModernUi.InkBrush,
                 };
                 if (h.Done || h.Deleted) { label.TextDecorations = TextDecorations.Strikethrough; label.Opacity = 0.6; }
 
@@ -472,6 +860,22 @@ internal static class CalendarChatWindow
                 DockPanel.SetDock(pill, Dock.Left);
                 itemContent.Children.Add(dateText);
                 itemContent.Children.Add(pill);
+                if (h.TextColor is { Length: > 0 } hex && UiColors.TryBrush(hex) is { } colorDotBrush)
+                {
+                    var dot = new Border
+                    {
+                        Width = 8,
+                        Height = 8,
+                        CornerRadius = new CornerRadius(4),
+                        Background = colorDotBrush,
+                        BorderBrush = ModernUi.InputBorderBrush,
+                        BorderThickness = new Thickness(0.6),
+                        Margin = new Thickness(0, 0, 6, 0),
+                        VerticalAlignment = VerticalAlignment.Center,
+                    };
+                    DockPanel.SetDock(dot, Dock.Left);
+                    itemContent.Children.Add(dot);
+                }
                 itemContent.Children.Add(label);
 
                 var hitBtn = new Button
@@ -479,10 +883,11 @@ internal static class CalendarChatWindow
                     HorizontalContentAlignment = HorizontalAlignment.Stretch,
                     Background = Brushes.Transparent,
                     BorderThickness = new Thickness(0),
-                    Padding = new Thickness(4, 3, 6, 3),
+                    Padding = new Thickness(6, 4, 6, 4),
                     Cursor = Cursors.Hand,
                     Content = itemContent,
                     ToolTip = "클릭하면 달력에서 해당 날짜로 이동합니다",
+                    Template = FlatHoverButtonTemplate(ModernUi.HoverBrush, new CornerRadius(6)),
                 };
                 hitBtn.Click += (_, _) => host.GoTo(h.Date);
 
@@ -492,9 +897,10 @@ internal static class CalendarChatWindow
                 stack.Children.Add(row);
             }
             if (hits.Count > 35)
-                stack.Children.Add(new TextBlock { Text = $"…외 {hits.Count - 35}건 더 있음 (검색어 또는 상세 필터로 좁혀 보세요)", FontSize = 11, Foreground = ModernUi.MutedBrush, Margin = new Thickness(0, 4, 0, 0) });
+                stack.Children.Add(new TextBlock { Text = $"…외 {hits.Count - 35}건 더 있음 (검색어 또는 상세 필터로 좁혀 보세요)", FontSize = 11, Foreground = ModernUi.MutedBrush, Margin = new Thickness(4, 6, 0, 0) });
 
-            messages.Children.Add(ModernUi.Card(stack, padding: new Thickness(12, 10, 12, 10), margin: new Thickness(0, 4, 16, 8)));
+            var card = ModernUi.Card(stack, padding: new Thickness(14, 12, 14, 10), margin: new Thickness(0));
+            messages.Children.Add(WrapWithAssistantAvatar(card));
             ScrollBottom();
         }
 
@@ -521,6 +927,10 @@ internal static class CalendarChatWindow
         {
             string typed = (forcedPrompt ?? box.Text).Trim();
             if (typed.Length == 0 || busy) return;
+            if (promptHistory.Count == 0 || promptHistory[^1] != typed)
+                promptHistory.Add(typed);
+            historyIdx = -1;
+            draftBeforeHistory = "";
             if (forcedPrompt is null) box.Text = "";
             AppendUserBubble(typed);
 
@@ -549,7 +959,19 @@ internal static class CalendarChatWindow
 
             // 3) Keyword / semantic search against local calendar
             var searchTerm = StripSearchCue(typed);
+            if (looksLikeSearch && string.IsNullOrWhiteSpace(searchTerm))
+            {
+                if (HasActiveFilter())
+                {
+                    await RunFilterSearchAsync("");
+                    return;
+                }
+                AppendAssistantText("검색할 키워드를 함께 입력해 주세요.\n예) \"주간보고 찾아줘\", \"치과 검색\"\n또는 상단의 '상세 필터'를 열어 조건으로 바로 검색할 수 있습니다.");
+                return;
+            }
+
             var searchQ = BuildSearchQuery(searchTerm, filters, today, weekStart);
+            string searchTitle = string.IsNullOrWhiteSpace(searchTerm) ? "상세 필터 검색" : $"'{searchTerm}'";
             if (filters.Meaning.IsChecked == true && host.Semantic is not null)
             {
                 cts?.Cancel();
@@ -557,7 +979,7 @@ internal static class CalendarChatWindow
                 var sem = await host.Semantic.SearchAsync(searchQ, today, weekStart, cts.Token, 50);
                 if (sem.Hits.Count > 0 || looksLikeSearch)
                 {
-                    AppendSearchCard($"'{searchTerm}' 의미 검색", sem.Hits, sem.Note);
+                    AppendSearchCard($"{searchTitle} 의미 검색", sem.Hits, sem.Note);
                     return;
                 }
             }
@@ -566,7 +988,7 @@ internal static class CalendarChatWindow
                 var hits = host.Search.Run(searchQ, 100);
                 if (hits.Count > 0 || looksLikeSearch)
                 {
-                    AppendSearchCard($"'{searchTerm}' 검색 결과", hits);
+                    AppendSearchCard($"{searchTitle} 검색 결과", hits);
                     return;
                 }
             }
@@ -583,10 +1005,39 @@ internal static class CalendarChatWindow
             cts?.Cancel();
             cts = new CancellationTokenSource();
             var token = cts.Token;
-            livePreview.Text = "AI 가 생각하고 있습니다… (Esc 로 취소)";
+            SetLiveBadge("AI 처리중", ModernUi.AccentBrush, ModernUi.AccentSoftBrush, "AI 가 생각하고 있습니다… (Esc 로 취소)");
+
+            var cancelInline = ModernUi.ChipBtn("취소", (_, _) => cts?.Cancel());
+            cancelInline.Padding = new Thickness(8, 2, 8, 2);
+            cancelInline.FontSize = 11;
+            cancelInline.Margin = new Thickness(10, 0, 0, 0);
+            var thinkingRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            thinkingRow.Children.Add(new TextBlock
+            {
+                Text = "AI가 일정을 확인하고 답변을 준비 중입니다…",
+                FontSize = 12.5,
+                Foreground = ModernUi.MutedBrush,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            thinkingRow.Children.Add(cancelInline);
+            var thinkingBubble = new Border
+            {
+                Background = ModernUi.CardBrush,
+                BorderBrush = ModernUi.LineBrush,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(3, 12, 12, 12),
+                Padding = new Thickness(14, 9, 14, 9),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Child = thinkingRow,
+            };
+            var thinkingElement = WrapWithAssistantAvatar(thinkingBubble);
+            messages.Children.Add(thinkingElement);
+            ScrollBottom();
+
             try
             {
                 var aiOutcome = await host.Service.ParseAsync(typed, today, weekStart, token);
+                messages.Children.Remove(thinkingElement);
                 if (aiOutcome.Proposal is { } aiProp)
                 {
                     AppendProposalCard(aiProp, typed);
@@ -610,14 +1061,17 @@ internal static class CalendarChatWindow
             }
             catch (OperationCanceledException)
             {
+                messages.Children.Remove(thinkingElement);
                 AppendAssistantText("AI 요청을 취소했습니다.");
             }
             catch (Exception ex)
             {
+                messages.Children.Remove(thinkingElement);
                 AppendAssistantText("AI 응답 중 오류가 발생했습니다: " + ex.Message, ModernUi.WarnSoftBrush, ModernUi.WarnBrush);
             }
             finally
             {
+                messages.Children.Remove(thinkingElement);
                 busy = false;
                 sendBtn.IsEnabled = true;
                 UpdateLivePreview();
@@ -626,48 +1080,54 @@ internal static class CalendarChatWindow
 
         void UpdateLivePreview()
         {
+            string raw = box.Text;
+            placeholder.Visibility = string.IsNullOrEmpty(raw) ? Visibility.Visible : Visibility.Collapsed;
+            clearInputBtn.Visibility = string.IsNullOrEmpty(raw) ? Visibility.Collapsed : Visibility.Visible;
+
             if (busy) return;
-            string typed = box.Text.Trim();
+            string typed = raw.Trim();
             if (typed.Length == 0)
             {
-                livePreview.Foreground = ModernUi.MutedBrush;
-                livePreview.Text = "예) \"내일 오후 2시 팀 회의 1시간\" · \"이번 주 일정 보여줘\" · \"유엔파인\" · \"다음 주 비는 시간 알려줘\"";
+                SetLiveBadge("안내", ModernUi.MutedBrush, ModernUi.HoverBrush,
+                    "\"이번 주 일정 보여줘\" · \"오늘 빈 시간\" · \"주간보고 찾아줘\" · \"다음 주 화요일 3시 치과\"");
                 return;
             }
             if (KoreanQueryParser.Parse(typed, host.Today(), host.WeekStart()) is { } q)
             {
-                livePreview.Foreground = ModernUi.AccentBrush;
-                livePreview.Text = $"🔍 일정 조회 감지: {q.Label} (Enter로 바로 조회)";
+                SetLiveBadge(q.FreeTime ? "빈 시간 조회" : "일정 조회", ModernUi.AccentBrush, ModernUi.AccentSoftBrush,
+                    $"{q.Label} — Enter를 누르면 바로 조회합니다");
                 return;
             }
             if (!LooksLikeSearchPrompt(typed) && host.Service.ParseRules(typed, host.Today(), host.WeekStart()).Proposal is { } p)
             {
                 var (t, w, _) = AiText.Describe(p);
-                livePreview.Foreground = ModernUi.SuccessBrush;
-                livePreview.Text = $"⚡ 일정 제안 감지: {t} · {w} (Enter로 카드 만들기)";
+                SetLiveBadge("일정 등록", ModernUi.SuccessBrush, ModernUi.SuccessSoftBrush,
+                    $"{t} · {w} — Enter로 등록 카드 만들기");
                 return;
             }
-            livePreview.Foreground = ModernUi.MutedBrush;
-            livePreview.Text = host.Service.AiAvailable
-                ? "💬 Enter를 누르면 캘린더 검색 또는 AI 자연어 처리를 실행합니다."
-                : "🔎 Enter를 누르면 캘린더에서 검색합니다. (AI 비서는 설정 → AI 에서 켤 수 있습니다)";
+            SetLiveBadge(host.Service.AiAvailable ? "검색 · AI" : "캘린더 검색", ModernUi.AccentBrush, ModernUi.AccentSoftBrush,
+                host.Service.AiAvailable
+                    ? "Enter를 누르면 캘린더 검색 또는 AI 자연어 처리를 실행합니다"
+                    : "Enter를 누르면 캘린더에서 키워드로 검색합니다");
         }
 
         // Add quick prompt chips
-        foreach (var prompt in new[] { "이번 주 일정 보여줘", "오늘 할 일", "빈 시간 찾아줘", "내일 오후 2시 팀 회의 1시간" })
+        (string Label, string Prompt, string Icon)[] quickChips =
+        [
+            ("이번 주 일정 보여줘", "이번 주 일정 보여줘", ModernUi.Icons.GroupTools),
+            ("오늘 할 일", "오늘 할 일", ModernUi.Icons.CheckSquare),
+            ("빈 시간 찾아줘", "이번 주 빈 시간 찾아줘", ModernUi.Icons.Briefing),
+            ("내일 오후 2시 팀 회의 1시간", "내일 오후 2시 팀 회의 1시간", ModernUi.Icons.CalendarPlus),
+        ];
+        foreach (var (label, prompt, icon) in quickChips)
         {
-            var chip = new Button
-            {
-                Content = prompt,
-                Padding = new Thickness(10, 4, 10, 4),
-                FontSize = 11.5,
-                Margin = new Thickness(0, 0, 6, 4),
-                Cursor = Cursors.Hand,
-                Background = ModernUi.AccentSoftBrush,
-                Foreground = ModernUi.AccentBrush,
-                BorderBrush = ModernUi.AccentBorderBrush,
-                BorderThickness = new Thickness(1),
-            };
+            var chip = MakePillButton(
+                label,
+                ModernUi.AccentSoftBrush,
+                ChipHoverBrush,
+                ModernUi.AccentBrush,
+                ModernUi.AccentBorderBrush,
+                iconData: icon);
             chip.Click += (_, _) => SendPrompt(prompt);
             chipRow.Children.Add(chip);
         }
@@ -679,9 +1139,42 @@ internal static class CalendarChatWindow
         box.TextChanged += (_, _) => UpdateLivePreview();
         box.PreviewKeyDown += (_, e) =>
         {
-            if (e.Key != Key.Enter) return;
-            e.Handled = true;
-            SendPrompt();
+            if (e.Key == Key.Enter)
+            {
+                e.Handled = true;
+                SendPrompt();
+                return;
+            }
+            if (e.Key == Key.Up && promptHistory.Count > 0)
+            {
+                if (historyIdx == -1)
+                {
+                    draftBeforeHistory = box.Text;
+                    historyIdx = promptHistory.Count - 1;
+                }
+                else if (historyIdx > 0)
+                {
+                    historyIdx--;
+                }
+                box.Text = promptHistory[historyIdx];
+                box.CaretIndex = box.Text.Length;
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Down && historyIdx != -1)
+            {
+                if (historyIdx < promptHistory.Count - 1)
+                {
+                    historyIdx++;
+                    box.Text = promptHistory[historyIdx];
+                }
+                else
+                {
+                    historyIdx = -1;
+                    box.Text = draftBeforeHistory;
+                }
+                box.CaretIndex = box.Text.Length;
+                e.Handled = true;
+            }
         };
         win.PreviewKeyDown += (_, e) =>
         {
@@ -691,9 +1184,9 @@ internal static class CalendarChatWindow
         };
         win.Closed += (_, _) => cts?.Cancel();
 
-        AddWelcome(messages, host.Service.AiAvailable);
+        AddWelcome(messages, host.Service.AiAvailable, p => SendPrompt(p));
 
-        var body = new Grid();
+        var body = new Grid { Margin = new Thickness(18, 12, 18, 12) };
         body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -707,41 +1200,246 @@ internal static class CalendarChatWindow
         body.Children.Add(feed);
         body.Children.Add(composerCard);
 
-        var header = ModernUi.Header(ModernUi.Icons.Sparkles, "캘린더 채팅", "자연어로 일정을 찾고, 등록하고, 물어보세요");
+        var modePill = ModernUi.Pill(
+            host.Service.AiAvailable ? "● AI 비서 연결됨" : "● 규칙·검색 모드",
+            host.Service.AiAvailable ? ModernUi.SuccessBrush : ModernUi.MutedBrush,
+            host.Service.AiAvailable ? ModernUi.SuccessSoftBrush : ModernUi.HoverBrush);
+        modePill.ToolTip = host.Service.AiAvailable
+            ? "자연어 일정 해석 및 AI 대화형 비서가 활성화되어 있습니다."
+            : "규칙 기반 일정 해석 및 검색이 활성화되어 있습니다. (설정 → AI 에서 AI 모델 연결 가능)";
+
+        var header = ModernUi.Header(ModernUi.Icons.Sparkles, "캘린더 채팅", "자연어로 일정을 찾고, 등록하고, 물어보세요", right: modePill);
         win.Content = ModernUi.PageShell(header, footer, body);
         UpdateUndo();
         win.Loaded += (_, _) => { box.Focus(); _ = host.Service.WarmUpAsync(CancellationToken.None); };
         return win;
     }
 
-    private static void AddWelcome(StackPanel messages, bool aiAvailable)
+    private static void AddWelcome(StackPanel messages, bool aiAvailable, Action<string>? onExampleClick = null)
     {
-        string aiNote = aiAvailable
-            ? "AI 비서가 연결되어 있어 자유로운 자연어 질문과 복합 일정 해석도 가능합니다."
-            : "현재 규칙·검색 모드로 동작 중입니다. 설정 → AI 에서 모델을 연결하면 대화형 질의도 사용할 수 있습니다.";
-        var tb = new TextBlock
+        var stack = new StackPanel();
+        stack.Children.Add(new TextBlock
         {
-            Text = "안녕하세요! 무엇을 도와드릴까요?\n" +
-                   "• 일정 등록: \"다음 주 화요일 오후 3시 치과 1시간\"\n" +
-                   "• 기간·빈 시간 조회: \"이번 주 일정 보여줘\", \"오늘 빈 시간\"\n" +
-                   "• 검색: \"주간보고\", \"유엔파인 찾아줘\" (상세 필터로 기간·색상·완료 여부 필터링)\n" +
-                   aiNote,
-            TextWrapping = TextWrapping.Wrap,
+            Text = "안녕하세요! 무엇을 도와드릴까요?",
+            FontSize = 13.5,
+            FontWeight = FontWeights.SemiBold,
             Foreground = ModernUi.InkBrush,
-            FontSize = 12.5,
-            LineHeight = 19,
-        };
-        messages.Children.Add(new Border
+            Margin = new Thickness(0, 0, 0, 8),
+        });
+
+        (string Badge, Brush Fg, Brush Bg, string Desc, string Sample)[] guides =
+        [
+            ("일정 등록", ModernUi.SuccessBrush, ModernUi.SuccessSoftBrush, "\"다음 주 화요일 오후 3시 치과 1시간\"", "다음 주 화요일 오후 3시 치과 1시간"),
+            ("일정 조회", ModernUi.AccentBrush, ModernUi.AccentSoftBrush, "\"이번 주 일정 보여줘\", \"오늘 빈 시간\"", "이번 주 일정 보여줘"),
+            ("통합 검색", ModernUi.InkBrush, ModernUi.HoverBrush, "\"주간보고\", \"유엔파인 찾아줘\" (상세 필터 지원)", "주간보고 찾아줘"),
+        ];
+
+        foreach (var (badge, fg, bg, desc, sample) in guides)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 2, 0, 4) };
+            var pill = ModernUi.Pill(badge, fg, bg);
+            pill.MinWidth = 64;
+            pill.Margin = new Thickness(0, 0, 8, 0);
+            if (pill.Child is TextBlock ptb) ptb.HorizontalAlignment = HorizontalAlignment.Center;
+            DockPanel.SetDock(pill, Dock.Left);
+            row.Children.Add(pill);
+
+            if (onExampleClick is not null)
+            {
+                var tryBtn = new Button
+                {
+                    HorizontalContentAlignment = HorizontalAlignment.Left,
+                    Background = Brushes.Transparent,
+                    BorderThickness = new Thickness(0),
+                    Padding = new Thickness(6, 3, 6, 3),
+                    Cursor = Cursors.Hand,
+                    ToolTip = $"클릭하여 실행: {sample}",
+                    Template = FlatHoverButtonTemplate(ModernUi.HoverBrush, new CornerRadius(5)),
+                    Content = new TextBlock
+                    {
+                        Text = desc,
+                        FontSize = 12.5,
+                        Foreground = ModernUi.InkBrush,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                };
+                string captured = sample;
+                tryBtn.Click += (_, _) => onExampleClick(captured);
+                row.Children.Add(tryBtn);
+            }
+            else
+            {
+                row.Children.Add(new TextBlock
+                {
+                    Text = desc,
+                    FontSize = 12.5,
+                    Foreground = ModernUi.InkBrush,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextWrapping = TextWrapping.Wrap,
+                });
+            }
+            stack.Children.Add(row);
+        }
+
+        string aiNote = aiAvailable
+            ? "✨ AI 비서가 연결되어 있어 자유로운 자연어 질문과 복합 일정 해석도 가능합니다."
+            : "💡 현재 규칙·검색 모드로 동작 중입니다. 설정 → AI 에서 모델을 연결하면 대화형 질의도 사용할 수 있습니다.";
+
+        stack.Children.Add(new Border
+        {
+            Background = ModernUi.CardAltBrush,
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(10, 6, 10, 6),
+            Margin = new Thickness(0, 6, 0, 0),
+            Child = new TextBlock
+            {
+                Text = aiNote,
+                FontSize = 11.5,
+                Foreground = ModernUi.MutedBrush,
+                TextWrapping = TextWrapping.Wrap,
+            },
+        });
+
+        var bubble = new Border
         {
             Background = ModernUi.CardBrush,
             BorderBrush = ModernUi.LineBrush,
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(12, 12, 12, 2),
-            Padding = new Thickness(12, 10, 12, 10),
-            Margin = new Thickness(0, 2, 36, 8),
+            CornerRadius = new CornerRadius(3, 12, 12, 12),
+            Padding = new Thickness(14, 12, 14, 12),
             HorizontalAlignment = HorizontalAlignment.Left,
-            Child = tb,
+            Child = stack,
+        };
+
+        var wrapRow = new Grid { Margin = new Thickness(0, 2, 24, 8) };
+        wrapRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        wrapRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var avatar = new Border
+        {
+            Width = 28,
+            Height = 28,
+            CornerRadius = new CornerRadius(8),
+            Background = ModernUi.AccentSoftBrush,
+            BorderBrush = ModernUi.AccentBorderBrush,
+            BorderThickness = new Thickness(1),
+            Margin = new Thickness(0, 2, 10, 0),
+            VerticalAlignment = VerticalAlignment.Top,
+            Child = ModernUi.FlatIcon(ModernUi.Icons.Sparkles, ModernUi.AccentBrush, 14, 2.0),
+        };
+        Grid.SetColumn(avatar, 0);
+        Grid.SetColumn(bubble, 1);
+        wrapRow.Children.Add(avatar);
+        wrapRow.Children.Add(bubble);
+        messages.Children.Add(wrapRow);
+    }
+
+    private static StackPanel LabeledFilter(string label, UIElement control)
+    {
+        var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 4) };
+        sp.Children.Add(new TextBlock
+        {
+            Text = label,
+            FontSize = 11.5,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = ModernUi.MutedBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 5, 0),
         });
+        sp.Children.Add(control);
+        return sp;
+    }
+
+    private static Button MakePillButton(string text, Brush bg, Brush hoverBg, Brush fg, Brush border, string? iconData = null)
+    {
+        var contentPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        if (iconData is not null)
+        {
+            var icon = ModernUi.FlatIcon(iconData, fg, 12.5, 2.0);
+            icon.Margin = new Thickness(0, 0, 5, 0);
+            icon.VerticalAlignment = VerticalAlignment.Center;
+            contentPanel.Children.Add(icon);
+        }
+        contentPanel.Children.Add(new TextBlock
+        {
+            Text = text,
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+
+        return new Button
+        {
+            Content = contentPanel,
+            Padding = new Thickness(11, 5, 11, 5),
+            Margin = new Thickness(0, 0, 6, 4),
+            Cursor = Cursors.Hand,
+            Background = bg,
+            Foreground = fg,
+            BorderBrush = border,
+            BorderThickness = new Thickness(1),
+            Template = PillButtonTemplate(hoverBg),
+        };
+    }
+
+    private static void SetPillButtonVisual(Button btn, string text, Brush fg, Brush bg, Brush border)
+    {
+        btn.Foreground = fg;
+        btn.Background = bg;
+        btn.BorderBrush = border;
+        if (btn.Content is StackPanel sp)
+        {
+            if (sp.Children.OfType<Viewbox>().FirstOrDefault()?.Child is System.Windows.Shapes.Path path)
+                path.Stroke = fg;
+            if (sp.Children.OfType<TextBlock>().FirstOrDefault() is { } tb)
+                tb.Text = text;
+        }
+        else
+        {
+            btn.Content = text;
+        }
+    }
+
+    private static ControlTemplate PillButtonTemplate(Brush hoverBg)
+    {
+        var bd = new FrameworkElementFactory(typeof(Border), "bd");
+        bd.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+        bd.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
+        bd.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
+        bd.SetValue(Border.CornerRadiusProperty, new CornerRadius(8));
+        bd.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
+        bd.SetValue(Border.SnapsToDevicePixelsProperty, true);
+
+        var cp = new FrameworkElementFactory(typeof(ContentPresenter));
+        cp.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        cp.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        bd.AppendChild(cp);
+
+        var tpl = new ControlTemplate(typeof(Button)) { VisualTree = bd };
+        var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
+        hover.Setters.Add(new Setter(Border.BackgroundProperty, hoverBg, "bd"));
+        tpl.Triggers.Add(hover);
+        return tpl;
+    }
+
+    private static ControlTemplate FlatHoverButtonTemplate(Brush hoverBg, CornerRadius radius)
+    {
+        var bd = new FrameworkElementFactory(typeof(Border), "bd");
+        bd.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+        bd.SetValue(Border.CornerRadiusProperty, radius);
+        bd.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
+        bd.SetValue(Border.SnapsToDevicePixelsProperty, true);
+
+        var cp = new FrameworkElementFactory(typeof(ContentPresenter));
+        cp.SetValue(FrameworkElement.HorizontalAlignmentProperty, new TemplateBindingExtension(Control.HorizontalContentAlignmentProperty));
+        cp.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        bd.AppendChild(cp);
+
+        var tpl = new ControlTemplate(typeof(Button)) { VisualTree = bd };
+        var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
+        hover.Setters.Add(new Setter(Border.BackgroundProperty, hoverBg, "bd"));
+        tpl.Triggers.Add(hover);
+        return tpl;
     }
 
     private static SearchQuery BuildSearchQuery(string keyword, FilterState f, DateOnly today, DayOfWeek weekStart)
