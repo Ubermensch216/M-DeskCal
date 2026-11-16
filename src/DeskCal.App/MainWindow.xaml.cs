@@ -105,6 +105,7 @@ public partial class MainWindow : Window
     internal void SetContentHidden(bool hidden)
     {
         if (_contentHidden == hidden) return;
+        if (hidden) CloseChatPromptBox();
         if (hidden && _editingDay is not null) CommitEditor();
         _contentHidden = hidden;
         Render();
@@ -289,6 +290,7 @@ public partial class MainWindow : Window
     internal void HideBoard()
     {
         if (_editMode) SetEditMode(false);
+        CloseChatPromptBox();
         if (_editingDay is not null) CommitEditor();
         _peekBehind = null;
         Hide();
@@ -342,6 +344,7 @@ public partial class MainWindow : Window
     {
         base.OnDeactivated(e);
         if (_busy > 0) return;                         // an option popup or dialog of the editor has the focus
+        CloseChatPromptBox();
         if (_editingDay is not null) CommitEditor();   // never lose typed text when focus moves away
         else if (!_editMode && _attached && IsVisible) { _peekBehind = null; DesktopHost.Repin(this); }
     }
@@ -350,6 +353,7 @@ public partial class MainWindow : Window
     {
         if (on == _editMode) return;
         if (on && !IsVisible) ShowBoard();
+        if (on) CloseChatPromptBox();
         if (on && _editingDay is not null) CommitEditor();
         _editMode = on;
         if (on)
@@ -369,6 +373,13 @@ public partial class MainWindow : Window
     }
 
     // ---- input -------------------------------------------------------------
+
+    protected override void OnPreviewMouseDown(MouseButtonEventArgs e)
+    {
+        base.OnPreviewMouseDown(e);
+        if (IsChatPromptActive() && !IsWithinElement(e.OriginalSource as DependencyObject, ChatPromptBar))
+            CloseChatPromptBox();
+    }
 
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
     {
@@ -575,11 +586,32 @@ public partial class MainWindow : Window
 
     private void ChatPromptBox_LostFocus(object sender, KeyboardFocusChangedEventArgs e) => CloseChatPromptBox();
 
+    private bool IsChatPromptActive() =>
+        ChatPromptBox.Visibility == Visibility.Visible || ChatPromptBox.IsKeyboardFocusWithin;
+
+    private static bool IsWithinElement(DependencyObject? source, DependencyObject container)
+    {
+        for (var cur = source; cur is not null;)
+        {
+            if (ReferenceEquals(cur, container)) return true;
+            cur = cur is Visual or System.Windows.Media.Media3D.Visual3D
+                ? VisualTreeHelper.GetParent(cur)
+                : LogicalTreeHelper.GetParent(cur);
+        }
+        return false;
+    }
+
     private void CloseChatPromptBox()
     {
-        ChatPromptBox.Text = "";
-        ChatPromptBox.Visibility = Visibility.Collapsed;
-        ChatPromptPlaceholder.Visibility = Visibility.Visible;
+        if (ChatPromptBox.Visibility == Visibility.Visible)
+        {
+            ChatPromptBox.Text = "";
+            ChatPromptBox.Visibility = Visibility.Collapsed;
+            ChatPromptPlaceholder.Visibility = Visibility.Visible;
+        }
+        if (ChatPromptBox.IsKeyboardFocusWithin) Keyboard.ClearFocus();
+        if (ReferenceEquals(FocusManager.GetFocusedElement(this), ChatPromptBox))
+            FocusManager.SetFocusedElement(this, null);
     }
 
     private void Resize_DragDelta(object sender, DragDeltaEventArgs e)
@@ -612,6 +644,7 @@ public partial class MainWindow : Window
     internal void OpenEditor(DateOnly date)
     {
         if (_items is null || _editMode || !Guard()) return;
+        CloseChatPromptBox();
         if (_editingDay is not null) CommitEditor();
         _editingDay = date;
 
@@ -1320,6 +1353,7 @@ public partial class MainWindow : Window
     private void RunEventEditor(string? eventId, DateOnly date)
     {
         if (_series is null || _editMode || !Guard()) return;
+        CloseChatPromptBox();
         if (_editingDay is not null) CommitEditor();
         var win = new EventEditorWindow(_series, eventId, date);
         win.ShowDialog();
@@ -1487,6 +1521,7 @@ public partial class MainWindow : Window
     private void ShowItemHistory(Item item)
     {
         if (_items is null || _history is null || _editMode || !Guard()) return;
+        CloseChatPromptBox();
         if (_editingDay is not null) CommitEditor();
         if (HistoryWindow.Show(this, _items, _history, item)) Render();
         SendBack();
