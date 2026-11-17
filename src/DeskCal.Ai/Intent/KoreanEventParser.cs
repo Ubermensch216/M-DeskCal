@@ -49,7 +49,10 @@ public static class KoreanEventParser
     private static readonly Regex IsoDate = R(@"(?<!\d)(?<y>\d{4})[-./]\s?(?<m>\d{1,2})[-./]\s?(?<d>\d{1,2})(?!\d)");
     private static readonly Regex WrittenDate = R(@"(?:(?<ry>올해|내년|내후년)\s*)?(?:(?<y>\d{4})\s*년\s*)?(?<m>\d{1,2})\s*월\s*(?<d>\d{1,2})\s*일");
     private static readonly Regex SlashDate = R(@"(?<![\d/.:-])(?<m>\d{1,2})/(?<d>\d{1,2})(?![\d/])");
-    private static readonly Regex DaysLater = R(@"(?<n>\d+)\s*일\s*(?:후|뒤)");
+    // "11.24.(화)", "11.24." - the dotted way notices write a date; needs the closing dot or a weekday after it, so that "1.5배" or "v2.3" are not dates
+    private static readonly Regex DotDate = R($@"(?<![\d/.:\-])(?<m>\d{{1,2}})\s?\.\s?(?<d>\d{{1,2}})(?:\s?\.(?!\d)|(?=\s*[(（]\s*[{Wd}]))");
+    private static readonly Regex DayWeekday = R($@"(?<![\d/.:\-])(?<d>\d{{1,2}})\s*일?\s*[(（]\s*(?<w>[{Wd}])(?:요일)?\s*[)）]");   // "20(금)": the day of the month and its weekday, no month
+    private static readonly Regex DaysLater =R(@"(?<n>\d+)\s*일\s*(?:후|뒤)");
     private static readonly Regex WeeksLater = R(@"(?<n>\d+)\s*주(?:일)?\s*(?:후|뒤)|(?<one>일주일)\s*(?:후|뒤)");
     private static readonly Regex MonthsLater = R(@"(?<n>\d+)\s*(?:개월|달)\s*(?:후|뒤)|(?<one>한\s*달)\s*(?:후|뒤)");
     private static readonly Regex WordDaysLater = R(@"(?<w>이틀|사흘|보름)\s*(?:후|뒤)");
@@ -317,6 +320,23 @@ public static class KoreanEventParser
             return Absolute(year, int.Parse(w.Groups["m"].Value), int.Parse(w.Groups["d"].Value), w.Value.Trim());
         }
         if (Take(SlashDate, ref s) is { } sl) return Absolute(null, int.Parse(sl.Groups["m"].Value), int.Parse(sl.Groups["d"].Value), sl.Value.Trim());
+
+        if (Take(DotDate, ref s) is { } dd) return Absolute(null, int.Parse(dd.Groups["m"].Value), int.Parse(dd.Groups["d"].Value), dd.Value.Trim());
+
+        if (Take(DayWeekday, ref s) is { } dw)
+        {
+            int dayNo = int.Parse(dw.Groups["d"].Value);
+            var wantDow = Dow(dw.Groups["w"].Value[0]);
+            for (int k = 0; k <= 24; k++)                                               // the next month in which that day of the month is that weekday
+            {
+                var first = new DateOnly(today.Year, today.Month, 1).AddMonths(k);
+                if (dayNo < 1 || dayNo > DateTime.DaysInMonth(first.Year, first.Month)) continue;
+                var d = new DateOnly(first.Year, first.Month, dayNo);
+                if (d >= today && d.DayOfWeek == wantDow) { if (k > 0 && d.Month != today.Month) notes.Add($"{d.Month}월 {d.Day}일({dw.Groups["w"].Value})로 봤습니다."); return d; }
+            }
+            problem($"{dw.Value.Trim()} 에 해당하는 날짜를 찾을 수 없습니다.");
+            return null;
+        }
 
         if (Take(DaysLater, ref s) is { } dl && int.TryParse(dl.Groups["n"].Value, out int dn) && dn <= 3650) return today.AddDays(dn);
         if (Take(WeeksLater, ref s) is { } wl)

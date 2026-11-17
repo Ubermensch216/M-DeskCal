@@ -309,6 +309,20 @@ public class TextExtractionTests : IDisposable
     }
 
     [Fact]
+    public void A_dotted_date_and_a_day_with_a_weekday_are_read()
+    {
+        string text = "당구회 11월 모임 알림\n1. 일시 : 11.24.(화)\n2. 회신 : 아래 사항 20(금) 12시까지 회신\n3. 참석여부\n많은 참석, 빠른 회신 부탁드립니다.";
+        var rows = TextExtractor.Extract(text, new DateOnly(2026, 11, 17), DayOfWeek.Monday);
+        var found = rows.Where(r => r.Kind != CandidateKind.Skipped).ToList();
+        Assert.Equal(2, found.Count);
+        Assert.Equal(new DateOnly(2026, 11, 24), found[0].Parse.Event.Date);
+        Assert.Equal("당구회 11월 모임 알림", found[0].Title);
+        Assert.Equal((new DateOnly(2026, 11, 20), new TimeOnly(12, 0)), (found[1].Parse.Event.Date!.Value, found[1].Parse.Event.Start!.Value));
+
+        Assert.Null(KoreanEventParser.Parse("무게 1.5kg 구매", new DateOnly(2026, 11, 17)).Event.Date);        // not a date
+    }
+
+    [Fact]
     public void A_messenger_conversation_is_read_relative_to_the_base_day()
     {
         string chat = "[홍길동] 오후 2:13\n내일 오전 10시 팀 미팅 잊지 마세요\n다음 주 월요일까지 보고서 부탁드려요";
