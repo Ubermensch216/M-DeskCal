@@ -61,6 +61,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         System.Windows.DataObject.AddPastingHandler(EditorBox, EditorBox_Pasting);
+        System.Windows.DataObject.AddPastingHandler(ChatPromptBox, ChatPromptBox_Pasting);
         SourceInitialized += (_, _) =>
         {
             _taskbarCreated = RegisterWindowMessage("TaskbarCreated");
@@ -568,8 +569,40 @@ public partial class MainWindow : Window
         Keyboard.Focus(ChatPromptBox);
     }
 
+    /// <summary>
+    /// Raised when text of several lines (a notice, an e-mail) or a picture is pasted into the header box: that one-line box would
+    /// keep only the first line, so the paste goes to the Calendar Chat window's input instead, where Enter extracts the dates.
+    /// </summary>
+    internal event Action<string>? ChatTextPasted;
+    internal event Action<System.Windows.Media.Imaging.BitmapSource>? ChatImagePasted;
+
+    private void ChatPromptBox_Pasting(object sender, DataObjectPastingEventArgs e)
+    {
+        if (!e.SourceDataObject.GetDataPresent(DataFormats.UnicodeText, true)) return;
+        if (e.SourceDataObject.GetData(DataFormats.UnicodeText, true) is not string text) return;
+        if (text.ReplaceLineEndings("\n").Trim().IndexOf('\n') < 0) return;      // one line: paste as usual
+        e.CancelCommand();
+        string draft = (ChatPromptBox.Text + text).Trim();
+        CloseChatPromptBox();
+        Dispatcher.BeginInvoke(() => ChatTextPasted?.Invoke(draft));
+    }
+
     private void ChatPromptBox_KeyDown(object sender, KeyEventArgs e)
     {
+        if (e.Key == Key.V && Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            try
+            {
+                if (Clipboard.ContainsImage() && !Clipboard.ContainsText() && Clipboard.GetImage() is { } bmp)
+                {
+                    e.Handled = true;
+                    CloseChatPromptBox();
+                    Dispatcher.BeginInvoke(() => ChatImagePasted?.Invoke(bmp));
+                }
+            }
+            catch (System.Runtime.InteropServices.ExternalException) { }
+            return;
+        }
         if (e.Key == Key.Enter)
         {
             e.Handled = true;

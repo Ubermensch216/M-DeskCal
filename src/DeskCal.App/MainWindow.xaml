@@ -30,7 +30,7 @@
                         MinWidth="96" MaxWidth="430" Margin="10,0,10,0" Padding="10,4"
                         CornerRadius="14" Background="#24FFFFFF" BorderBrush="#44FFFFFF" BorderThickness="1"
                         Cursor="Hand" MouseLeftButtonDown="ChatPrompt_MouseDown"
-                        ToolTip="더블 클릭하여 캘린더 채팅 프롬프트 입력 (Enter 전송)">
+                        ToolTip="더블 클릭하여 캘린더 채팅 프롬프트 입력 (Enter 전송) · 여러 줄 글이나 캡처 이미지를 붙여넣으면 채팅 창에서 일정을 추출합니다">
                     <DockPanel>
                         <Path DockPanel.Dock="Left" Width="14" Height="14" Stretch="Uniform"
                               VerticalAlignment="Center" Fill="#FF7EB6FF"

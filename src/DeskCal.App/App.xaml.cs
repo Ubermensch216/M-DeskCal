@@ -209,6 +209,8 @@ public partial class App : System.Windows.Application
         _board.SyncResultClicked += OpenPreferredSyncSettings;
         _board.SyncAnchor.ContextMenu = BuildSyncButtonMenu();
         _board.ChatSubmitted += prompt => OpenCalendarChat(prompt);
+        _board.ChatTextPasted += text => { if (EnsureUnlocked()) CalendarChatWindow.ShowWithDraft(MakeChatHost(), text); };
+        _board.ChatImagePasted += bmp => { if (EnsureUnlocked()) CalendarChatWindow.ShowWithImage(MakeChatHost(), bmp); };
         if (_lock.Hidden) _board.SetContentHidden(true);      // a restart must not undo the lock
 
         // Restore the saved board rectangle (physical pixels), falling back onto a connected monitor when off-screen or implausible.
@@ -393,7 +395,10 @@ public partial class App : System.Windows.Application
     private void OpenCalendarChat(string? initialPrompt = null)
     {
         if (!EnsureUnlocked()) return;
-        CalendarChatWindow.ShowOrActivate(new CalendarChatHost(
+        CalendarChatWindow.ShowOrActivate(MakeChatHost(), initialPrompt);
+    }
+
+    private CalendarChatHost MakeChatHost() => new(
             _quickInput!, _batch!, _query!, _accuracy!,
             _searchService!, _itemRepo!, _historyRepo!,
             () => DateOnly.FromDateTime(DateTime.Today),
@@ -405,9 +410,7 @@ public partial class App : System.Windows.Application
             SyncIndexAsync,
             () => _aiStore!.Load(),
             s => DeskCal.Ai.Llm.LlmClientFactory.Create(s),
-            _extraction),
-            initialPrompt);
-    }
+            _extraction);
 
     // ---- meaning search index, morning briefing -----------------------------------------------------
 

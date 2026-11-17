@@ -43,7 +43,26 @@ internal static class CalendarChatWindow
     private static Window? _open;
     private static Action<string>? _openSend;
     private static TextBox? _openInput;
+    private static Action<string>? _openDraft;
+    private static Action<System.Windows.Media.Imaging.BitmapSource>? _openImage;
     internal static Window? CurrentWindow => _open;
+
+    /// <summary>
+    /// Opens the window with text put in its input box (not sent: the user checks it and presses Enter) - a pasted notice
+    /// from the calendar's one-line header box.
+    /// </summary>
+    public static void ShowWithDraft(CalendarChatHost host, string draft)
+    {
+        ShowOrActivate(host);
+        _openDraft?.Invoke(draft);
+    }
+
+    /// <summary>Opens the window and reads a pasted picture into its input box (OCR).</summary>
+    public static void ShowWithImage(CalendarChatHost host, System.Windows.Media.Imaging.BitmapSource image)
+    {
+        ShowOrActivate(host);
+        _openImage?.Invoke(image);
+    }
 
     private static readonly SolidColorBrush ChipHoverBrush = ModernUi.Frozen(Color.FromRgb(0xDB, 0xEA, 0xFE));
     private static readonly SolidColorBrush SundayBrush = ModernUi.Frozen(Color.FromRgb(0xDC, 0x26, 0x26));
@@ -64,11 +83,13 @@ internal static class CalendarChatWindow
             else _openInput?.Focus();
             return;
         }
-        var win = Build(host, out var box, out _, out var sendPrompt);
+        var win = Build(host, out var box, out _, out var sendPrompt, out var setDraft, out var pasteImage);
         _open = win;
         _openSend = sendPrompt;
         _openInput = box;
-        win.Closed += (_, _) => { _open = null; _openSend = null; _openInput = null; };
+        _openDraft = setDraft;
+        _openImage = pasteImage;
+        win.Closed += (_, _) => { _open = null; _openSend = null; _openInput = null; _openDraft = null; _openImage = null; };
         win.Show();
         win.Activate();
         if (!string.IsNullOrWhiteSpace(initialPrompt))
@@ -76,9 +97,10 @@ internal static class CalendarChatWindow
     }
 
     internal static Window Build(CalendarChatHost host, out TextBox input, out Action send)
-        => Build(host, out input, out send, out _);
+        => Build(host, out input, out send, out _, out _, out _);
 
-    private static Window Build(CalendarChatHost host, out TextBox input, out Action send, out Action<string> sendPrompt)
+    private static Window Build(CalendarChatHost host, out TextBox input, out Action send, out Action<string> sendPrompt,
+        out Action<string> setDraft, out Action<System.Windows.Media.Imaging.BitmapSource> pasteImage)
     {
         var win = new Window();
         ModernUi.ConfigureWindow(win, "캘린더 채팅", 760, 740, topmost: false);
@@ -1374,6 +1396,14 @@ internal static class CalendarChatWindow
         sendBtn.Click += (_, _) => SendPrompt();
         send = () => SendPrompt();
         sendPrompt = p => SendPrompt(p);
+        setDraft = t =>
+        {
+            box.Text = t;
+            fromImage = false;
+            box.CaretIndex = box.Text.Length;
+            box.Focus();
+        };
+        pasteImage = bmp => _ = LoadImageAsync(() => OcrReader.ReadBitmapAsync(bmp));
 
         box.TextChanged += (_, _) =>
         {
