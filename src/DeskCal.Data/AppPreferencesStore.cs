@@ -19,17 +19,28 @@ public sealed class AppPreferencesStore(SettingsStore store)
 
     public AppPreferences Load()
     {
-        var p = new AppPreferences { HotkeysEnabled = store.GetBool(Prefix + "hotkeys", true), BoardVisible = store.GetBool(Prefix + "board_visible", true) };
+        var p = new AppPreferences { BoardVisible = store.GetBool(Prefix + "board_visible", true) };
+        if (store.GetString(Prefix + "hotkeys") == "0")
+        {
+            foreach (var a in Enum.GetValues<HotkeyAction>()) p = p.With(a, Hotkey.None);
+            return p;
+        }
         foreach (var a in Enum.GetValues<HotkeyAction>())
-            if (Hotkey.TryParse(store.GetString(Key(a)), out var h)) p = p.With(a, h);
+        {
+            string? raw = store.GetString(Key(a));
+            if (raw is null) continue;
+            if (raw.Length == 0) { p = p.With(a, Hotkey.None); continue; }
+            if (Hotkey.TryParse(raw, out var h)) p = p.With(a, h);
+        }
         // A hand-edited database could hold two actions on one combination: fall back to the defaults then.
-        return p.Validate() is null ? p : new AppPreferences { HotkeysEnabled = p.HotkeysEnabled, BoardVisible = p.BoardVisible };
+        return p.Validate() is null ? p : new AppPreferences { BoardVisible = p.BoardVisible };
     }
 
     public void Save(AppPreferences p)
     {
-        store.SetBool(Prefix + "hotkeys", p.HotkeysEnabled);
+        store.Remove(Prefix + "hotkeys");
         store.SetBool(Prefix + "board_visible", p.BoardVisible);
-        foreach (var a in Enum.GetValues<HotkeyAction>()) store.SetString(Key(a), p.Get(a).Format());
+        foreach (var a in Enum.GetValues<HotkeyAction>())
+            store.SetString(Key(a), p.Get(a).IsEmpty ? "" : p.Get(a).Format());
     }
 }

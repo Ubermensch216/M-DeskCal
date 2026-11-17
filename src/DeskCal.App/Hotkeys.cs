@@ -34,12 +34,12 @@ internal sealed class HotkeyManager : IDisposable
     {
         UnregisterAll();
         var failed = new List<HotkeyAction>();
-        if (!prefs.HotkeysEnabled) return failed;
 
         int id = 1;
         foreach (var action in Enum.GetValues<HotkeyAction>())
         {
             var hk = prefs.Get(action);
+            if (hk.IsEmpty) continue;
             if (RegisterHotKey(_source.Handle, id, (uint)hk.Mods | MOD_NOREPEAT, (uint)hk.VirtualKey)) _registered[id] = action;
             else failed.Add(action);
             id++;
@@ -105,13 +105,12 @@ internal sealed class HotkeyCaptureBox : TextBox
         IsReadOnly = true;
         IsReadOnlyCaretVisible = false;
         Cursor = System.Windows.Input.Cursors.Hand;
-        Width = 172;
+        Width = 158;
         MinHeight = 28;
-        FontSize = 12.5;
-        FontWeight = FontWeights.SemiBold;
+        FontSize = 12;
         TextAlignment = TextAlignment.Center;
         VerticalContentAlignment = VerticalAlignment.Center;
-        Padding = new Thickness(9, 4, 9, 4);
+        Padding = new Thickness(8, 4, 8, 4);
         SetValue(initial);
     }
 
@@ -121,8 +120,18 @@ internal sealed class HotkeyCaptureBox : TextBox
         _capturing = false;
         _pending = HotkeyMods.None;
         _order.Clear();
-        Foreground = ModernUi.InkBrush;
-        Text = hk.Format().Replace("+", " + ");
+        if (hk.IsEmpty)
+        {
+            Foreground = ModernUi.MutedBrush;
+            FontWeight = FontWeights.Normal;
+            Text = "꺼짐 (클릭해 설정)";
+        }
+        else
+        {
+            Foreground = ModernUi.InkBrush;
+            FontWeight = FontWeights.SemiBold;
+            Text = hk.Format().Replace("+", " + ");
+        }
     }
 
     private void Begin()
@@ -132,24 +141,21 @@ internal sealed class HotkeyCaptureBox : TextBox
         _pending = HotkeyMods.None;
         _order.Clear();
         ShowPending();
-        Hint?.Invoke("키를 하나씩 누르세요. 보조키(Ctrl · Alt · Shift) 2개 이상 + 글쇠 1개 (Esc 취소 · Backspace 방금 키 취소)");
+        Hint?.Invoke("키를 하나씩 누르세요. 보조키(Ctrl · Alt · Shift) 2개 이상 + 글쇠 1개 (Esc 취소 · Backspace 방금 키 취소 · Delete 끄기)");
     }
 
     private void Cancel()
     {
         if (!_capturing) return;
-        _capturing = false;
-        _pending = HotkeyMods.None;
-        _order.Clear();
-        Foreground = ModernUi.InkBrush;
-        Text = _value.Format().Replace("+", " + ");
+        SetValue(_value);
         Hint?.Invoke(null);
     }
 
     private void ShowPending()
     {
         Foreground = ModernUi.AccentBrush;
-        if (_pending == HotkeyMods.None) { Text = "키를 누르세요..."; return; }
+        FontWeight = FontWeights.SemiBold;
+        if (_pending == HotkeyMods.None) { Text = "키를 누르세요…"; return; }
         var parts = new List<string>();
         if (_pending.HasFlag(HotkeyMods.Ctrl)) parts.Add("Ctrl");
         if (_pending.HasFlag(HotkeyMods.Alt)) parts.Add("Alt");
@@ -188,6 +194,13 @@ internal sealed class HotkeyCaptureBox : TextBox
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
 
         if (key == Key.Escape) { Cancel(); return; }
+        if (key == Key.Delete && _pending == HotkeyMods.None && Keyboard.Modifiers == ModifierKeys.None)
+        {
+            SetValue(Hotkey.None);
+            Hint?.Invoke(null);
+            HotkeyChanged?.Invoke(Hotkey.None);
+            return;
+        }
         if (key == Key.Back)
         {
             if (_order.Count > 0)
@@ -248,85 +261,5 @@ internal sealed class HotkeyCaptureBox : TextBox
         SetValue(parsed);
         Hint?.Invoke(null);
         HotkeyChanged?.Invoke(parsed);
-    }
-}
-
-/// <summary>Dialog for choosing the three shortcuts: click a box and press the combination.</summary>
-internal static class HotkeyDialog
-{
-    /// <summary>Returns the edited preferences, or null when cancelled.</summary>
-    public static AppPreferences? Edit(AppPreferences current)
-    {
-        var prefs = current;
-        AppPreferences? result = null;
-        var win = new Window
-        {
-            Title = "M-DeskCal 단축키", Width = 420, SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize,
-            WindowStartupLocation = WindowStartupLocation.CenterScreen, Topmost = true, ShowInTaskbar = false,
-            FontFamily = new System.Windows.Media.FontFamily("Segoe UI, Malgun Gothic"), FontSize = 13,
-        };
-        var panel = new StackPanel { Margin = new Thickness(16) };
-        panel.Children.Add(new TextBlock
-        {
-            Text = "칸을 클릭한 뒤 원하는 조합을 누르세요. Ctrl·Alt·Win 중 하나는 반드시 포함해야 합니다.",
-            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 10),
-        });
-
-        var status = new TextBlock { Foreground = System.Windows.Media.Brushes.Firebrick, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0), MinHeight = 18 };
-
-        foreach (var action in Enum.GetValues<HotkeyAction>())
-        {
-            var a = action;
-            var row = new DockPanel { Margin = new Thickness(0, 3, 0, 3) };
-            var reset = new Button { Content = "기본값", Padding = new Thickness(8, 3, 8, 3), Margin = new Thickness(6, 0, 0, 0) };
-            DockPanel.SetDock(reset, Dock.Right);
-            var label = new TextBlock { Text = HotkeyManager.ActionName(a), Width = 150, VerticalAlignment = VerticalAlignment.Center };
-            DockPanel.SetDock(label, Dock.Left);
-            var box = new TextBox { IsReadOnly = true, IsReadOnlyCaretVisible = false, Text = prefs.Get(a).Format(), Padding = new Thickness(6, 3, 6, 3), Cursor = System.Windows.Input.Cursors.Hand };
-
-            box.PreviewKeyDown += (_, e) =>
-            {
-                e.Handled = true;
-                var key = e.Key == Key.System ? e.SystemKey : e.Key;
-                if (key is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin or Key.None) return;
-
-                var mods = HotkeyMods.None;
-                var m = Keyboard.Modifiers;
-                if (m.HasFlag(ModifierKeys.Control)) mods |= HotkeyMods.Ctrl;
-                if (m.HasFlag(ModifierKeys.Alt)) mods |= HotkeyMods.Alt;
-                if (m.HasFlag(ModifierKeys.Shift)) mods |= HotkeyMods.Shift;
-                if (m.HasFlag(ModifierKeys.Windows)) mods |= HotkeyMods.Win;
-
-                var hk = new Hotkey(mods, KeyInterop.VirtualKeyFromKey(key));
-                if (!Hotkey.TryParse(hk.Format(), out hk)) { status.Text = $"'{hk.Format()}' 은(는) 사용할 수 없는 조합입니다."; return; }
-                prefs = prefs.With(a, hk);
-                box.Text = hk.Format();
-                status.Text = "";
-            };
-            reset.Click += (_, _) =>
-            {
-                prefs = prefs.With(a, new AppPreferences().Get(a));
-                box.Text = prefs.Get(a).Format();
-                status.Text = "";
-            };
-            row.Children.Add(reset); row.Children.Add(label); row.Children.Add(box);
-            panel.Children.Add(row);
-        }
-        panel.Children.Add(status);
-
-        var ok = new Button { Content = "저장", Padding = new Thickness(16, 5, 16, 5), IsDefault = true, Margin = new Thickness(0, 0, 8, 0) };
-        var cancel = new Button { Content = "취소", Padding = new Thickness(16, 5, 16, 5), IsCancel = true };
-        ok.Click += (_, _) =>
-        {
-            if (prefs.Validate() is { } problem) { status.Text = problem; return; }
-            result = prefs; win.DialogResult = true;
-        };
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
-        buttons.Children.Add(ok); buttons.Children.Add(cancel);
-        panel.Children.Add(buttons);
-
-        win.Content = panel;
-        win.ShowDialog();
-        return result;
     }
 }

@@ -58,16 +58,20 @@ public class HotkeyTests
     {
         var p = new AppPreferences();
         Assert.Null(p.Validate());
-        Assert.True(p.HotkeysEnabled);
         Assert.True(p.BoardVisible);
         foreach (var a in Enum.GetValues<HotkeyAction>()) Assert.True(Hotkey.TryParse(p.Get(a).Format(), out _));
     }
 
     [Fact]
-    public void Duplicate_combinations_are_reported()
+    public void Duplicate_combinations_are_reported_but_disabled_shortcuts_may_coexist()
     {
         var p = new AppPreferences().With(HotkeyAction.NewEvent, new AppPreferences().BringToFront);
         Assert.NotNull(p.Validate());
+
+        var multiOff = new AppPreferences().With(HotkeyAction.NewEvent, Hotkey.None).With(HotkeyAction.Search, Hotkey.None);
+        Assert.Null(multiOff.Validate());
+        Assert.True(multiOff.NewEvent.IsEmpty);
+        Assert.Equal("", multiOff.NewEvent.Format());
     }
 }
 
@@ -86,13 +90,23 @@ public class AppPreferencesStoreTests : IDisposable
     public void Dispose() => _db.Dispose();
 
     [Fact]
-    public void Round_trips_every_field()
+    public void Round_trips_every_field_including_individually_disabled_shortcuts()
     {
-        var p = new AppPreferences { HotkeysEnabled = false, BoardVisible = false }
+        var p = new AppPreferences { BoardVisible = false }
             .With(HotkeyAction.BringToFront, new Hotkey(HotkeyMods.Win | HotkeyMods.Shift, 'K'))
-            .With(HotkeyAction.NewEvent, new Hotkey(HotkeyMods.Ctrl, 0x71));
+            .With(HotkeyAction.NewEvent, new Hotkey(HotkeyMods.Ctrl, 0x71))
+            .With(HotkeyAction.Search, Hotkey.None);
         _store.Save(p);
         Assert.Equal(p, _store.Load());
+        Assert.True(_store.Load().Search.IsEmpty);
+    }
+
+    [Fact]
+    public void Legacy_global_disable_migrates_to_all_shortcuts_off()
+    {
+        _settings.SetString("app.hotkeys", "0");
+        var loaded = _store.Load();
+        foreach (var a in Enum.GetValues<HotkeyAction>()) Assert.True(loaded.Get(a).IsEmpty);
     }
 
     [Fact]

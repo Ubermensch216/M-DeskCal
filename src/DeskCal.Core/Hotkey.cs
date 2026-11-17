@@ -9,6 +9,8 @@ public enum HotkeyMods { None = 0, Alt = 1, Ctrl = 2, Shift = 4, Win = 8 }
 /// <summary>A global shortcut: modifiers plus a Win32 virtual-key code. Parsed from / formatted as text such as "Ctrl+Alt+D".</summary>
 public readonly record struct Hotkey(HotkeyMods Mods, int VirtualKey)
 {
+    public static Hotkey None => default;
+    public bool IsEmpty => Mods == HotkeyMods.None || VirtualKey == 0;
     private static readonly (string Name, int Vk)[] NamedKeys =
     [
         ("Space", 0x20), ("Enter", 0x0D), ("Tab", 0x09), ("Esc", 0x1B),
@@ -62,9 +64,10 @@ public readonly record struct Hotkey(HotkeyMods Mods, int VirtualKey)
         return true;
     }
 
-    /// <summary>Canonical text form: modifiers in the order Ctrl, Alt, Shift, Win, then the key.</summary>
+    /// <summary>Canonical text form: modifiers in the order Ctrl, Alt, Shift, Win, then the key (empty string when unset).</summary>
     public string Format()
     {
+        if (IsEmpty) return "";
         var sb = new StringBuilder();
         if ((Mods & HotkeyMods.Ctrl) != 0) sb.Append("Ctrl+");
         if ((Mods & HotkeyMods.Alt) != 0) sb.Append("Alt+");
@@ -97,16 +100,15 @@ public readonly record struct Hotkey(HotkeyMods Mods, int VirtualKey)
 
 public enum HotkeyAction { BringToFront, ToggleVisible, NewEvent, Search, ToggleContent, QuickInput }
 
-/// <summary>Application-level (non-appearance) preferences: global shortcuts and whether the board is shown.</summary>
+/// <summary>Application-level (non-appearance) preferences: per-action global shortcuts and whether the board is shown.</summary>
 public sealed record AppPreferences
 {
-    public bool HotkeysEnabled { get; init; } = true;
     public Hotkey BringToFront { get; init; } = new(HotkeyMods.Ctrl | HotkeyMods.Alt, 'D');
     public Hotkey ToggleVisible { get; init; } = new(HotkeyMods.Ctrl | HotkeyMods.Alt, 'H');
     public Hotkey NewEvent { get; init; } = new(HotkeyMods.Ctrl | HotkeyMods.Alt, 'E');
     public Hotkey Search { get; init; } = new(HotkeyMods.Ctrl | HotkeyMods.Alt, 'F');
     public Hotkey ToggleContent { get; init; } = new(HotkeyMods.Ctrl | HotkeyMods.Alt, 'L');
-    public Hotkey QuickInput { get; init; } = new(HotkeyMods.Ctrl | HotkeyMods.Alt | HotkeyMods.Shift, 'C');
+    public Hotkey QuickInput { get; init; } = new(HotkeyMods.Alt | HotkeyMods.Shift, 'C');
 
     /// <summary>Whether the board was visible when the app last ran (restored only for auto-start launches).</summary>
     public bool BoardVisible { get; init; } = true;
@@ -131,14 +133,18 @@ public sealed record AppPreferences
         _ => this with { ToggleContent = h },
     };
 
-    /// <summary>The first problem with the shortcut set (two actions on one combination), or null when it is fine.</summary>
+    /// <summary>The first problem with the shortcut set (two active actions on one combination), or null when it is fine.</summary>
     public string? Validate()
     {
         var all = Enum.GetValues<HotkeyAction>();
         for (int i = 0; i < all.Length; i++)
+        {
+            var hk = Get(all[i]);
+            if (hk.IsEmpty) continue;
             for (int j = i + 1; j < all.Length; j++)
-                if (Get(all[i]) == Get(all[j]))
-                    return $"같은 단축키({Get(all[i]).Format()})를 두 동작에 지정할 수 없습니다.";
+                if (hk == Get(all[j]))
+                    return $"같은 단축키({hk.Format()})를 두 동작에 지정할 수 없습니다.";
+        }
         return null;
     }
 }

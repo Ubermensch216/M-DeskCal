@@ -475,134 +475,145 @@ internal sealed class SettingsWindow : Window
             RowToggle("쉬는 날 색상 표시", "선택한 요일의 날짜를 쉬는 날 색으로 강조합니다", () => S.ShowOffDays, v => Apply(s => s with { ShowOffDays = v })),
             RowCustom("쉬는 날 지정", "클릭하여 주말·휴무 요일을 켜고 끕니다", pillRow)));
 
-        // deskPet_Bugi style click-to-capture hotkey row for 캘린더 채팅
-        var chatHkHint = new TextBlock { FontSize = 11.5, Foreground = AccentBrush, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(15, 0, 15, 10), Visibility = Visibility.Collapsed };
-        var keycapsGrid = new UniformGrid { Columns = 2 };
-        var chatHkBox = new HotkeyCaptureBox(_h.GetPrefs().QuickInput);
-        Button chatHkReset = null!;
-        void RefreshKeycaps()
+        var defaults = new AppPreferences();
+        var hkHint = new TextBlock
         {
-            var p = _h.GetPrefs();
-            chatHkBox.IsEnabled = chatHkReset.IsEnabled = p.HotkeysEnabled;
-            if (!chatHkBox.IsKeyboardFocusWithin) chatHkBox.SetValue(p.QuickInput);
-            keycapsGrid.Children.Clear();
-            foreach (var (name, key) in new[]
-                     {
-                         ("달력 앞으로", p.BringToFront.Format()),
-                         ("숨김 / 표시", p.ToggleVisible.Format()),
-                         ("오늘 일정 추가", p.NewEvent.Format()),
-                         ("콘텐츠 잠금", p.ToggleContent.Format()),
-                     })
-            {
-                var cell = new DockPanel();
-                var keysPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-                var parts = key.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                for (int i = 0; i < parts.Length; i++)
-                {
-                    if (i > 0)
-                        keysPanel.Children.Add(new TextBlock { Text = "+", FontSize = 10.5, Foreground = MutedBrush, Margin = new Thickness(2, 0, 2, 0), VerticalAlignment = VerticalAlignment.Center });
-                    keysPanel.Children.Add(new Border
-                    {
-                        Background = ModernUi.CardBrush,
-                        BorderBrush = ModernUi.InputBorderBrush,
-                        BorderThickness = new Thickness(1, 1, 1, 1.5),
-                        CornerRadius = new CornerRadius(4),
-                        Padding = new Thickness(6, 2, 6, 2),
-                        Child = new TextBlock
-                        {
-                            Text = parts[i],
-                            FontSize = 11,
-                            FontWeight = FontWeights.SemiBold,
-                            Foreground = InkBrush,
-                        },
-                    });
-                }
-                DockPanel.SetDock(keysPanel, Dock.Right);
-                cell.Children.Add(keysPanel);
-                cell.Children.Add(new TextBlock
-                {
-                    Text = name,
-                    FontSize = 12,
-                    FontWeight = FontWeights.Medium,
-                    Foreground = InkBrush,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(0, 0, 8, 0),
-                });
-                keycapsGrid.Children.Add(new Border
-                {
-                    Background = ModernUi.CardAltBrush,
-                    BorderBrush = LineBrush,
-                    BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(6),
-                    Padding = new Thickness(10, 7, 10, 7),
-                    Margin = new Thickness(0, 0, 8, 8),
-                    Child = cell,
-                });
-            }
-        }
-        chatHkBox.ValidateConflict = hk =>
-        {
-            var cur = _h.GetPrefs();
-            foreach (var action in Enum.GetValues<HotkeyAction>())
-            {
-                if (action == HotkeyAction.QuickInput) continue;
-                if (cur.Get(action) == hk) return $"'{HotkeyManager.ActionName(action)}' 단축키와 겹칩니다.";
-            }
-            return null;
-        };
-        chatHkReset = ModernUi.SecondaryBtn("기본값", (_, _) =>
-        {
-            var def = new AppPreferences().QuickInput;
-            chatHkBox.SetValue(def);
-            chatHkHint.Visibility = Visibility.Collapsed;
-            _h.SetPrefs(_h.GetPrefs() with { QuickInput = def });
-            RefreshKeycaps();
-        });
-        chatHkReset.Padding = new Thickness(11, 4, 11, 4);
-        chatHkReset.FontSize = 12;
-        chatHkReset.MinHeight = 28;
-        chatHkReset.Margin = new Thickness(6, 0, 0, 0);
-        chatHkBox.Hint += msg =>
-        {
-            chatHkHint.Text = msg ?? "";
-            chatHkHint.Foreground = msg is not null && (msg.Contains("겹칩") || msg.Contains("눌러야") || msg.Contains("없습니다")) ? ModernUi.DangerBrush : AccentBrush;
-            chatHkHint.Visibility = string.IsNullOrEmpty(msg) ? Visibility.Collapsed : Visibility.Visible;
-        };
-        chatHkBox.HotkeyChanged += hk =>
-        {
-            if (!_syncing) _h.SetPrefs(_h.GetPrefs() with { QuickInput = hk });
-            RefreshKeycaps();
-        };
-        var chatHkCtrl = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        chatHkCtrl.Children.Add(chatHkBox);
-        chatHkCtrl.Children.Add(chatHkReset);
-        _sync.Add(RefreshKeycaps);
-
-        var chatHkRow = RowCustom("캘린더 채팅 바로 가기", "클릭 후 키 입력 · Esc 취소 · Backspace 지우기", chatHkCtrl);
-        var otherHkRow = RowLink("기타 단축키 설정", "앞으로 불러오기 · 숨김/표시 · 오늘 일정 추가 · 콘텐츠 잠금", "바꾸기", () => { EditHotkeys(); RefreshKeycaps(); });
-        var keycapsWrap = new StackPanel { Margin = new Thickness(15, 10, 7, 4) };
-        keycapsWrap.Children.Add(new TextBlock
-        {
-            Text = "적용 중인 기타 단축키",
             FontSize = 11.5,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = MutedBrush,
-            Margin = new Thickness(0, 0, 0, 7),
-        });
-        keycapsWrap.Children.Add(keycapsGrid);
-        var keycapsRow = new Border { BorderBrush = LineBrush, Child = keycapsWrap };
+            Foreground = AccentBrush,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(15, 8, 15, 2),
+            Visibility = Visibility.Collapsed,
+        };
+        void ShowHint(string? msg)
+        {
+            hkHint.Text = msg ?? "";
+            hkHint.Foreground = msg is not null && (msg.Contains("겹칩") || msg.Contains("눌러야") || msg.Contains("없습니다")) ? ModernUi.DangerBrush : AccentBrush;
+            hkHint.Visibility = string.IsNullOrEmpty(msg) ? Visibility.Collapsed : Visibility.Visible;
+        }
 
-        Gate(chatHkRow, () => _h.GetPrefs().HotkeysEnabled);
-        Gate(otherHkRow, () => _h.GetPrefs().HotkeysEnabled);
-        Gate(keycapsRow, () => _h.GetPrefs().HotkeysEnabled);
+        var hkGuide = new Border
+        {
+            Background = ModernUi.CardAltBrush,
+            BorderBrush = LineBrush,
+            Padding = new Thickness(15, 8, 15, 8),
+            Child = new TextBlock
+            {
+                Text = "단축키 칸을 클릭해 키를 입력하면 바로 켜지고, '끄기'를 누르면 해당 단축키만 해제됩니다.",
+                FontSize = 12,
+                Foreground = MutedBrush,
+                TextWrapping = TextWrapping.Wrap,
+            },
+        };
 
-        page.Children.Add(IconCard(ModernUi.Icons.Keyboard, "단축키",
-            RowToggle("전역 단축키 사용", "다른 프로그램을 쓰는 중에도 단축키로 달력을 부릅니다",
-                () => _h.GetPrefs().HotkeysEnabled, v => { if (!_syncing) { _h.SetPrefs(_h.GetPrefs() with { HotkeysEnabled = v }); SyncAll(); } }),
-            chatHkRow,
-            chatHkHint,
-            otherHkRow,
-            keycapsRow));
+        (HotkeyAction Action, string Title, string Hint)[] shortcutSpecs =
+        [
+            (HotkeyAction.QuickInput, "캘린더 채팅 열기", "언제든 캘린더 채팅 창을 엽니다"),
+            (HotkeyAction.BringToFront, "달력 앞으로 불러오기", "바탕화면 달력을 맨 앞으로 가져옵니다"),
+            (HotkeyAction.ToggleVisible, "달력 숨기기 / 보이기", "달력을 화면에 보이거나 숨깁니다"),
+            (HotkeyAction.NewEvent, "오늘 일정 추가", "오늘 날짜의 새 일정 편집기를 엽니다"),
+            (HotkeyAction.ToggleContent, "콘텐츠 잠금 / 해제", "달력 내용을 가리거나 잠금을 풉니다"),
+            (HotkeyAction.Search, "검색 (캘린더 채팅)", "캘린더 채팅 검색을 엽니다"),
+        ];
+
+        var hkRows = new List<UIElement> { hkGuide, hkHint };
+        foreach (var (action, title, hint) in shortcutSpecs)
+        {
+            var act = action;
+            var def = defaults.Get(act);
+
+            var statusPill = ModernUi.Pill("켜짐", ModernUi.SuccessBrush, ModernUi.SuccessSoftBrush);
+            statusPill.Margin = new Thickness(8, 0, 0, 0);
+            var titleRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            titleRow.Children.Add(new TextBlock { Text = title, FontWeight = FontWeights.SemiBold, Foreground = InkBrush, VerticalAlignment = VerticalAlignment.Center });
+            titleRow.Children.Add(statusPill);
+
+            var leftText = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
+            leftText.Children.Add(titleRow);
+            leftText.Children.Add(new TextBlock { Text = hint, FontSize = 11.5, Foreground = MutedBrush, TextWrapping = TextWrapping.Wrap, LineHeight = 16, Margin = new Thickness(0, 3, 0, 0) });
+
+            var box = new HotkeyCaptureBox(_h.GetPrefs().Get(act));
+            box.ValidateConflict = hk =>
+            {
+                var cur = _h.GetPrefs();
+                foreach (var other in Enum.GetValues<HotkeyAction>())
+                {
+                    if (other == act) continue;
+                    var otherHk = cur.Get(other);
+                    if (!otherHk.IsEmpty && otherHk == hk)
+                        return $"'{HotkeyManager.ActionName(other)}' 단축키와 겹칩니다.";
+                }
+                return null;
+            };
+            box.Hint += ShowHint;
+
+            var offBtn = ModernUi.SecondaryBtn("끄기", (_, _) => { });
+            offBtn.Padding = new Thickness(9, 4, 9, 4);
+            offBtn.FontSize = 11.5;
+            offBtn.MinHeight = 28;
+            offBtn.Margin = new Thickness(6, 0, 0, 0);
+            offBtn.ToolTip = "이 단축키 끄기";
+
+            var resetBtn = ModernUi.SecondaryBtn("기본값", (_, _) => { });
+            resetBtn.Padding = new Thickness(9, 4, 9, 4);
+            resetBtn.FontSize = 11.5;
+            resetBtn.MinHeight = 28;
+            resetBtn.Margin = new Thickness(4, 0, 0, 0);
+            resetBtn.ToolTip = $"기본값({def.Format()})으로 복원";
+
+            void RefreshRow()
+            {
+                var cur = _h.GetPrefs().Get(act);
+                bool on = !cur.IsEmpty;
+                if (!box.IsKeyboardFocusWithin) box.SetValue(cur);
+                if (statusPill.Child is TextBlock ptb)
+                {
+                    ptb.Text = on ? "켜짐" : "꺼짐";
+                    ptb.Foreground = on ? ModernUi.SuccessBrush : MutedBrush;
+                }
+                statusPill.Background = on ? ModernUi.SuccessSoftBrush : ModernUi.HoverBrush;
+                offBtn.IsEnabled = on;
+                resetBtn.IsEnabled = cur != def;
+            }
+
+            box.HotkeyChanged += hk =>
+            {
+                if (!_syncing) _h.SetPrefs(_h.GetPrefs().With(act, hk));
+                RefreshRow();
+            };
+            offBtn.Click += (_, _) =>
+            {
+                ShowHint(null);
+                _h.SetPrefs(_h.GetPrefs().With(act, Hotkey.None));
+                RefreshRow();
+            };
+            resetBtn.Click += (_, _) =>
+            {
+                if (box.ValidateConflict?.Invoke(def) is { } conflict)
+                {
+                    ShowHint(conflict);
+                    return;
+                }
+                ShowHint(null);
+                _h.SetPrefs(_h.GetPrefs().With(act, def));
+                RefreshRow();
+            };
+            _sync.Add(RefreshRow);
+
+            var rightCtrl = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            rightCtrl.Children.Add(box);
+            rightCtrl.Children.Add(offBtn);
+            rightCtrl.Children.Add(resetBtn);
+
+            var rowGrid = new Grid();
+            rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            rowGrid.Children.Add(leftText);
+            Grid.SetColumn(rightCtrl, 1);
+            rowGrid.Children.Add(rightCtrl);
+            hkRows.Add(new Border { Padding = new Thickness(15, 10, 15, 10), BorderBrush = LineBrush, Child = rowGrid });
+        }
+
+        page.Children.Add(IconCard(ModernUi.Icons.Keyboard, "단축키", hkRows.ToArray()));
 
         page.Children.Add(IconCard(ModernUi.Icons.GroupSettings, "시작 및 휴일 데이터",
             RowToggle("Windows 시작 시 자동 실행", "컴퓨터를 켤 때 달력을 자동으로 시작합니다", _h.GetAutoStart, v => { if (!_syncing) _h.SetAutoStart(v); }),
@@ -1010,12 +1021,6 @@ internal sealed class SettingsWindow : Window
             RowLink("진단 정보", "문제가 생겼을 때 확인하는 정보", "보기", _h.ShowDiagnostics)));
         page.Children.Add(Card("저작권", RowText("© M-DeskCal", "이 프로그램은 직접 구현한 소프트웨어이며 다른 제품의 코드와 리소스를 쓰지 않았습니다.")));
         return page;
-    }
-
-    private void EditHotkeys()
-    {
-        var prefs = _h.GetPrefs();
-        if (HotkeyDialog.Edit(prefs) is { } edited) _h.SetPrefs(edited with { HotkeysEnabled = prefs.HotkeysEnabled });
     }
 
     // ---- page building blocks ------------------------------------------------------

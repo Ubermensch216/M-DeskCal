@@ -801,16 +801,17 @@ public partial class App : System.Windows.Application
     {
         if (_tray is null) return;
         string text = "M-DeskCal";
-        if (_prefs.HotkeysEnabled)
-        {
-            text += $"\n{_prefs.BringToFront.Format()} 앞으로 · {_prefs.ToggleVisible.Format()} 숨김";
-            if (failed.Count > 0) text += $"\n사용 중이라 등록 못 함: {failed.Count}개";
-        }
+        var shown = new List<string>();
+        if (!_prefs.QuickInput.IsEmpty) shown.Add($"{_prefs.QuickInput.Format()} 채팅");
+        if (!_prefs.BringToFront.IsEmpty) shown.Add($"{_prefs.BringToFront.Format()} 앞으로");
+        if (!_prefs.ToggleVisible.IsEmpty) shown.Add($"{_prefs.ToggleVisible.Format()} 숨김");
+        if (shown.Count > 0) text += "\n" + string.Join(" · ", shown.Take(2));
+        if (failed.Count > 0) text += $"\n사용 중이라 등록 못 함: {failed.Count}개";
         _tray.Text = text.Length <= 63 ? text : text[..63];   // NotifyIcon.Text is limited to 63 characters
         if (failed.Count > 0)
             _tray.ShowBalloonTip(5000, "M-DeskCal 단축키",
                 "다른 프로그램이 이미 사용 중인 단축키가 있습니다: " + string.Join(", ", failed.Select(a => $"{HotkeyManager.ActionName(a)}({_prefs.Get(a).Format()})"))
-                + "\n트레이 메뉴의 '단축키 설정…'에서 바꿀 수 있습니다.", Forms.ToolTipIcon.Warning);
+                + "\n설정 → 고급에서 바꿀 수 있습니다.", Forms.ToolTipIcon.Warning);
     }
 
     private void ApplyPrefs(AppPreferences next)
