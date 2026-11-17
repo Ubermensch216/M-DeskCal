@@ -28,11 +28,15 @@ internal sealed record CalendarChatHost(
     SemanticSearchService? Semantic = null,
     Func<Task>? SyncIndex = null,
     Func<AiSettings>? GetAiSettings = null,
-    Func<AiSettings, ILlmClient>? LlmFactory = null);
+    Func<AiSettings, ILlmClient>? LlmFactory = null,
+    ExtractionService? Extraction = null);
 
 /// <summary>
 /// "캘린더 채팅": unified natural-language assistant that merges quick event/to-do entry,
-/// schedule queries, keyword/semantic search, and AI conversational help in one window.
+/// schedule queries, keyword/semantic search, AI conversational help, and extraction of dated events from
+/// pasted text or a captured image (a notice, an e-mail, a conversation) in one window. A pasted text of several
+/// lines, or one read from a picture, is cut into sentences and offered as a check list; nothing is added until
+/// the user confirms it.
 /// </summary>
 internal static class CalendarChatWindow
 {
@@ -244,7 +248,11 @@ internal static class CalendarChatWindow
         {
             FontSize = 13.5,
             Padding = new Thickness(12, 9, 32, 9),
-            AcceptsReturn = false,
+            AcceptsReturn = true,                     // a pasted notice keeps its lines; Enter sends, Shift+Enter breaks the line
+            TextWrapping = TextWrapping.Wrap,
+            MaxHeight = 150,
+            MaxLength = TextExtractor.MaxChars,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalContentAlignment = VerticalAlignment.Center,
             Background = ModernUi.CardBrush,
             Foreground = ModernUi.InkBrush,
@@ -255,12 +263,12 @@ internal static class CalendarChatWindow
 
         var placeholder = new TextBlock
         {
-            Text = "일정 등록, 조회, 검색어를 입력하세요… (예: 내일 오후 2시 팀 회의 1시간)",
+            Text = "일정 등록·조회·검색, 또는 공지 글·캡처 이미지 붙여넣기",
             FontSize = 13,
             Foreground = ModernUi.MutedBrush,
             Opacity = 0.75,
-            Margin = new Thickness(13, 0, 34, 0),
-            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(13, 10, 34, 0),
+            VerticalAlignment = VerticalAlignment.Top,
             IsHitTestVisible = false,
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
@@ -275,8 +283,8 @@ internal static class CalendarChatWindow
             Background = Brushes.Transparent,
             BorderThickness = new Thickness(0),
             HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 6, 0),
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 8, 6, 0),
             Cursor = Cursors.Hand,
             Visibility = Visibility.Collapsed,
             ToolTip = "입력 지우기",
@@ -292,13 +300,24 @@ internal static class CalendarChatWindow
         var sendBtn = ModernUi.PrimaryBtn("보내기 (Enter)", (_, _) => { }, isDefault: true);
         sendBtn.Margin = new Thickness(8, 0, 0, 0);
         sendBtn.Padding = new Thickness(16, 9, 16, 9);
+        sendBtn.VerticalAlignment = VerticalAlignment.Bottom;
+
+        var imageBtn = ModernUi.SecondaryBtn("이미지", (_, _) => { });
+        imageBtn.Margin = new Thickness(8, 0, 0, 0);
+        imageBtn.Padding = new Thickness(12, 9, 12, 9);
+        imageBtn.VerticalAlignment = VerticalAlignment.Bottom;
+        imageBtn.ToolTip = "캡처 이미지 파일에서 글자를 읽어 입력칸에 넣습니다 (Ctrl+V 로 붙여넣거나 창에 끌어다 놓아도 됩니다)";
+        imageBtn.Visibility = host.Extraction is null ? Visibility.Collapsed : Visibility.Visible;
 
         var inputGrid = new Grid();
         inputGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         inputGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        inputGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Grid.SetColumn(boxContainer, 0);
-        Grid.SetColumn(sendBtn, 1);
+        Grid.SetColumn(imageBtn, 1);
+        Grid.SetColumn(sendBtn, 2);
         inputGrid.Children.Add(boxContainer);
+        inputGrid.Children.Add(imageBtn);
         inputGrid.Children.Add(sendBtn);
 
         var liveBadge = ModernUi.Pill("안내", ModernUi.MutedBrush, ModernUi.HoverBrush);
@@ -328,6 +347,7 @@ internal static class CalendarChatWindow
         var promptHistory = new List<string>();
         int historyIdx = -1;
         string draftBeforeHistory = "";
+        bool fromImage = false;                       // the text in the box was read from a picture (OCR can misread numbers)
 
         // ---- Footer ----
         Button undo = null!;
@@ -364,6 +384,8 @@ internal static class CalendarChatWindow
 
         void AppendUserBubble(string text)
         {
+            var lines = text.ReplaceLineEndings("\n").Split('\n');
+            if (lines.Length > 8) text = string.Join("\n", lines.Take(8)) + $"\n… (외 {lines.Length - 8}줄)";
             var tb = new TextBlock
             {
                 Text = text,
@@ -578,6 +600,208 @@ internal static class CalendarChatWindow
             card.BorderThickness = new Thickness(1.5);
             messages.Children.Add(WrapWithAssistantAvatar(card));
             ScrollBottom();
+        }
+
+        // ---- pasted text / captured image → a check list of dated sentences, added only on confirmation ----
+        void AppendExtractionCard(IReadOnlyList<ExtractedRow> rows, bool readFromImage)
+        {
+            var found = rows.Where(r => r.Candidate.Kind != CandidateKind.Skipped).ToList();
+            var skipped = rows.Where(r => r.Candidate.Kind == CandidateKind.Skipped).ToList();
+            var stack = new StackPanel();
+
+            var headerRow = new DockPanel { Margin = new Thickness(2, 0, 2, 6) };
+            var countPill = ModernUi.Pill(
+                found.Count == 0 ? "없음" : $"{found.Count}건",
+                found.Count == 0 ? ModernUi.MutedBrush : ModernUi.AccentBrush,
+                found.Count == 0 ? ModernUi.HoverBrush : ModernUi.AccentSoftBrush);
+            DockPanel.SetDock(countPill, Dock.Right);
+            headerRow.Children.Add(countPill);
+            headerRow.Children.Add(new TextBlock
+            {
+                Text = found.Count == 0 ? "날짜가 있는 문장을 찾지 못했습니다" : "글에서 찾은 일정 — 캘린더에 등록할까요?",
+                FontSize = 13.5,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = ModernUi.InkBrush,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            stack.Children.Add(headerRow);
+
+            if (found.Count > 0)
+                stack.Children.Add(new TextBlock
+                {
+                    Text = readFromImage
+                        ? "이미지에서 읽은 글자 기준입니다. OCR 은 숫자를 틀리게 읽을 수 있으니 날짜·시각을 이미지와 꼭 대조하세요."
+                        : $"등록할 항목만 체크하고, 제목은 고칠 수 있습니다. 상대 표현(내일·다음 주 …)은 오늘({host.Today():yyyy-MM-dd}) 기준입니다.",
+                    FontSize = 11.5,
+                    Foreground = readFromImage ? ModernUi.WarnBrush : ModernUi.MutedBrush,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(2, 0, 2, 8),
+                });
+
+            var views = new List<(CheckBox Check, Func<ExtractedRow> Row, Action<string> Done)>();
+            Button addBtn = null!;
+            var statusNote = new TextBlock { FontSize = 11.5, Margin = new Thickness(2, 8, 2, 0), TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
+
+            void UpdateCount()
+            {
+                int n = views.Count(v => v.Check.IsChecked == true && v.Check.IsEnabled && v.Row().Proposal is not null);
+                addBtn.Content = n == 0 ? "선택한 항목 등록" : $"선택한 {n}건 캘린더에 등록";
+                addBtn.IsEnabled = n > 0;
+            }
+
+            foreach (var first in found)
+            {
+                var row = first;
+                bool added = false;
+                var check = new CheckBox { IsChecked = row.SelectedByDefault, Margin = new Thickness(0, 6, 10, 0), VerticalAlignment = VerticalAlignment.Top };
+                bool todo = row.Candidate.Kind == CandidateKind.Todo;
+                var kindPill = ModernUi.Pill(todo ? "할 일" : "일정", todo ? ModernUi.SuccessBrush : ModernUi.AccentBrush, todo ? ModernUi.SuccessSoftBrush : ModernUi.AccentSoftBrush);
+                kindPill.VerticalAlignment = VerticalAlignment.Top;
+                kindPill.Margin = new Thickness(0, 3, 10, 0);
+
+                var title = new TextBox { Text = row.Candidate.Title, Padding = new Thickness(8, 5, 8, 5), FontWeight = FontWeights.SemiBold };
+                var detail = new TextBlock { Margin = new Thickness(0, 5, 0, 0), Foreground = ModernUi.InkBrush, FontSize = 12.5, TextWrapping = TextWrapping.Wrap };
+                var clash = new TextBlock { Foreground = ModernUi.WarnBrush, FontSize = 11.5, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) };
+                var notes = new TextBlock { Foreground = ModernUi.MutedBrush, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) };
+                var source = new TextBlock { Text = "원문: " + row.Candidate.Source, Foreground = ModernUi.MutedBrush, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) };
+
+                void Refresh()
+                {
+                    if (row.Proposal is { } p)
+                    {
+                        var (_, when, more) = AiText.Describe(p);
+                        detail.Text = when + (more.Length > 0 ? "   ·   " + more : "") + (added ? "   ✓ 등록했습니다" : "");
+                        check.IsEnabled = !added;
+                    }
+                    else { detail.Text = "제목이 비어 있습니다."; check.IsChecked = false; check.IsEnabled = false; }
+                    var n = row.Candidate.Parse.Event.Notes;
+                    notes.Text = string.Join("\n", n.Select(x => "· " + x));
+                    notes.Visibility = n.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+                    var c = row.Conflicts.Select(x => "⚠ " + x).ToList();
+                    if (row.Duplicate) c.Insert(0, "이미 달력에 있는 것 같습니다 (같은 제목·같은 시각).");
+                    clash.Text = string.Join("\n", c);
+                    clash.Visibility = c.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+                }
+
+                title.LostFocus += (_, _) =>
+                {
+                    string t = title.Text.Trim();
+                    if (added || t == row.Candidate.Title || host.Extraction is null) return;
+                    row = host.Extraction.WithTitle(row, t);
+                    check.IsChecked = row.SelectedByDefault;
+                    Refresh();
+                    UpdateCount();
+                };
+                check.Click += (_, _) => UpdateCount();
+                views.Add((check, () => row, _ => { added = true; check.IsChecked = false; title.IsReadOnly = true; Refresh(); }));
+
+                var body = new StackPanel();
+                foreach (var e in new UIElement[] { title, detail, clash, notes, source }) body.Children.Add(e);
+                var cardRow = ModernUi.CheckCardRow(check, body, badge: kindPill);
+                cardRow.Margin = new Thickness(0, 0, 0, 6);
+                stack.Children.Add(cardRow);
+                Refresh();
+            }
+
+            addBtn = ModernUi.PrimaryBtn("선택한 항목 등록", (_, _) =>
+            {
+                var picked = views.Where(v => v.Check.IsChecked == true && v.Check.IsEnabled && v.Row().Proposal is not null).ToList();
+                if (picked.Count == 0) return;
+                var result = host.Batch.Apply(picked.Select(v => v.Row().Proposal!).ToList());
+                host.Changed();
+                var failed = result.Failed.Select(f => f.Summary).ToHashSet();
+                foreach (var v in picked.Where(v => !failed.Contains(v.Row().Proposal!.Summary))) v.Done("");
+                string msg = $"{result.Applied.Count}건을 캘린더에 등록했습니다.";
+                if (result.Failed.Count > 0) msg += $"\n등록하지 못한 {result.Failed.Count}건: " + string.Join(" / ", result.Failed.Select(f => f.Error));
+                msg += "\n잘못 등록했다면 아래 '마지막 추가 되돌리기'로 한꺼번에 취소할 수 있습니다.";
+                statusNote.Text = msg;
+                statusNote.Foreground = result.Failed.Count > 0 ? ModernUi.WarnBrush : ModernUi.SuccessBrush;
+                statusNote.Visibility = Visibility.Visible;
+                UpdateUndo();
+                UpdateCount();
+                if (picked.Select(v => AiText.DateOf(v.Row().Proposal!)).Where(d => d is not null).Min() is { } firstDay) host.GoTo(firstDay);
+            });
+
+            if (found.Count > 0)
+            {
+                var actions = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+                actions.Children.Add(addBtn);
+                stack.Children.Add(actions);
+                stack.Children.Add(statusNote);
+                UpdateCount();
+            }
+
+            if (skipped.Count > 0)
+            {
+                var skippedBox = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
+                foreach (var s in skipped)
+                    skippedBox.Children.Add(new TextBlock { Text = $"· {s.Candidate.Source}   →   {s.Candidate.Reason}", Foreground = ModernUi.MutedBrush, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 3) });
+                stack.Children.Add(new Expander
+                {
+                    Header = $"제외된 문장 ({skipped.Count}) — 날짜가 없거나 읽을 수 없는 문장",
+                    Content = skippedBox,
+                    IsExpanded = found.Count == 0,
+                    Margin = new Thickness(0, 8, 0, 0),
+                    Foreground = ModernUi.MutedBrush,
+                });
+            }
+
+            var card = ModernUi.Card(stack, padding: new Thickness(14, 12, 14, 12), margin: new Thickness(0));
+            if (found.Count > 0) { card.BorderBrush = ModernUi.AccentBorderBrush; card.BorderThickness = new Thickness(1.5); }
+            messages.Children.Add(WrapWithAssistantAvatar(card));
+            ScrollBottom();
+        }
+
+        // ---- a picture instead of text: read with the OCR that comes with Windows (offline; the picture is not kept) ----
+        async Task LoadImageAsync(Func<Task<OcrReading>> read)
+        {
+            if (host.Extraction is null || busy) return;
+            busy = true;
+            sendBtn.IsEnabled = imageBtn.IsEnabled = false;
+            SetLiveBadge("이미지 읽는 중", ModernUi.AccentBrush, ModernUi.AccentSoftBrush, "이미지에서 글자를 읽고 있습니다…");
+            try
+            {
+                var r = await read();
+                if (string.IsNullOrWhiteSpace(r.Text))
+                {
+                    AppendAssistantText("이미지에서 글자를 찾지 못했습니다. 글자가 크고 또렷한 이미지를 쓰세요.", ModernUi.WarnSoftBrush, ModernUi.WarnBrush);
+                    return;
+                }
+                box.Text = string.IsNullOrWhiteSpace(box.Text) ? r.Text : box.Text.TrimEnd() + "\n" + r.Text;
+                fromImage = true;
+                box.CaretIndex = box.Text.Length;
+                box.Focus();
+            }
+            catch (OcrException ex) { AppendAssistantText(ex.Message, ModernUi.WarnSoftBrush, ModernUi.WarnBrush); }
+            catch (OperationCanceledException) { }
+            finally
+            {
+                busy = false;
+                sendBtn.IsEnabled = imageBtn.IsEnabled = true;
+                UpdateLivePreview();
+            }
+        }
+
+        imageBtn.Click += (_, _) =>
+        {
+            var dlg = new Microsoft.Win32.OpenFileDialog { Title = "글자를 읽을 이미지", Filter = "그림 파일|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp|모든 파일|*.*" };
+            if (dlg.ShowDialog(win) == true) _ = LoadImageAsync(() => OcrReader.ReadFileAsync(dlg.FileName));
+        };
+        if (host.Extraction is not null)
+        {
+            win.AllowDrop = true;
+            win.PreviewDragOver += (_, e) =>
+            {
+                if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
+                e.Effects = DragDropEffects.Copy;
+                e.Handled = true;
+            };
+            win.PreviewDrop += (_, e) =>
+            {
+                if (e.Data.GetData(DataFormats.FileDrop) is not string[] { Length: > 0 } files) return;
+                e.Handled = true;
+                _ = LoadImageAsync(() => OcrReader.ReadFileAsync(files[0]));
+            };
         }
 
         void AppendQueryCard(QueryRequest q, IReadOnlyList<QueryRow> rows)
@@ -931,11 +1155,19 @@ internal static class CalendarChatWindow
                 promptHistory.Add(typed);
             historyIdx = -1;
             draftBeforeHistory = "";
-            if (forcedPrompt is null) box.Text = "";
+            bool readFromImage = forcedPrompt is null && fromImage;
+            if (forcedPrompt is null) { box.Text = ""; fromImage = false; }
             AppendUserBubble(typed);
 
             var today = host.Today();
             var weekStart = host.WeekStart();
+
+            // 0) Pasted text of several lines, or text read from a picture: find every dated sentence and ask before adding
+            if (host.Extraction is not null && (readFromImage || IsPastedText(typed)))
+            {
+                AppendExtractionCard(host.Extraction.Analyze(typed, today, weekStart), readFromImage);
+                return;
+            }
 
             // 1) Fast deterministic period / free-time query
             if (KoreanQueryParser.Parse(typed, today, weekStart) is { } queryReq)
@@ -1089,7 +1321,14 @@ internal static class CalendarChatWindow
             if (typed.Length == 0)
             {
                 SetLiveBadge("안내", ModernUi.MutedBrush, ModernUi.HoverBrush,
-                    "\"이번 주 일정 보여줘\" · \"오늘 빈 시간\" · \"주간보고 찾아줘\" · \"다음 주 화요일 3시 치과\"");
+                    "\"이번 주 일정 보여줘\" · \"오늘 빈 시간\" · \"주간보고 찾아줘\" · 공지·캡처 이미지 붙여넣기");
+                return;
+            }
+            if (host.Extraction is not null && (fromImage || IsPastedText(typed)))
+            {
+                int n = TextExtractor.Extract(typed, host.Today(), host.WeekStart()).Count(c => c.Kind != CandidateKind.Skipped);
+                SetLiveBadge("일정 추출", ModernUi.SuccessBrush, ModernUi.SuccessSoftBrush,
+                    (fromImage ? "이미지에서 읽은 글 · " : "") + (n == 0 ? "날짜가 있는 문장이 아직 없습니다" : $"날짜가 있는 문장 {n}개") + " — Enter로 등록 확인 카드 만들기");
                 return;
             }
             if (KoreanQueryParser.Parse(typed, host.Today(), host.WeekStart()) is { } q)
@@ -1136,16 +1375,36 @@ internal static class CalendarChatWindow
         send = () => SendPrompt();
         sendPrompt = p => SendPrompt(p);
 
-        box.TextChanged += (_, _) => UpdateLivePreview();
+        box.TextChanged += (_, _) =>
+        {
+            if (box.Text.Length == 0) fromImage = false;
+            UpdateLivePreview();
+        };
         box.PreviewKeyDown += (_, e) =>
         {
             if (e.Key == Key.Enter)
             {
+                if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) return;     // Shift+Enter: a new line
                 e.Handled = true;
                 SendPrompt();
                 return;
             }
-            if (e.Key == Key.Up && promptHistory.Count > 0)
+            if (e.Key == Key.V && Keyboard.Modifiers == ModifierKeys.Control && host.Extraction is not null)
+            {
+                // Ctrl+V with a picture (and no text) on the clipboard reads the picture into the box
+                try
+                {
+                    if (Clipboard.ContainsImage() && !Clipboard.ContainsText() && Clipboard.GetImage() is { } bmp)
+                    {
+                        e.Handled = true;
+                        _ = LoadImageAsync(() => OcrReader.ReadBitmapAsync(bmp));
+                    }
+                }
+                catch (System.Runtime.InteropServices.ExternalException) { }
+                return;
+            }
+            bool multiLine = box.Text.Contains('\n');                       // in a pasted text the arrows move between lines
+            if (e.Key == Key.Up && promptHistory.Count > 0 && !multiLine)
             {
                 if (historyIdx == -1)
                 {
@@ -1160,7 +1419,7 @@ internal static class CalendarChatWindow
                 box.CaretIndex = box.Text.Length;
                 e.Handled = true;
             }
-            else if (e.Key == Key.Down && historyIdx != -1)
+            else if (e.Key == Key.Down && historyIdx != -1 && !multiLine)
             {
                 if (historyIdx < promptHistory.Count - 1)
                 {
@@ -1208,7 +1467,7 @@ internal static class CalendarChatWindow
             ? "자연어 일정 해석 및 AI 대화형 비서가 활성화되어 있습니다."
             : "규칙 기반 일정 해석 및 검색이 활성화되어 있습니다. (설정 → AI 에서 AI 모델 연결 가능)";
 
-        var header = ModernUi.Header(ModernUi.Icons.Sparkles, "캘린더 채팅", "자연어로 일정을 찾고, 등록하고, 물어보세요", right: modePill);
+        var header = ModernUi.Header(ModernUi.Icons.Sparkles, "캘린더 채팅", "자연어로 일정을 찾고, 등록하고, 물어보세요 · 공지·캡처 이미지에서 일정 추출", right: modePill);
         win.Content = ModernUi.PageShell(header, footer, body);
         UpdateUndo();
         win.Loaded += (_, _) => { box.Focus(); _ = host.Service.WarmUpAsync(CancellationToken.None); };
@@ -1232,6 +1491,8 @@ internal static class CalendarChatWindow
             ("일정 등록", ModernUi.SuccessBrush, ModernUi.SuccessSoftBrush, "\"다음 주 화요일 오후 3시 치과 1시간\"", "다음 주 화요일 오후 3시 치과 1시간"),
             ("일정 조회", ModernUi.AccentBrush, ModernUi.AccentSoftBrush, "\"이번 주 일정 보여줘\", \"오늘 빈 시간\"", "이번 주 일정 보여줘"),
             ("통합 검색", ModernUi.InkBrush, ModernUi.HoverBrush, "\"주간보고\", \"유엔파인 찾아줘\" (상세 필터 지원)", "주간보고 찾아줘"),
+            ("일정 추출", ModernUi.WarnBrush, ModernUi.WarnSoftBrush, "공지·메일·대화 글이나 캡처 이미지를 붙여넣고 Enter (이미지: Ctrl+V·끌어다 놓기)",
+                "[공지] 11월 정기 회의 안내\n- 일시: 11월 20일(금) 오후 2시\n- 장소: 3층 회의실\n- 제출 서류는 11월 18일까지 제출해 주세요."),
         ];
 
         foreach (var (badge, fg, bg, desc, sample) in guides)
@@ -1253,7 +1514,7 @@ internal static class CalendarChatWindow
                     BorderThickness = new Thickness(0),
                     Padding = new Thickness(6, 3, 6, 3),
                     Cursor = Cursors.Hand,
-                    ToolTip = $"클릭하여 실행: {sample}",
+                    ToolTip = $"클릭하여 실행:\n{sample}",
                     Template = FlatHoverButtonTemplate(ModernUi.HoverBrush, new CornerRadius(5)),
                     Content = new TextBlock
                     {
@@ -1461,6 +1722,10 @@ internal static class CalendarChatWindow
             f.Done.SelectedIndex switch { 1 => DoneFilter.Done, 2 => DoneFilter.NotDone, _ => DoneFilter.Any },
             color, f.Deleted.IsChecked == true);
     }
+
+    /// <summary>A notice, an e-mail or a conversation pasted in: more than one non-empty line.</summary>
+    private static bool IsPastedText(string text) =>
+        text.ReplaceLineEndings("\n").Split('\n').Count(l => !string.IsNullOrWhiteSpace(l)) > 1;
 
     private static bool LooksLikeSearchPrompt(string text)
     {

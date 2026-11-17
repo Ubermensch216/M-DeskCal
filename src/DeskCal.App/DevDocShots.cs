@@ -67,7 +67,7 @@ public partial class App
             _searchService!, _itemRepo!, _historyRepo!,
             () => DateOnly.FromDateTime(DateTime.Today), () => board.Settings.FirstDayOfWeek,
             () => { }, _ => { }, _ => { },
-            _semantic, SyncIndexAsync, () => _aiStore!.Load(), s => DeskCal.Ai.Llm.LlmClientFactory.Create(s));
+            _semantic, SyncIndexAsync, () => _aiStore!.Load(), s => DeskCal.Ai.Llm.LlmClientFactory.Create(s), _extraction);
         var chatWin = CalendarChatWindow.Build(chatHost, out var chatBox, out var chatSend);
         chatBox.Text = "오늘 할 일 보여줘";
         chatSend();
@@ -84,12 +84,12 @@ public partial class App
             DevHarness.RenderToPng((FrameworkElement)quick.Content, P(file), 650, 520, modernBg);
         }
 
-        // "extract from text": a pasted notice, analysed
-        var extractHost = new ExtractHost(_extraction!, _batch!, () => new DateOnly(2026, 11, 14), () => DayOfWeek.Monday, () => { }, _ => { });
-        var extract = ExtractWindow.Build(extractHost, out var extractBox, out var extractRun);
+        // "extract from text", now part of the chat: a pasted notice, turned into a check list to confirm
+        var extractHost = chatHost with { Today = () => new DateOnly(2026, 11, 14), WeekStart = () => DayOfWeek.Monday };
+        var extract = CalendarChatWindow.Build(extractHost, out var extractBox, out var extractRun);
         extractBox.Text = "[공지] 11월 정기 회의 안내\n- 일시: 11월 20일(금) 오후 2시\n- 장소: 3층 회의실\n- 제출 서류는 11월 18일까지 제출해 주세요.\n감사합니다.";
         extractRun();
-        DevHarness.RenderToPng((FrameworkElement)extract.Content, P("doc-extract.png"), 780, 720, modernBg);
+        DevHarness.RenderToPng((FrameworkElement)extract.Content, P("doc-extract.png"), 760, 880, modernBg);
 
         // the briefing window (today and the week behind)
         var brief = BriefingWindow.Build(MakeBriefingHost(), out _);

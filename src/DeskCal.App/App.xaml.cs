@@ -404,7 +404,8 @@ public partial class App : System.Windows.Application
             _semantic,
             SyncIndexAsync,
             () => _aiStore!.Load(),
-            s => DeskCal.Ai.Llm.LlmClientFactory.Create(s)),
+            s => DeskCal.Ai.Llm.LlmClientFactory.Create(s),
+            _extraction),
             initialPrompt);
     }
 
@@ -928,14 +929,6 @@ public partial class App : System.Windows.Application
             AfterImport, day => _board!.GoTo(day), day => _board!.NewEvent(day)));
     }
 
-    /// <summary>Paste a notice or a conversation and tick the dates worth adding.</summary>
-    private void OpenExtract()
-    {
-        if (!EnsureUnlocked()) return;
-        ExtractWindow.ShowOrActivate(new ExtractHost(
-            _extraction!, _batch!, () => DateOnly.FromDateTime(DateTime.Today), () => _board!.Settings.FirstDayOfWeek, AfterImport, day => _board!.GoTo(day)));
-    }
-
     /// <summary>A topic and a day become a row of review to-dos on growing intervals.</summary>
     private void OpenReviewPlan()
     {
@@ -982,7 +975,6 @@ public partial class App : System.Windows.Application
         menu.Items.Add(ModernUi.MenuGroupHeader(ModernUi.Icons.GroupTools, "일정 · 도구", topDivider: false));
         menu.Items.Add(Entry("새 일정 (오늘)", ModernUi.Icons.CalendarPlus, () => OnHotkey(HotkeyAction.NewEvent)));
         menu.Items.Add(Entry("캘린더 채팅", ModernUi.Icons.Sparkles, () => OpenCalendarChat()));
-        menu.Items.Add(Entry("텍스트에서 일정 추출", ModernUi.Icons.FileText, OpenExtract));
         menu.Items.Add(Entry("복습 계획 만들기", ModernUi.Icons.RepeatPlan, OpenReviewPlan));
         menu.Items.Add(Entry("미완료 정리", ModernUi.Icons.Rollover, OpenRollover));
         menu.Items.Add(Entry("오늘 브리핑", ModernUi.Icons.Briefing, () => OpenBriefing()));
@@ -1036,7 +1028,6 @@ public partial class App : System.Windows.Application
         // 1. 검색 · 일정 탐색
         menu.Items.Add("캘린더 채팅…", null, (_, _) => OpenCalendarChat());
         menu.Items.Add("새 일정 (오늘)…", null, (_, _) => OnHotkey(HotkeyAction.NewEvent));
-        menu.Items.Add("텍스트에서 일정 추출…", null, (_, _) => OpenExtract());
         menu.Items.Add("복습 계획 만들기…", null, (_, _) => OpenReviewPlan());
         menu.Items.Add("미완료 정리…", null, (_, _) => OpenRollover());
         menu.Items.Add("오늘 브리핑 · 지난 7일…", null, (_, _) => OpenBriefing());
