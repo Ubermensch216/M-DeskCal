@@ -90,7 +90,7 @@ internal static class BugiNotifier
         if (string.IsNullOrWhiteSpace(text)) return false;
 
         string endpoint = ResolveBaseUrl(discoveryPath) + "/api/alert";
-        string json = JsonSerializer.Serialize(new { message = text, style = "big" });
+        string json = BuildAlertJson(text);
         using var req = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
             Content = new StringContent(json, Encoding.UTF8, "application/json")
@@ -106,6 +106,19 @@ internal static class BugiNotifier
             AppLog.Write("bugi alert send failed: " + ex.Message);
             return false;
         }
+    }
+
+    private static string BuildAlertJson(string message)
+    {
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms))
+        {
+            w.WriteStartObject();
+            w.WriteString("message", message);
+            w.WriteString("style", "big");
+            w.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(ms.ToArray());
     }
 
     private static string FormatWhen(ReminderMessage m) =>
