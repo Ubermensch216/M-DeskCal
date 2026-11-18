@@ -17,7 +17,7 @@ namespace DeskCal.App;
 /// The reminder pop-up: a small always-on-top card in the bottom-right corner that does not steal keyboard focus.
 /// Reminders that arrive while it is open are added to it. "10분 뒤 다시" shows them again later (not persisted).
 /// </summary>
-internal sealed class ReminderPresenter
+internal sealed class ReminderPresenter(Func<bool>? bugiAlertEnabled = null)
 {
     private ReminderWindow? _window;
 
@@ -34,6 +34,7 @@ internal sealed class ReminderPresenter
         else _window.Add(messages);
 
         if (playSound && messages.Any(m => m.Sound != "none")) Sounds.PlayReminder();
+        if (bugiAlertEnabled?.Invoke() == true) BugiNotifier.NotifyInBackground(messages);
     }
 
     internal void Snooze(IReadOnlyList<ReminderMessage> messages, TimeSpan delay)

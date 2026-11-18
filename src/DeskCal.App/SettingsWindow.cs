@@ -422,6 +422,9 @@ internal sealed class SettingsWindow : Window
         page.Children.Add(IconCard(ModernUi.Icons.Layout, "시간표",
             RowLink("시간표 편집", "요일·교시별 주간 시간표를 편집합니다", "열기", _h.OpenTimetable),
             RowToggle("바탕화면에 시간표 표시", "오늘 요일과 현재 진행 중인 교시를 바탕화면 위젯으로 표시합니다", _h.GetTimetableWidget, _h.SetTimetableWidget)));
+        page.Children.Add(IconCard(ModernUi.Icons.Bolt, "부기 알람 연동",
+            RowToggle("알람 발생 시 부기에게 전달", "캘린더 알람이 울릴 때 실행 중인 데스크펫 부기(deskPet_Bugi)에도 알람을 띄웁니다",
+                () => S.BugiAlert, v => Apply(s => s with { BugiAlert = v }))));
         return page;
     }
 

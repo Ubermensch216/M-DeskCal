@@ -275,7 +275,7 @@ public partial class App : System.Windows.Application
 
         if (!e.Args.Contains("--no-reminders"))
         {
-            var presenter = new ReminderPresenter();
+            var presenter = new ReminderPresenter(() => _board.Settings.BugiAlert);
             _reminderService = new ReminderService(new ReminderProcessor(db, clock, isDayOff),
                 msgs => presenter.Show(_board.ContentHidden ? msgs.Select(m => m with { Title = "🔒 잠긴 알림" }).ToList() : msgs, _board.Settings.ReminderSound), missedWindow: TimeSpan.FromHours(24));
             _board.RemindersChanged += _reminderService.Reschedule;

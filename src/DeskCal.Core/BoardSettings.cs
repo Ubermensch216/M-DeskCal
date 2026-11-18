@@ -64,6 +64,8 @@ public sealed record BoardSettings
     public int LineGap { get; init; } = 1;
     public bool CompleteSound { get; init; } = true;
     public bool ReminderSound { get; init; } = true;
+    /// <summary>Forward fired calendar reminders to deskPet_Bugi via its local HTTP API.</summary>
+    public bool BugiAlert { get; init; } = true;
 
     // ---- layout ----
     public DisplayMode Mode { get; init; } = DisplayMode.FixedMonth;

@@ -249,7 +249,7 @@ public class BoardSettingsStoreTests
         var store = new BoardSettingsStore(f.Settings);
         var custom = new BoardSettings
         {
-            Bullet = BulletStyle.Number, ShowCompleted = false, CompleteSound = false, ReminderSound = false,
+            Bullet = BulletStyle.Number, ShowCompleted = false, CompleteSound = false, ReminderSound = false, BugiAlert = false,
             ShowLunar = false, ShowSolarTerms = false, ShowHolidays = false, ShowFestivals = false, HolidayColor = "#AA2222",
             Mode = DisplayMode.SingleLineFloating, FirstDayOfWeek = DayOfWeek.Monday, MaxRows = 6, LineDays = 21,
             ShowWeekNumbers = true, WeekRule = WeekNumberRule.FirstDayOfYear, OffDaysMask = 1 << (int)DayOfWeek.Sunday,

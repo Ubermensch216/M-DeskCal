@@ -28,6 +28,7 @@ public sealed class BoardSettingsStore(SettingsStore store)
             PastWeeks = store.GetInt(Prefix + "past_weeks", d.PastWeeks),
             CompleteSound = store.GetBool(Prefix + "complete_sound", d.CompleteSound),
             ReminderSound = store.GetBool(Prefix + "reminder_sound", d.ReminderSound),
+            BugiAlert = store.GetBool(Prefix + "bugi_alert", d.BugiAlert),
             Mode = Enum(store, "mode", d.Mode),
             FirstDayOfWeek = Enum(store, "first_dow", d.FirstDayOfWeek),
             MaxRows = store.GetInt(Prefix + "max_rows", d.MaxRows),
@@ -69,6 +70,7 @@ public sealed class BoardSettingsStore(SettingsStore store)
         store.SetInt(Prefix + "past_weeks", s.PastWeeks);
         store.SetBool(Prefix + "complete_sound", s.CompleteSound);
         store.SetBool(Prefix + "reminder_sound", s.ReminderSound);
+        store.SetBool(Prefix + "bugi_alert", s.BugiAlert);
         store.SetString(Prefix + "mode", s.Mode.ToString());
         store.SetString(Prefix + "first_dow", s.FirstDayOfWeek.ToString());
         store.SetInt(Prefix + "max_rows", s.MaxRows);
