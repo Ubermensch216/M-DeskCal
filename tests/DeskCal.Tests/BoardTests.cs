@@ -126,6 +126,36 @@ public class BoardLayoutTests
         Assert.Equal(anchor.AddDays(-14), BoardLayout.Step(anchor, -1, new BoardSettings { Mode = DisplayMode.SingleLineFloating, LineDays = 14 }));
     }
 
+    [Fact]
+    public void IsAtToday_checks_month_in_month_modes_and_view_start_in_floating_modes()
+    {
+        var today = new DateOnly(2026, 11, 23);
+
+        foreach (var mode in new[] { DisplayMode.FixedMonth, DisplayMode.FullMonth, DisplayMode.SingleLine })
+        {
+            var s = new BoardSettings { Mode = mode };
+            Assert.True(BoardLayout.IsAtToday(today, today, s));
+            Assert.True(BoardLayout.IsAtToday(new DateOnly(2026, 11, 1), today, s));
+            Assert.True(BoardLayout.IsAtToday(new DateOnly(2026, 11, 30), today, s));
+            Assert.False(BoardLayout.IsAtToday(new DateOnly(2026, 12, 1), today, s));
+            Assert.False(BoardLayout.IsAtToday(new DateOnly(2026, 10, 31), today, s));
+            Assert.False(BoardLayout.IsAtToday(new DateOnly(2025, 11, 23), today, s));
+        }
+
+        // FloatingMonth: same week (Sunday start: Nov 22..28) is at today; other weeks are not.
+        var floating = new BoardSettings { Mode = DisplayMode.FloatingMonth, FirstDayOfWeek = DayOfWeek.Sunday };
+        Assert.True(BoardLayout.IsAtToday(new DateOnly(2026, 11, 22), today, floating));
+        Assert.True(BoardLayout.IsAtToday(new DateOnly(2026, 11, 28), today, floating));
+        Assert.False(BoardLayout.IsAtToday(new DateOnly(2026, 11, 21), today, floating));
+        Assert.False(BoardLayout.IsAtToday(new DateOnly(2026, 12, 1), today, floating));
+
+        // SingleLineFloating: starts on exact anchor day.
+        var lineFloat = new BoardSettings { Mode = DisplayMode.SingleLineFloating };
+        Assert.True(BoardLayout.IsAtToday(today, today, lineFloat));
+        Assert.False(BoardLayout.IsAtToday(today.AddDays(1), today, lineFloat));
+        Assert.False(BoardLayout.IsAtToday(today.AddDays(-1), today, lineFloat));
+    }
+
     // ---- Week numbers ------------------------------------------------------
 
     [Fact]

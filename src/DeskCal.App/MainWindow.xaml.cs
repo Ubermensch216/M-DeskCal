@@ -402,7 +402,12 @@ public partial class MainWindow : Window
 
     private void Prev_Click(object sender, MouseButtonEventArgs e) { e.Handled = true; Navigate(-1); }
     private void Next_Click(object sender, MouseButtonEventArgs e) { e.Handled = true; Navigate(+1); }
-    private void Today_Click(object sender, MouseButtonEventArgs e) { e.Handled = true; GoToday(); }
+    private void Today_Click(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        if (BoardLayout.IsAtToday(_anchor, Today(), _settings)) return;
+        GoToday();
+    }
 
     /// <summary>Raised when the gear is clicked; the app answers by opening its quick menu under <see cref="GearAnchor"/>.</summary>
     internal event Action? GearClicked;
@@ -1065,6 +1070,11 @@ public partial class MainWindow : Window
 
         foreach (var tb in new[] { MonthTitle, PrevText, TodayText, NextText }) { tb.Foreground = text; tb.FontFamily = font; }
         GearText.Foreground = text;   // keeps its own icon font
+        bool canGoToday = !BoardLayout.IsAtToday(_anchor, _renderedToday, s);
+        TodayBtn.IsEnabled = canGoToday;
+        TodayBtn.Cursor = canGoToday ? System.Windows.Input.Cursors.Hand : System.Windows.Input.Cursors.Arrow;
+        TodayBtn.ToolTip = canGoToday ? "오늘로 이동" : null;
+        TodayText.Opacity = canGoToday ? 1.0 : 0.35;
         if (!_syncRunning) SyncIcon.Stroke = text;
         RenderSyncResult();
         MonthTitle.FontSize = s.FontSize + 7;

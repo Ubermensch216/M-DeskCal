@@ -54,6 +54,18 @@ public static class BoardLayout
         };
     }
 
+    /// <summary>True when the board is already showing today's view (so jumping to today would not change the screen).</summary>
+    public static bool IsAtToday(DateOnly anchor, DateOnly today, BoardSettings settings)
+    {
+        var s = settings.Sanitized();
+        return s.Mode switch
+        {
+            DisplayMode.FloatingMonth => StartOfWeek(anchor, s.FirstDayOfWeek) == StartOfWeek(today, s.FirstDayOfWeek),
+            DisplayMode.SingleLineFloating => anchor == today,
+            _ => anchor.Year == today.Year && anchor.Month == today.Month,
+        };
+    }
+
     public static DateOnly StartOfWeek(DateOnly date, DayOfWeek firstDay)
     {
         int diff = ((int)date.DayOfWeek - (int)firstDay + 7) % 7;
