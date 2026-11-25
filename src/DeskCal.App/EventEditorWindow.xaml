@@ -571,7 +571,7 @@
                                 <StackPanel Orientation="Horizontal">
                                     <Viewbox Width="13" Height="13" Margin="0,0,5,0">
                                         <Path Data="M12 3v2M12 19v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M3 12h2M19 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"
-                                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=CheckBox}}"
+                                              Stroke="{Binding Foreground, ElementName=AllDayBox}"
                                               StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="24" Height="24"/>
                                     </Viewbox>
                                     <TextBlock Text="종일" VerticalAlignment="Center"/>
@@ -760,7 +760,7 @@
                                 <StackPanel Orientation="Horizontal">
                                     <Viewbox Width="13" Height="13" Margin="0,0,5,0">
                                         <Path Data="M3 4h18a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM8 21h8M12 18v3"
-                                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=CheckBox}}"
+                                              Stroke="{Binding Foreground, ElementName=DdayShowCardBox}"
                                               StrokeThickness="1.9" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="24" Height="24"/>
                                     </Viewbox>
                                     <TextBlock Text="바탕화면 카드" VerticalAlignment="Center"/>
@@ -771,7 +771,7 @@
                                 <StackPanel Orientation="Horizontal">
                                     <Viewbox Width="13" Height="13" Margin="0,0,5,0">
                                         <Path Data="M3 4h18a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM3 15h18"
-                                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=CheckBox}}"
+                                              Stroke="{Binding Foreground, ElementName=DdayShowBottomBox}"
                                               StrokeThickness="1.9" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="24" Height="24"/>
                                     </Viewbox>
                                     <TextBlock Text="달력 하단 줄" VerticalAlignment="Center"/>

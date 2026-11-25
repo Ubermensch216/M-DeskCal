@@ -93,6 +93,22 @@ internal static class ModernUi
         public const string Type = "M4 7V4h16v3M9 20h6M12 4v16";
         public const string Image = "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM21 15l-5-5L5 21";
         public const string Keyboard = "M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zM6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8";
+        public const string Send = "M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z";
+        public const string ArrowUp = "M12 19V5M5 12l7-7 7 7";
+        public const string Undo = "M3 7v6h6M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13";
+        public const string Trash = "M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6";
+        public const string Clock = "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM12 6v6l4 2";
+        public const string Bell = "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0";
+        public const string Calendar = "M8 2v3M16 2v3M3 9h18M5 4h14a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z";
+        public const string Edit = "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z";
+        public const string Plus = "M12 5v14M5 12h14";
+        public const string Close = "M18 6L6 18M6 6l12 12";
+        public const string AlertTriangle = "M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01";
+        public const string History = "M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2";
+        public const string ChevronDown = "M6 9l6 6 6-6";
+        public const string ThumbUp = "M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3";
+        public const string ThumbDown = "M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10zM17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17";
+        public const string RotateCcw = "M1 4v6h6M3.51 15a9 9 0 1 0 2.13-9.36L1 10";
     }
 
     /// <summary>Crisp 24x24 flat vector icon rendered inside a Viewbox so it scales cleanly at any size.</summary>
@@ -293,6 +309,143 @@ internal static class ModernUi
         tabStyle.Setters.Add(new Setter(Control.FontWeightProperty, FontWeights.SemiBold));
         tabStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(14, 8, 14, 8)));
         res[typeof(TabItem)] = tabStyle;
+    }
+
+    /// <summary>Applies a crisp flat rounded style for ComboBox and ComboBoxItem (trim-safe, no XAML string lookups).</summary>
+    public static void ApplyFlatComboBoxStyle(ResourceDictionary res)
+    {
+        var cbStyle = new Style(typeof(ComboBox));
+        cbStyle.Setters.Add(new Setter(Control.BackgroundProperty, CardBrush));
+        cbStyle.Setters.Add(new Setter(Control.ForegroundProperty, InkBrush));
+        cbStyle.Setters.Add(new Setter(Control.BorderBrushProperty, InputBorderBrush));
+        cbStyle.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
+        cbStyle.Setters.Add(new Setter(FrameworkElement.HeightProperty, 32.0));
+        cbStyle.Setters.Add(new Setter(FrameworkElement.CursorProperty, System.Windows.Input.Cursors.Hand));
+        cbStyle.Setters.Add(new Setter(Control.TemplateProperty, FlatComboBoxTemplate()));
+        res[typeof(ComboBox)] = cbStyle;
+
+        var itemStyle = new Style(typeof(ComboBoxItem));
+        itemStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(9, 6, 9, 6)));
+        itemStyle.Setters.Add(new Setter(FrameworkElement.CursorProperty, System.Windows.Input.Cursors.Hand));
+        itemStyle.Setters.Add(new Setter(Control.TemplateProperty, FlatComboBoxItemTemplate()));
+        res[typeof(ComboBoxItem)] = itemStyle;
+    }
+
+    private static ControlTemplate FlatComboBoxTemplate()
+    {
+        var grid = new FrameworkElementFactory(typeof(Grid));
+
+        // ToggleButton with rounded border + chevron
+        var tbBd = new FrameworkElementFactory(typeof(Border), "bd");
+        tbBd.SetValue(Border.BackgroundProperty, CardBrush);
+        tbBd.SetValue(Border.BorderBrushProperty, InputBorderBrush);
+        tbBd.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+        tbBd.SetValue(Border.CornerRadiusProperty, new CornerRadius(8));
+        tbBd.SetValue(Border.SnapsToDevicePixelsProperty, true);
+
+        var tbGrid = new FrameworkElementFactory(typeof(Grid));
+        var tc0 = new FrameworkElementFactory(typeof(ColumnDefinition));
+        tc0.SetValue(ColumnDefinition.WidthProperty, new GridLength(1, GridUnitType.Star));
+        var tc1 = new FrameworkElementFactory(typeof(ColumnDefinition));
+        tc1.SetValue(ColumnDefinition.WidthProperty, new GridLength(24));
+        tbGrid.AppendChild(tc0);
+        tbGrid.AppendChild(tc1);
+
+        var chev = new FrameworkElementFactory(typeof(Path));
+        chev.SetValue(Grid.ColumnProperty, 1);
+        chev.SetValue(FrameworkElement.WidthProperty, 11.0);
+        chev.SetValue(FrameworkElement.HeightProperty, 11.0);
+        chev.SetValue(Path.StretchProperty, Stretch.Uniform);
+        chev.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        chev.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        chev.SetValue(Path.DataProperty, Geometry.Parse(Icons.ChevronDown));
+        chev.SetValue(Path.StrokeProperty, MutedBrush);
+        chev.SetValue(Path.StrokeThicknessProperty, 2.0);
+        chev.SetValue(Path.StrokeStartLineCapProperty, PenLineCap.Round);
+        chev.SetValue(Path.StrokeEndLineCapProperty, PenLineCap.Round);
+        chev.SetValue(Path.StrokeLineJoinProperty, PenLineJoin.Round);
+        tbGrid.AppendChild(chev);
+        tbBd.AppendChild(tbGrid);
+
+        var tbTpl = new ControlTemplate(typeof(ToggleButton)) { VisualTree = tbBd };
+        var tbHover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
+        tbHover.Setters.Add(new Setter(Border.BorderBrushProperty, Frozen(Color.FromRgb(0x94, 0xA3, 0xB8)), "bd"));
+        tbHover.Setters.Add(new Setter(Border.BackgroundProperty, CardAltBrush, "bd"));
+        tbTpl.Triggers.Add(tbHover);
+        var tbChecked = new Trigger { Property = ToggleButton.IsCheckedProperty, Value = true };
+        tbChecked.Setters.Add(new Setter(Border.BorderBrushProperty, AccentBrush, "bd"));
+        tbChecked.Setters.Add(new Setter(Border.BorderThicknessProperty, new Thickness(1.5), "bd"));
+        tbTpl.Triggers.Add(tbChecked);
+
+        var toggle = new FrameworkElementFactory(typeof(ToggleButton), "ToggleButton");
+        toggle.SetValue(UIElement.FocusableProperty, false);
+        toggle.SetValue(ButtonBase.ClickModeProperty, ClickMode.Press);
+        toggle.SetValue(Control.TemplateProperty, tbTpl);
+        toggle.SetBinding(ToggleButton.IsCheckedProperty, new System.Windows.Data.Binding("IsDropDownOpen")
+        {
+            Mode = System.Windows.Data.BindingMode.TwoWay,
+            RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent),
+        });
+        grid.AppendChild(toggle);
+
+        var contentSite = new FrameworkElementFactory(typeof(ContentPresenter), "ContentSite");
+        contentSite.SetValue(UIElement.IsHitTestVisibleProperty, false);
+        contentSite.SetValue(ContentPresenter.ContentProperty, new TemplateBindingExtension(ComboBox.SelectionBoxItemProperty));
+        contentSite.SetValue(ContentPresenter.ContentTemplateProperty, new TemplateBindingExtension(ComboBox.SelectionBoxItemTemplateProperty));
+        contentSite.SetValue(FrameworkElement.MarginProperty, new Thickness(10, 0, 24, 0));
+        contentSite.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        contentSite.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Left);
+        grid.AppendChild(contentSite);
+
+        var popup = new FrameworkElementFactory(typeof(Popup), "Popup");
+        popup.SetValue(Popup.PlacementProperty, PlacementMode.Bottom);
+        popup.SetValue(Popup.IsOpenProperty, new TemplateBindingExtension(ComboBox.IsDropDownOpenProperty));
+        popup.SetValue(Popup.AllowsTransparencyProperty, true);
+        popup.SetValue(UIElement.FocusableProperty, false);
+        popup.SetValue(Popup.VerticalOffsetProperty, 3.0);
+
+        var dropBd = new FrameworkElementFactory(typeof(Border));
+        dropBd.SetValue(Border.BackgroundProperty, CardBrush);
+        dropBd.SetValue(Border.BorderBrushProperty, InputBorderBrush);
+        dropBd.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+        dropBd.SetValue(Border.CornerRadiusProperty, new CornerRadius(8));
+        dropBd.SetValue(Border.PaddingProperty, new Thickness(4));
+        dropBd.SetValue(FrameworkElement.MinWidthProperty, new TemplateBindingExtension(FrameworkElement.ActualWidthProperty));
+        dropBd.SetValue(FrameworkElement.MaxHeightProperty, 240.0);
+        dropBd.SetValue(UIElement.EffectProperty, new DropShadowEffect { BlurRadius = 14, ShadowDepth = 3, Opacity = 0.14, Color = Color.FromRgb(0x0F, 0x17, 0x2A) });
+
+        var sv = new FrameworkElementFactory(typeof(ScrollViewer));
+        sv.SetValue(ScrollViewer.VerticalScrollBarVisibilityProperty, ScrollBarVisibility.Auto);
+        var sp = new FrameworkElementFactory(typeof(StackPanel));
+        sp.SetValue(Panel.IsItemsHostProperty, true);
+        sv.AppendChild(sp);
+        dropBd.AppendChild(sv);
+        popup.AppendChild(dropBd);
+        grid.AppendChild(popup);
+
+        return new ControlTemplate(typeof(ComboBox)) { VisualTree = grid };
+    }
+
+    private static ControlTemplate FlatComboBoxItemTemplate()
+    {
+        var bd = new FrameworkElementFactory(typeof(Border), "bd");
+        bd.SetValue(Border.BackgroundProperty, Brushes.Transparent);
+        bd.SetValue(Border.CornerRadiusProperty, new CornerRadius(6));
+        bd.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
+        var cp = new FrameworkElementFactory(typeof(ContentPresenter));
+        cp.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        bd.AppendChild(cp);
+
+        var tpl = new ControlTemplate(typeof(ComboBoxItem)) { VisualTree = bd };
+        var hi = new Trigger { Property = ComboBoxItem.IsHighlightedProperty, Value = true };
+        hi.Setters.Add(new Setter(Border.BackgroundProperty, AccentSoftBrush, "bd"));
+        tpl.Triggers.Add(hi);
+        var sel = new Trigger { Property = ComboBoxItem.IsSelectedProperty, Value = true };
+        sel.Setters.Add(new Setter(Border.BackgroundProperty, Frozen(Color.FromRgb(0xDB, 0xEA, 0xFE)), "bd"));
+        sel.Setters.Add(new Setter(Control.FontWeightProperty, FontWeights.SemiBold));
+        sel.Setters.Add(new Setter(Control.ForegroundProperty, Frozen(Color.FromRgb(0x1D, 0x4E, 0xD8))));
+        tpl.Triggers.Add(sel);
+        return tpl;
     }
 
     private static ControlTemplate TextBoxTemplate()
