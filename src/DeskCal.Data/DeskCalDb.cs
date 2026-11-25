@@ -189,5 +189,7 @@ internal static class Migrations
             vec BLOB NOT NULL, content_hash TEXT NOT NULL, updated_at INTEGER NOT NULL,
             PRIMARY KEY(entity, entity_id));
         """,
+        // v9: link an event to a D-day countdown (matching items.countdown_id)
+        "ALTER TABLE events ADD COLUMN countdown_id TEXT;",
     ];
 }

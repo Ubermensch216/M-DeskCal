@@ -317,21 +317,22 @@ public sealed class ItemRepository(DeskCalDb db, IClock clock) : RepoBase(db, cl
 // ---------------------------------------------------------------------------------------------
 public sealed class EventRepository(DeskCalDb db, IClock clock) : RepoBase(db, clock)
 {
-    private const string Cols = "id, title, body, start, \"end\", all_day, tz, rrule, ext_rule, status, color, created_at, updated_at, deleted";
+    private const string Cols = "id, title, body, start, \"end\", all_day, tz, rrule, ext_rule, status, color, created_at, updated_at, deleted, countdown_id";
 
     private static EventEntry Map(SqliteDataReader r) => new(
         r.GetString(0), r.GetString(1), r.GetString(2), r.GetString(3), Str(r, 4), r.GetInt32(5) != 0, Str(r, 6),
-        Str(r, 7), Str(r, 8), r.GetInt32(9), Str(r, 10), r.GetInt64(11), r.GetInt64(12), r.GetInt32(13) != 0);
+        Str(r, 7), Str(r, 8), r.GetInt32(9), Str(r, 10), r.GetInt64(11), r.GetInt64(12), r.GetInt32(13) != 0, Str(r, 14));
 
     public EventEntry Add(string title, string start, string? end = null, bool allDay = false, string? tz = null,
-                          string? rrule = null, string? extRule = null, string body = "", string? color = null)
+                          string? rrule = null, string? extRule = null, string body = "", string? color = null,
+                          int status = 0, string? countdownId = null)
     {
         long now = Clock.NowMs;
-        var e = new EventEntry(NewId(), title, body, start, end, allDay, tz, rrule, extRule, 0, color, now, now);
+        var e = new EventEntry(NewId(), title, body, start, end, allDay, tz, rrule, extRule, status, color, now, now, false, countdownId);
         using var c = Db.Open();
-        using var cmd = Cmd(c, $"INSERT INTO events({Cols}) VALUES($id,$t,$b,$s,$e,$ad,$tz,$rr,$ex,0,$col,$ca,$ua,0)", null,
+        using var cmd = Cmd(c, $"INSERT INTO events({Cols}) VALUES($id,$t,$b,$s,$e,$ad,$tz,$rr,$ex,$st,$col,$ca,$ua,0,$cid)", null,
             ("$id", e.Id), ("$t", title), ("$b", body), ("$s", start), ("$e", end), ("$ad", allDay ? 1 : 0), ("$tz", tz),
-            ("$rr", rrule), ("$ex", extRule), ("$col", color), ("$ca", now), ("$ua", now));
+            ("$rr", rrule), ("$ex", extRule), ("$st", status), ("$col", color), ("$ca", now), ("$ua", now), ("$cid", countdownId));
         cmd.ExecuteNonQuery();
         return e;
     }
@@ -355,12 +356,28 @@ public sealed class EventRepository(DeskCalDb db, IClock clock) : RepoBase(db, c
         long now = Clock.NowMs;
         if (oldBody != e.Body) HistoryRepository.Record(c, tx, EntityNames.Event, e.Id, oldBody, now);
         using var cmd = Cmd(c,
-            "UPDATE events SET title=$t, body=$b, start=$s, \"end\"=$e, all_day=$ad, tz=$tz, rrule=$rr, ext_rule=$ex, status=$st, color=$col, updated_at=$u WHERE id=$i",
+            "UPDATE events SET title=$t, body=$b, start=$s, \"end\"=$e, all_day=$ad, tz=$tz, rrule=$rr, ext_rule=$ex, status=$st, color=$col, countdown_id=$cid, updated_at=$u WHERE id=$i",
             tx, ("$t", e.Title), ("$b", e.Body), ("$s", e.Start), ("$e", e.End), ("$ad", e.AllDay ? 1 : 0), ("$tz", e.Tz),
-            ("$rr", e.RRule), ("$ex", e.ExtRule), ("$st", e.Status), ("$col", e.Color), ("$u", now), ("$i", e.Id));
+            ("$rr", e.RRule), ("$ex", e.ExtRule), ("$st", e.Status), ("$col", e.Color), ("$cid", e.CountdownId), ("$u", now), ("$i", e.Id));
         cmd.ExecuteNonQuery();
         tx.Commit();
         return true;
+    }
+
+    public bool SetDone(string id, bool done)
+    {
+        using var c = Db.Open();
+        using var cmd = Cmd(c, "UPDATE events SET status=$st, updated_at=$u WHERE id=$i AND deleted=0", null,
+            ("$st", done ? 1 : 0), ("$u", Clock.NowMs), ("$i", id));
+        return cmd.ExecuteNonQuery() > 0;
+    }
+
+    public bool SetCountdown(string id, string? countdownId)
+    {
+        using var c = Db.Open();
+        using var cmd = Cmd(c, "UPDATE events SET countdown_id=$cid, updated_at=$u WHERE id=$i AND deleted=0", null,
+            ("$cid", countdownId), ("$u", Clock.NowMs), ("$i", id));
+        return cmd.ExecuteNonQuery() > 0;
     }
 
     /// <summary>Every non-deleted event (the table stays small; recurrence is expanded in memory).</summary>
@@ -437,8 +454,19 @@ public sealed class EventRepository(DeskCalDb db, IClock clock) : RepoBase(db, c
     public bool SoftDelete(string id)
     {
         using var c = Db.Open();
-        using var cmd = Cmd(c, "UPDATE events SET deleted=1, updated_at=$u WHERE id=$i", null, ("$u", Clock.NowMs), ("$i", id));
-        return cmd.ExecuteNonQuery() > 0;
+        using var tx = c.BeginTransaction();
+        string? countdownId;
+        using (var sel = Cmd(c, "SELECT countdown_id FROM events WHERE id=$i", tx, ("$i", id)))
+            countdownId = sel.ExecuteScalar() as string;
+        using var cmd = Cmd(c, "UPDATE events SET deleted=1, updated_at=$u WHERE id=$i", tx, ("$u", Clock.NowMs), ("$i", id));
+        bool changed = cmd.ExecuteNonQuery() > 0;
+        if (changed && !string.IsNullOrEmpty(countdownId))
+        {
+            using var del = Cmd(c, "DELETE FROM countdowns WHERE id=$i", tx, ("$i", countdownId));
+            del.ExecuteNonQuery();
+        }
+        tx.Commit();
+        return changed;
     }
 }
 

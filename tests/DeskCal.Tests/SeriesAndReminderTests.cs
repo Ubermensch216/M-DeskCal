@@ -243,6 +243,39 @@ public class EventSeriesTests
         Assert.True(svc.DeleteFuture(series.Id, D(2026, 9, 28)));
         Assert.Equal("legalworkday;UNTIL=20260923", f.Events.Get(series.Id)!.ExtRule);
     }
+
+    [Fact]
+    public void Event_done_color_and_countdown_link_round_trip_and_sync_on_update_and_delete()
+    {
+        using var f = new DbFixture();
+        var svc = Svc(f);
+        var cd = f.Countdowns.Add("최종 발표", "2026-11-20", CountdownType.Exam, showCard: true, showBottom: true);
+        var created = svc.Create(new EventDraft("최종 발표", "슬라이드 준비", D(2026, 11, 20), new TimeOnly(14, 0),
+            null, new TimeOnly(15, 0), RecurrenceRule.None, "#FF6B6B", [new ReminderSpec(30)], Done: true, CountdownId: cd.Id));
+
+        Assert.True(created.Done);
+        Assert.Equal("#FF6B6B", created.Color);
+        Assert.Equal(cd.Id, created.CountdownId);
+
+        var loaded = svc.Load(created.Id)!;
+        Assert.True(loaded.Done);
+        Assert.Equal("#FF6B6B", loaded.Color);
+        Assert.Equal(cd.Id, loaded.CountdownId);
+
+        // Updating title & date keeps the linked countdown in sync
+        Assert.True(svc.UpdateAll(created.Id, loaded with { Title = "최종 발표 (본관)", StartDate = D(2026, 11, 25), EndDate = D(2026, 11, 25), Done = false }));
+        Assert.False(f.Events.Get(created.Id)!.Done);
+        var syncedCd = Assert.Single(f.Countdowns.List());
+        Assert.Equal(("최종 발표 (본관)", "2026-11-25"), (syncedCd.Title, syncedCd.Date));
+
+        // Toggling done via repository helper works
+        Assert.True(f.Events.SetDone(created.Id, true));
+        Assert.True(f.Events.Get(created.Id)!.Done);
+
+        // Deleting the event removes its linked countdown
+        Assert.True(svc.DeleteAll(created.Id));
+        Assert.Empty(f.Countdowns.List());
+    }
 }
 
 public class ReminderProcessorTests

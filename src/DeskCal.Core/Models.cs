@@ -22,7 +22,11 @@ public sealed record Item(
 public sealed record EventEntry(
     string Id, string Title, string Body, string Start, string? End, bool AllDay, string? Tz,
     string? RRule, string? ExtRule, int Status, string? Color,
-    long CreatedAt, long UpdatedAt, bool Deleted = false);
+    long CreatedAt, long UpdatedAt, bool Deleted = false, string? CountdownId = null)
+{
+    /// <summary>True when the event has been marked completed (Status != 0).</summary>
+    public bool Done => Status != 0;
+}
 
 public enum ReminderOwner { Item = 0, Event = 1 }
 

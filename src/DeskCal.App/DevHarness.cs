@@ -101,7 +101,7 @@ internal static class DevHarness
 
             ItemOptionChecks(board, items, settings, countdowns, today, dir, report);
 
-            EventEditorSelfTests(series, events, reminders, today, dir, report);
+            EventEditorSelfTests(series, events, reminders, countdowns, settings, today, dir, report);
             SearchHistoryCountdownChecks(board, items, search, history, countdowns, today, dir, report);
             ExchangeChecks(exchange, dir, report);
             Milestone9Checks(board, items, events, days, notes, history, timetable, settings, exchange, dir, report);
@@ -361,12 +361,12 @@ internal static class DevHarness
     // ---- event editor driven through its real controls ---------------------------------------
 
     private static void EventEditorSelfTests(EventSeriesService series, EventRepository events, ReminderRepository reminders,
-                                             DateOnly today, string dir, StringBuilder report)
+                                             CountdownRepository countdowns, SettingsStore settings, DateOnly today, string dir, StringBuilder report)
     {
         var d1 = today.AddDays(1);
 
         // 1. a new weekly event typed into the form
-        var w = new EventEditorWindow(series, null, d1);
+        var w = new EventEditorWindow(series, null, d1, countdowns, settings);
         RenderWindow(w, Path.Combine(dir, "m5-editor-new.png"), keepOpen: true);
         w.TitleBox.Text = "UI 자체점검 스터디";
         w.StartTime.Text = "14:00"; w.EndTime.Text = "15:30";
@@ -377,13 +377,26 @@ internal static class DevHarness
         w.WeekdayBoxes[(int)DayOfWeek.Wednesday].IsChecked = true;
         w.EndKindBox.SelectedIndex = 1; w.CountBox.Text = "6";            // 6회
         w.ReminderBox.SelectedIndex = 5;                                  // 30분 전
+        w.DevSetColor("#2F54EB");
+        w.DevSetDday(true, CountdownType.Exam, showCard: true, showBottom: false);
+        RenderWindow(w, Path.Combine(dir, "m5-editor-options.png"), keepOpen: true);
+        // Also capture a clean D-Day + Done preview (without Repeat/Reminder scrolling D-Day down)
+        var wDday = new EventEditorWindow(series, null, d1, countdowns, settings);
+        wDday.TitleBox.Text = "자격증 시험";
+        wDday.DevToggleDone(true);
+        wDday.DevSetColor("#E53935");
+        wDday.DevSetDday(true, CountdownType.Exam, showCard: true, showBottom: true);
+        RenderWindow(wDday, Path.Combine(dir, "m5-editor-dday.png"), keepOpen: false);
         bool saved = w.Save();
         var e1 = events.GetAllActive().FirstOrDefault(e => e.Title == "UI 자체점검 스터디");
         var r1 = e1 is null ? [] : reminders.GetByOwner(ReminderOwner.Event, e1.Id);
+        var cd1 = e1?.CountdownId is { } cid ? countdowns.List().FirstOrDefault(c => c.Id == cid) : null;
         bool ok1 = saved && e1 is not null && e1.RRule == "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE;COUNT=6"
                    && e1.Start == $"{d1:yyyy-MM-dd}T14:00" && e1.End == $"{d1:yyyy-MM-dd}T15:30"
+                   && e1.Color == "#2F54EB" && cd1 is { Type: CountdownType.Exam }
                    && r1.Count == 1 && r1[0].OffsetMinutes == 30;
-        report.AppendLine($"{(ok1 ? "PASS" : "FAIL")}: new weekly event -> {e1?.RRule} {e1?.Start}-{e1?.End} reminders={string.Join(",", r1.Select(r => r.OffsetMinutes))}");
+        if (cd1 is not null) countdowns.Delete(cd1.Id);                  // keep later countdown-count assertions clean
+        report.AppendLine($"{(ok1 ? "PASS" : "FAIL")}: new weekly event -> {e1?.RRule} {e1?.Start}-{e1?.End} color={e1?.Color} dday={cd1?.Type} reminders={string.Join(",", r1.Select(r => r.OffsetMinutes))}");
 
         // 2. all-day, monthly by weekday, reminder the day before at 08:30
         w = new EventEditorWindow(series, null, today);

@@ -71,14 +71,14 @@ public sealed class CalendarSnapshot(DeskCalDb db, IClock clock, string holidays
         using (var r = cmd.ExecuteReader())
             while (r.Read()) (skips.TryGetValue(r.GetString(0), out var l) ? l : skips[r.GetString(0)] = []).Add(r.GetString(1));
 
-        using (var cmd = Cmd(c, tx, "SELECT id, title, body, start, \"end\", all_day, tz, rrule, ext_rule, status, color, created_at, updated_at, deleted FROM events"))
+        using (var cmd = Cmd(c, tx, "SELECT id, title, body, start, \"end\", all_day, tz, rrule, ext_rule, status, color, created_at, updated_at, deleted, countdown_id FROM events"))
         using (var r = cmd.ExecuteReader())
             while (r.Read())
             {
                 string id = r.GetString(0), key = Events + "/" + id;
                 if (r.GetInt32(13) != 0) { gone[key] = r.GetInt64(12); continue; }
                 Add(key, Write(new SEvent(id, r.GetString(1), r.GetString(2), r.GetString(3), Str(r, 4), r.GetInt32(5) != 0, Str(r, 6), Str(r, 7), Str(r, 8),
-                    r.GetInt32(9), Str(r, 10), r.GetInt64(11), r.GetInt64(12), skips.TryGetValue(id, out var s) ? s : [], RemindersOf(ReminderOwner.Event, id))), r.GetInt64(12));
+                    r.GetInt32(9), Str(r, 10), r.GetInt64(11), r.GetInt64(12), skips.TryGetValue(id, out var s) ? s : [], RemindersOf(ReminderOwner.Event, id), Str(r, 14))), r.GetInt64(12));
             }
 
         using (var cmd = Cmd(c, tx, "SELECT id, title, date, type, show_card, show_bottom, lunar FROM countdowns"))
@@ -259,12 +259,12 @@ public sealed class CalendarSnapshot(DeskCalDb db, IClock clock, string holidays
                 if (Scalar(c, tx, "SELECT body FROM events WHERE id=$i", ("$i", v.Id)) is string old && old != v.Body)
                     HistoryRepository.Record(c, tx, EntityNames.Event, v.Id, old, now);
                 Exec(c, tx,
-                    "INSERT INTO events(id, title, body, start, \"end\", all_day, tz, rrule, ext_rule, status, color, created_at, updated_at, deleted) " +
-                    "VALUES($id,$t,$b,$s,$e,$ad,$tz,$rr,$ex,$st,$col,$ca,$ua,0) " +
+                    "INSERT INTO events(id, title, body, start, \"end\", all_day, tz, rrule, ext_rule, status, color, created_at, updated_at, deleted, countdown_id) " +
+                    "VALUES($id,$t,$b,$s,$e,$ad,$tz,$rr,$ex,$st,$col,$ca,$ua,0,$cid) " +
                     "ON CONFLICT(id) DO UPDATE SET title=$t, body=$b, start=$s, \"end\"=$e, all_day=$ad, tz=$tz, rrule=$rr, ext_rule=$ex, status=$st, " +
-                    "color=$col, created_at=$ca, updated_at=$ua, deleted=0",
+                    "color=$col, created_at=$ca, updated_at=$ua, deleted=0, countdown_id=$cid",
                     ("$id", v.Id), ("$t", v.Title), ("$b", v.Body), ("$s", v.Start), ("$e", v.End), ("$ad", v.AllDay ? 1 : 0), ("$tz", v.Tz),
-                    ("$rr", v.RRule), ("$ex", v.ExtRule), ("$st", v.Status), ("$col", v.Color), ("$ca", v.CreatedAt), ("$ua", v.UpdatedAt));
+                    ("$rr", v.RRule), ("$ex", v.ExtRule), ("$st", v.Status), ("$col", v.Color), ("$ca", v.CreatedAt), ("$ua", v.UpdatedAt), ("$cid", v.CountdownId));
                 Exec(c, tx, "DELETE FROM event_exceptions WHERE event_id=$e", ("$e", v.Id));
                 foreach (var day in v.Exceptions.Distinct())
                     Exec(c, tx, "INSERT INTO event_exceptions(event_id, day) VALUES($e,$d)", ("$e", v.Id), ("$d", day));
@@ -343,7 +343,8 @@ public sealed class CalendarSnapshot(DeskCalDb db, IClock clock, string holidays
     private sealed record SItem(string Id, string Day, string Content, bool Done, int Sort, string? BgColor, string? TextColor, string? SeriesId,
                                 string? CountdownId, long CreatedAt, long UpdatedAt, IReadOnlyList<RemindSpec> Reminders);
     private sealed record SEvent(string Id, string Title, string Body, string Start, string? End, bool AllDay, string? Tz, string? RRule, string? ExtRule,
-                                 int Status, string? Color, long CreatedAt, long UpdatedAt, IReadOnlyList<string> Exceptions, IReadOnlyList<RemindSpec> Reminders);
+                                 int Status, string? Color, long CreatedAt, long UpdatedAt, IReadOnlyList<string> Exceptions, IReadOnlyList<RemindSpec> Reminders,
+                                 string? CountdownId = null);
     private sealed record SNote(string Id, string Title, string Content, string? Color, int Status, long CreatedAt, long UpdatedAt);
     private sealed record SSeries(string Id, string? RRule, string? ExtRule, string StartDay, string Remind);
     private sealed record STimetable(IReadOnlyDictionary<string, string> Config, IReadOnlyList<TimetableCell> Cells);
@@ -372,6 +373,7 @@ public sealed class CalendarSnapshot(DeskCalDb db, IClock clock, string holidays
                     w.WriteString("id", v.Id); w.WriteString("title", v.Title); w.WriteString("body", v.Body);
                     w.WriteString("start", v.Start); Opt(w, "end", v.End); w.WriteBoolean("allDay", v.AllDay); Opt(w, "tz", v.Tz);
                     Opt(w, "rrule", v.RRule); Opt(w, "extRule", v.ExtRule); w.WriteNumber("status", v.Status); Opt(w, "color", v.Color);
+                    if (v.CountdownId is not null) w.WriteString("countdownId", v.CountdownId);
                     w.WriteNumber("createdAt", v.CreatedAt); w.WriteNumber("updatedAt", v.UpdatedAt);
                     w.WriteStartArray("exceptions");
                     foreach (var d in v.Exceptions.Distinct().Order(StringComparer.Ordinal)) w.WriteStringValue(d);
@@ -434,7 +436,7 @@ public sealed class CalendarSnapshot(DeskCalDb db, IClock clock, string holidays
         Opt(e, "tz"), Opt(e, "rrule"), Opt(e, "extRule"), Int(e, "status"), Opt(e, "color"), Long(e, "createdAt"), Long(e, "updatedAt"),
         e.TryGetProperty("exceptions", out var x) && x.ValueKind == JsonValueKind.Array
             ? x.EnumerateArray().Where(d => d.ValueKind == JsonValueKind.String && IsDay(d.GetString())).Select(d => d.GetString()!).ToList() : [],
-        ReadReminders(e));
+        ReadReminders(e), Opt(e, "countdownId"));
 
     private static Countdown ReadCountdown(JsonElement e) => new(Req(e, "id"), Req(e, "title"), Day(e, "date"), (CountdownType)Int(e, "type"),
         Bool(e, "showCard"), Bool(e, "showBottom"), Bool(e, "lunar"));

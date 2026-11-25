@@ -226,7 +226,7 @@ public class MigrationUpgradeTests
 
         f.Db.Migrate();
 
-        Assert.Equal(8, f.Db.SchemaVersion());
+        Assert.Equal(9, f.Db.SchemaVersion());
         var item = f.Items.Get("old")!;
         Assert.Equal("legacy", item.Content);
         Assert.True(item.Done);

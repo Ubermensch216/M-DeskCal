@@ -13,7 +13,9 @@ public sealed record EventDraft(
     DateOnly StartDate, TimeOnly? StartTime,
     DateOnly? EndDate, TimeOnly? EndTime,
     RecurrenceRule Rule, string? Color,
-    IReadOnlyList<ReminderSpec> Reminders)
+    IReadOnlyList<ReminderSpec> Reminders,
+    bool Done = false,
+    string? CountdownId = null)
 {
     public bool AllDay => StartTime is null;
 
@@ -49,7 +51,8 @@ public sealed record EventDraft(
         DateOnly? ed = null; TimeOnly? et = null;
         if (EventTime.TryParse(e.End, out var d1, out var t1)) { ed = d1; et = t1; }
         return new EventDraft(e.Title, e.Body, sd, st, ed, et, RecurrenceRule.From(e), e.Color,
-            reminders.Select(r => new ReminderSpec(r.OffsetMinutes, r.CustomTime, r.Sound)).ToList());
+            reminders.Select(r => new ReminderSpec(r.OffsetMinutes, r.CustomTime, r.Sound)).ToList(),
+            e.Done, e.CountdownId);
     }
 }
 
@@ -61,12 +64,13 @@ public sealed class EventSeriesService(DeskCalDb db, IClock clock, Func<DateOnly
 {
     private readonly EventRepository _events = new(db, clock);
     private readonly ReminderRepository _reminders = new(db, clock);
+    private readonly CountdownRepository _countdowns = new(db, clock);
 
     public EventEntry Create(EventDraft d)
     {
         Require(d);
         var (rr, ext) = d.Rule.ToColumns(d.StartDate);
-        var e = _events.Add(d.Title.Trim(), d.StartText, d.EndText(), d.AllDay, null, rr, ext, d.Body, d.Color);
+        var e = _events.Add(d.Title.Trim(), d.StartText, d.EndText(), d.AllDay, null, rr, ext, d.Body, d.Color, d.Done ? 1 : 0, d.CountdownId);
         SetReminders(e.Id, d);
         return e;
     }
@@ -89,9 +93,13 @@ public sealed class EventSeriesService(DeskCalDb db, IClock clock, Func<DateOnly
         bool ok = _events.Update(old with
         {
             Title = d.Title.Trim(), Body = d.Body, Start = d.StartText, End = d.EndText(), AllDay = d.AllDay,
-            RRule = rr, ExtRule = ext, Color = d.Color,
+            RRule = rr, ExtRule = ext, Status = d.Done ? 1 : 0, Color = d.Color, CountdownId = d.CountdownId,
         });
-        if (ok) SetReminders(id, d);
+        if (ok)
+        {
+            SetReminders(id, d);
+            SyncLinkedCountdown(d);
+        }
         return ok;
     }
 
@@ -103,7 +111,9 @@ public sealed class EventSeriesService(DeskCalDb db, IClock clock, Func<DateOnly
         if (!RecurrenceRule.From(old).IsRepeating) return UpdateAll(id, d) ? _events.Get(id) : null;
 
         _events.AddException(id, occurrence);
-        return Create(d with { Rule = RecurrenceRule.None });
+        // If the stand-alone copy keeps the series' countdown id, don't share one id across two events.
+        string? ownCountdown = d.CountdownId is not null && d.CountdownId == old.CountdownId ? null : d.CountdownId;
+        return Create(d with { Rule = RecurrenceRule.None, CountdownId = ownCountdown });
     }
 
     /// <summary>Change this occurrence and all following ones: the original series ends the day before, a new one starts here.</summary>
@@ -125,7 +135,8 @@ public sealed class EventSeriesService(DeskCalDb db, IClock clock, Func<DateOnly
         }
 
         if (!EndSeriesBefore(old, oldRule, start, occurrence)) DeleteAll(id);
-        return Create(d with { Rule = newRule });
+        string? ownCountdown = d.CountdownId is not null && d.CountdownId == old.CountdownId ? null : d.CountdownId;
+        return Create(d with { Rule = newRule, CountdownId = ownCountdown });
     }
 
     // ---- delete ----------------------------------------------------------------
@@ -172,6 +183,17 @@ public sealed class EventSeriesService(DeskCalDb db, IClock clock, Func<DateOnly
 
     private void SetReminders(string eventId, EventDraft d) =>
         _reminders.ReplaceForOwner(ReminderOwner.Event, eventId, d.Reminders.Select(r => (r.OffsetMinutes, r.CustomTime, r.Sound)));
+
+    private void SyncLinkedCountdown(EventDraft d)
+    {
+        if (string.IsNullOrEmpty(d.CountdownId)) return;
+        var existing = _countdowns.List().FirstOrDefault(c => c.Id == d.CountdownId);
+        if (existing is null) return;
+        var title = d.Title.Trim();
+        var date = existing.Lunar ? existing.Date : CountdownCalc.Format(d.StartDate);
+        if (existing.Title != title || existing.Date != date)
+            _countdowns.Upsert(existing with { Title = title, Date = date });
+    }
 
     private static void Require(EventDraft d)
     {

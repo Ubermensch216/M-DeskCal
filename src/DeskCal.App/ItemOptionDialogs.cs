@@ -355,7 +355,8 @@ internal static class ColorPickerPopup
 
     /// <summary>Open the palette under <paramref name="anchor"/>. A pick (null = back to the default colour) calls the matching callback once the popup is closed.</summary>
     public static void Show(FrameworkElement anchor, SettingsStore? store, string? currentText, string? currentCell,
-                            Action<string?> pickText, Action<string?> pickCell, Action closed)
+                            Action<string?> pickText, Action<string?> pickCell, Action closed,
+                            string textSectionTitle = "텍스트 색상")
     {
         var popup = new Popup { PlacementTarget = anchor, Placement = PlacementMode.Bottom, StaysOpen = false, AllowsTransparency = true, VerticalOffset = 4 };
         string? chosen = null; bool picked = false, isCell = false;
@@ -367,7 +368,8 @@ internal static class ColorPickerPopup
                 chosen = hex; picked = true; isCell = cell;
                 popup.IsOpen = false;
             },
-            on => popup.StaysOpen = on);
+            on => popup.StaysOpen = on,
+            textSectionTitle);
         popup.Closed += (_, _) =>
         {
             if (picked) (isCell ? pickCell : pickText)(chosen);
@@ -378,10 +380,11 @@ internal static class ColorPickerPopup
 
     /// <summary>The palette itself (also rendered offscreen by the snapshot self-test).</summary>
     internal static FrameworkElement BuildContent(SettingsStore? store, string? currentText, string? currentCell,
-                                                  Action<string?, bool> pick, Action<bool> keepOpen)
+                                                  Action<string?, bool> pick, Action<bool> keepOpen,
+                                                  string textSectionTitle = "텍스트 색상")
     {
         var body = new StackPanel { Margin = new Thickness(12, 10, 12, 12), Width = Columns * 30 + 4 };
-        Section(body, "텍스트 색상", Recent(store, RecentTextKey), currentText, text: true, cell: false, pick, keepOpen);
+        Section(body, textSectionTitle, Recent(store, RecentTextKey), currentText, text: true, cell: false, pick, keepOpen);
         body.Children.Add(new Border { Height = 1, Background = new SolidColorBrush(Color.FromRgb(0xE1, 0xE5, 0xEC)), Margin = new Thickness(0, 8, 0, 4) });
         Section(body, "셀 색상 (배경)", Recent(store, RecentCellKey), currentCell, text: false, cell: true, pick, keepOpen);
         return new Border

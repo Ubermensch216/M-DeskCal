@@ -45,6 +45,7 @@ public partial class MainWindow : Window
     private EventSeriesService? _series;
     private ReminderRepository? _reminders;
     private HashSet<string> _itemsWithReminder = [];
+    private HashSet<string> _eventsWithReminder = [];
 
     /// <summary>Raised when reminders were added, changed or removed, so the scheduler can re-arm its timer.</summary>
     internal event Action? RemindersChanged;
@@ -1053,6 +1054,7 @@ public partial class MainWindow : Window
         _countdownLabels = _contentHidden || _countdowns is null ? [] : CountdownLabels();
         var eventsByDay = _contentHidden ? [] : LoadEvents(grid);
         _itemsWithReminder = _contentHidden ? [] : LoadItemReminderIds();
+        _eventsWithReminder = _contentHidden ? [] : LoadEventReminderIds();
         _cellBgs = _contentHidden ? [] : LoadCellBgs();
         _cells.Clear();
         ApplySkin();
@@ -1219,6 +1221,9 @@ public partial class MainWindow : Window
     private HashSet<string> LoadItemReminderIds() =>
         _reminders is null ? [] : _reminders.ListAll().Where(r => r.OwnerType == ReminderOwner.Item).Select(r => r.OwnerId).ToHashSet();
 
+    private HashSet<string> LoadEventReminderIds() =>
+        _reminders is null ? [] : _reminders.ListAll().Where(r => r.OwnerType == ReminderOwner.Event).Select(r => r.OwnerId).ToHashSet();
+
     private UIElement MakeCell(BoardCell cell, List<Item> items, List<EventOccurrence> events, BoardSettings s, WpfBrush text, WpfBrush off,
                                FontFamily font, double size, bool dense)
     {
@@ -1348,20 +1353,24 @@ public partial class MainWindow : Window
 
     private static readonly SolidColorBrush DefaultEventBrush = Brush("#9CC9FF", Colors.LightSkyBlue);
 
-    /// <summary>An event inside a day cell: coloured left bar, time (first day only) and title.</summary>
+    /// <summary>An event inside a day cell: coloured left bar, time (first day only), title, done/repeat/D-day/reminder marks.</summary>
     private UIElement MakeEventLine(EventOccurrence occ, DateOnly day, WpfBrush text, FontFamily font, double size)
     {
         var color = occ.Event.Color is { } hex ? Brush(hex, Colors.LightSkyBlue) : DefaultEventBrush;
-        string prefix = day > occ.Date ? "↳ " : occ.StartTime is { } t ? $"{t:HH:mm} " : "";
+        bool done = occ.Event.Done;
+        string donePrefix = done ? "✓ " : "";
+        string prefix = donePrefix + (day > occ.Date ? "↳ " : occ.StartTime is { } t ? $"{t:HH:mm} " : "");
         bool repeating = RecurrenceRule.From(occ.Event).IsRepeating;
 
         var tb = new TextBlock
         {
             Text = prefix + occ.Event.Title, Foreground = text, FontFamily = font, FontSize = size,
             TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap,
+            TextDecorations = done ? TextDecorations.Strikethrough : null,
+            Opacity = done ? 0.55 : 1.0,
         };
 
-        UIElement child;
+        UIElement mainCol;
         if (repeating)
         {
             var panel = new InlineTrailingPanel { Gap = 4 };
@@ -1369,13 +1378,36 @@ public partial class MainWindow : Window
             panel.Children.Add(new TextBlock
             {
                 Text = "\uE8EE", Foreground = text, FontFamily = IconFont,
-                FontSize = Math.Max(8.0, size - 2.0), Opacity = 0.75, ToolTip = "반복 일정",
+                FontSize = Math.Max(8.0, size - 2.0), Opacity = done ? 0.4 : 0.75, ToolTip = "반복 일정",
             });
-            child = panel;
+            mainCol = panel;
         }
         else
         {
-            child = tb;
+            mainCol = tb;
+        }
+
+        var marks = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        if (occ.Event.CountdownId is { } cdId && _countdownLabels.TryGetValue(cdId, out var dday))
+            marks.Children.Add(new TextBlock { Text = dday, Foreground = text, FontFamily = font, FontSize = size - 1, FontWeight = FontWeights.SemiBold, Margin = new Thickness(4, 0, 0, 0), ToolTip = "기념일까지 카운트다운" });
+        if (_settings.ShowReminderMark && _eventsWithReminder.Contains(occ.Event.Id))
+            marks.Children.Add(new TextBlock { Text = "⏰", FontSize = size - 1, Margin = new Thickness(3, 0, 0, 0), Opacity = 0.85, ToolTip = "알림 설정됨" });
+
+        UIElement child;
+        if (marks.Children.Count > 0)
+        {
+            var g = new Grid();
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(mainCol, 0);
+            Grid.SetColumn(marks, 1);
+            g.Children.Add(mainCol);
+            g.Children.Add(marks);
+            child = g;
+        }
+        else
+        {
+            child = mainCol;
         }
 
         var row = new Border
@@ -1398,21 +1430,35 @@ public partial class MainWindow : Window
         if (_series is null || _editMode || !Guard()) return;
         CloseChatPromptBox();
         if (_editingDay is not null) CommitEditor();
-        var win = new EventEditorWindow(_series, eventId, date);
+        var win = new EventEditorWindow(_series, eventId, date, _countdowns, _store, GetCellBg, SetCellBg);
         win.ShowDialog();
-        if (win.Changed) { Render(); RemindersChanged?.Invoke(); }
+        if (win.Changed)
+        {
+            Render();
+            RemindersChanged?.Invoke();
+            if (win.CountdownChanged) CountdownsChanged?.Invoke();
+        }
         SendBack();
+    }
+
+    private void ToggleEventDone(EventOccurrence occ)
+    {
+        if (_events is null) return;
+        bool nowDone = !occ.Event.Done;
+        if (_events.SetDone(occ.Event.Id, nowDone) && nowDone && _settings.CompleteSound) Sounds.PlayComplete();
+        Render();
     }
 
     private void DeleteEvent(EventOccurrence occ)
     {
         if (_series is null) return;
+        bool hadCountdown = !string.IsNullOrEmpty(occ.Event.CountdownId);
         bool repeating = RecurrenceRule.From(occ.Event).IsRepeating;
         if (repeating)
         {
             switch (ScopeDialog.Ask(this, "삭제"))
             {
-                case SeriesScope.This: _series.DeleteThis(occ.Event.Id, occ.Date); break;
+                case SeriesScope.This: _series.DeleteThis(occ.Event.Id, occ.Date); hadCountdown = false; break;
                 case SeriesScope.Future: _series.DeleteFuture(occ.Event.Id, occ.Date); break;
                 case SeriesScope.All: _series.DeleteAll(occ.Event.Id); break;
                 default: SendBack(); return;
@@ -1426,12 +1472,14 @@ public partial class MainWindow : Window
         }
         Render();
         RemindersChanged?.Invoke();
+        if (hadCountdown) CountdownsChanged?.Invoke();
         SendBack();
     }
 
     private ContextMenu BuildEventMenu(EventOccurrence occ)
     {
         var menu = new ContextMenu();
+        menu.Items.Add(MenuEntry(occ.Event.Done ? "완료 해제" : "완료로 표시", () => ToggleEventDone(occ)));
         menu.Items.Add(MenuEntry("일정 편집…", () => EditEvent(occ)));
         menu.Items.Add(MenuEntry("일정 삭제…", () => DeleteEvent(occ)));
         return menu;
