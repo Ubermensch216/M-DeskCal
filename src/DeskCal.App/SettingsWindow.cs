@@ -275,7 +275,7 @@ internal sealed class SettingsWindow : Window
         page.Children.Add(Card("항목 동작",
             RowToggle("완료한 항목을 맨 아래로", "체크한 항목이 그날의 마지막 줄로 내려갑니다", () => S.MoveDoneToBottom, v => Apply(s => s with { MoveDoneToBottom = v })),
             RowToggle("완료한 항목 표시", null, () => S.ShowCompleted, v => Apply(s => s with { ShowCompleted = v })),
-            RowToggle("알림 표시 (⏰)", "알림이 걸린 항목 옆에 시계 표시", () => S.ShowReminderMark, v => Apply(s => s with { ShowReminderMark = v })),
+            RowToggle("알림 표시 (🔔)", "알림이 걸린 항목 옆에 종 표시", () => S.ShowReminderMark, v => Apply(s => s with { ShowReminderMark = v })),
             RowToggle("완료 효과음", null, () => S.CompleteSound, v => Apply(s => s with { CompleteSound = v })),
             RowToggle("알림음", null, () => S.ReminderSound, v => Apply(s => s with { ReminderSound = v }))));
         return page;

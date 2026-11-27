@@ -5,11 +5,37 @@
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         ShowInTaskbar="False" ResizeMode="NoResize" ShowActivated="False"
         UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
+    <Window.Resources>
+        <!-- header icon buttons: one size, one hover/pressed state layer -->
+        <Style x:Key="NavBtn" TargetType="Border">
+            <Setter Property="MinWidth" Value="28"/>
+            <Setter Property="Height" Value="26"/>
+            <Setter Property="Padding" Value="6,0"/>
+            <Setter Property="CornerRadius" Value="7"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Background" Value="#01FFFFFF"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#24FFFFFF"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#01FFFFFF"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="NavGlyph" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Segoe Fluent Icons, Segoe MDL2 Assets, Segoe UI Symbol"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+    </Window.Resources>
     <Border x:Name="Frame" CornerRadius="14" Background="#99101820"
-            BorderBrush="Transparent" BorderThickness="2">
+            BorderBrush="#1FFFFFFF" BorderThickness="1">
       <Grid>
         <!-- optional background photo (see ApplySkin) -->
-        <Border x:Name="SkinLayer" CornerRadius="12" IsHitTestVisible="False" Visibility="Collapsed"/>
+        <Border x:Name="SkinLayer" CornerRadius="13" IsHitTestVisible="False" Visibility="Collapsed"/>
         <Border Padding="12,10,12,12">
         <Grid x:Name="Root">
             <Grid.RowDefinitions>
@@ -93,23 +119,24 @@
                             </Path.RenderTransform>
                         </Path>
                     </Border>
-                    <Border x:Name="PrevBtn" Padding="10,2" Cursor="Hand" Background="#01FFFFFF"
+                    <!-- month navigation: vector chevrons (no text arrows), shared hover state, Today as a pill -->
+                    <Border x:Name="PrevBtn" Style="{StaticResource NavBtn}"
                             MouseLeftButtonDown="Prev_Click" ToolTip="이전">
-                        <TextBlock x:Name="PrevText" Text="◀" FontSize="14"/>
+                        <TextBlock x:Name="PrevText" Text="&#xE76B;" Style="{StaticResource NavGlyph}"/>
                     </Border>
-                    <Border x:Name="TodayBtn" Padding="10,2" Cursor="Hand" Background="#01FFFFFF"
+                    <Border x:Name="TodayBtn" Style="{StaticResource NavBtn}" Padding="11,0" Margin="2,0"
+                            BorderBrush="#44FFFFFF" BorderThickness="1" CornerRadius="13"
                             MouseLeftButtonDown="Today_Click" ToolTip="오늘로 이동">
-                        <TextBlock x:Name="TodayText" Text="오늘" FontSize="14"/>
+                        <TextBlock x:Name="TodayText" Text="오늘" FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
                     </Border>
-                    <Border x:Name="NextBtn" Padding="10,2" Cursor="Hand" Background="#01FFFFFF"
+                    <Border x:Name="NextBtn" Style="{StaticResource NavBtn}"
                             MouseLeftButtonDown="Next_Click" ToolTip="다음">
-                        <TextBlock x:Name="NextText" Text="▶" FontSize="14"/>
+                        <TextBlock x:Name="NextText" Text="&#xE76C;" Style="{StaticResource NavGlyph}"/>
                     </Border>
                     <!-- settings gear: icon only; opens the quick menu (see App.ShowQuickMenu) -->
-                    <Border x:Name="GearBtn" Padding="8,2,2,2" Margin="4,0,0,0" Cursor="Hand" Background="#01FFFFFF"
+                    <Border x:Name="GearBtn" Style="{StaticResource NavBtn}" Margin="6,0,0,0"
                             MouseLeftButtonDown="Gear_Click" ToolTip="캘린더 설정">
-                        <TextBlock x:Name="GearText" Text="&#xE713;" FontSize="17" VerticalAlignment="Center"
-                                   FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets, Segoe UI Symbol"/>
+                        <TextBlock x:Name="GearText" Text="&#xE713;" Style="{StaticResource NavGlyph}" FontSize="15"/>
                     </Border>
                 </StackPanel>
             </Grid>

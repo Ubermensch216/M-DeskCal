@@ -1070,8 +1070,9 @@ public partial class MainWindow : Window
         var off = Brush(s.OffDayColor, Color.FromRgb(0xFF, 0x7A, 0x7A));
         var font = new FontFamily(s.FontFamily);
 
-        foreach (var tb in new[] { MonthTitle, PrevText, TodayText, NextText }) { tb.Foreground = text; tb.FontFamily = font; }
-        GearText.Foreground = text;   // keeps its own icon font
+        foreach (var tb in new[] { MonthTitle, TodayText }) { tb.Foreground = text; tb.FontFamily = font; }
+        foreach (var tb in new[] { PrevText, NextText, GearText }) tb.Foreground = text;   // keep their own icon font
+        TodayBtn.BorderBrush = new SolidColorBrush(WithAlpha(((SolidColorBrush)text).Color, 0x44));
         bool canGoToday = !BoardLayout.IsAtToday(_anchor, _renderedToday, s);
         TodayBtn.IsEnabled = canGoToday;
         TodayBtn.Cursor = canGoToday ? System.Windows.Input.Cursors.Hand : System.Windows.Input.Cursors.Arrow;
@@ -1102,10 +1103,22 @@ public partial class MainWindow : Window
             Place(new TextBlock
             {
                 Text = culture.DateTimeFormat.GetAbbreviatedDayName(dow),
-                Foreground = isOff ? off : text, Opacity = 0.8, FontFamily = font, FontSize = headerSize,
-                HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 4),
+                Foreground = isOff ? off : text, Opacity = 0.72, FontFamily = font, FontSize = headerSize,
+                FontWeight = FontWeights.SemiBold,
+                HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 6),
             }, 0, c + colOffset);
         }
+        // hairline under the weekday labels: separates the header from the day grid
+        var rule = new Border
+        {
+            Height = 1, VerticalAlignment = VerticalAlignment.Bottom, IsHitTestVisible = false,
+            Background = new SolidColorBrush(WithAlpha(((SolidColorBrush)text).Color, 0x22)),
+            Margin = new Thickness(s.CellGap / 2.0, 0, s.CellGap / 2.0, 0),
+        };
+        Grid.SetRow(rule, 0);
+        Grid.SetColumn(rule, colOffset);
+        Grid.SetColumnSpan(rule, grid.Columns);
+        GridHost.Children.Add(rule);
 
         bool dense = grid.Columns > 7;                // single-line modes: narrow cells
         double dayFont = dense ? Math.Max(9, s.FontSize - 3) : s.FontSize;
@@ -1181,15 +1194,26 @@ public partial class MainWindow : Window
         var shown = _countdowns is null || _contentHidden ? []
             : CountdownCalc.Ordered(_countdowns.List().Where(c => c.ShowBottom), _renderedToday);
         CountdownBar.Visibility = shown.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        var textColor = ((SolidColorBrush)text).Color;
+        var accent = Color.FromRgb(0x3B, 0x82, 0xF6);
         foreach (var (cd, status) in shown)
         {
-            var tb = new TextBlock
+            // one chip per countdown: the "D-12" label in bold, then the title; D-Day itself gets the accent fill
+            bool isDay = status.Days == 0 && !status.Elapsed;
+            string summary = CountdownCalc.Summary(cd, status);
+            string rest = summary.StartsWith(status.Label, StringComparison.Ordinal) ? summary[status.Label.Length..] : " " + summary;
+            var tb = new TextBlock { Foreground = isDay ? Brushes.White : text, FontFamily = font, FontSize = size, VerticalAlignment = VerticalAlignment.Center };
+            var label = new Run(status.Label) { FontWeight = FontWeights.Bold };
+            Typography.SetNumeralAlignment(label, FontNumeralAlignment.Tabular);
+            tb.Inlines.Add(label);
+            tb.Inlines.Add(new Run(rest));
+            CountdownBar.Children.Add(new Border
             {
-                Text = CountdownCalc.Summary(cd, status), Foreground = text, FontFamily = font, FontSize = size,
-                Margin = new Thickness(0, 0, 14, 0), Opacity = status.Elapsed ? 0.65 : 0.95,
-            };
-            if (status.Days == 0 && !status.Elapsed) tb.FontWeight = FontWeights.Bold;
-            CountdownBar.Children.Add(tb);
+                Child = tb, CornerRadius = new CornerRadius(size), Padding = new Thickness(9, 2, 10, 3), Margin = new Thickness(0, 0, 6, 4),
+                Background = new SolidColorBrush(isDay ? accent : WithAlpha(textColor, 0x16)),
+                BorderBrush = new SolidColorBrush(isDay ? accent : WithAlpha(textColor, 0x26)), BorderThickness = new Thickness(1),
+                Opacity = status.Elapsed ? 0.6 : 1.0, ToolTip = summary,
+            });
         }
     }
 
@@ -1249,7 +1273,13 @@ public partial class MainWindow : Window
             border.Background = new SolidColorBrush(WithAlpha(cc, 0x66));
         else if (isHighlighted) border.Background = new SolidColorBrush(Color.FromArgb(0x38, 0xFF, 0xC8, 0x57));
         else if (cell.IsToday) border.Background = new SolidColorBrush(dense ? Color.FromArgb(0xB0, accent.R, accent.G, accent.B)
-                                                                              : Color.FromArgb(0x30, accent.R, accent.G, accent.B));
+                                                                              : Color.FromArgb(0x26, accent.R, accent.G, accent.B));
+        if (cell.IsToday && !isHighlighted && !dense)
+        {
+            // today: a thin accent outline on top of the tint, so it reads even over a busy background photo
+            border.BorderBrush = new SolidColorBrush(Color.FromArgb(0x8C, accent.R, accent.G, accent.B));
+            border.BorderThickness = new Thickness(1);
+        }
         else if (isDayOffCell && !string.IsNullOrWhiteSpace(s.HolidayBgColor))
         {
             var hc = UiColors.Parse(s.HolidayBgColor, Colors.Transparent);
@@ -1272,6 +1302,22 @@ public partial class MainWindow : Window
             Margin = new Thickness(6, 4, 0, 0),
         };
         UIElement head = number;
+        if (cell.IsToday && !dense)
+        {
+            // today's number sits on a filled accent pill: the strongest mark on the board, found at a glance
+            number.Margin = new Thickness(0);
+            number.Foreground = Brushes.White;
+            number.FontWeight = FontWeights.Bold;
+            number.HorizontalAlignment = HorizontalAlignment.Center;
+            number.VerticalAlignment = VerticalAlignment.Center;
+            head = new Border
+            {
+                Background = new SolidColorBrush(accent), Child = number,
+                MinWidth = size * 1.4, Height = size * 1.4, CornerRadius = new CornerRadius(size * 0.7),
+                Padding = new Thickness(4, 0, 4, 0), Margin = new Thickness(3, 1, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Left,
+            };
+        }
 
         var stack = new StackPanel { Opacity = cell.InAnchorMonth ? 1.0 : 0.42 };
         stack.Children.Add(!dense && info is not null ? WithAnnotations(head, info, s, text, holidayBrush, font, size) : head);
@@ -1304,6 +1350,14 @@ public partial class MainWindow : Window
         border.ContextMenu = BuildCellMenu(cell.Date);
         // A single click does nothing (it used to open the editor, which fired by accident); double-click opens it.
         border.MouseLeftButtonDown += (_, e) => { if (e.ClickCount == 2 && !_editMode && !e.Handled) { e.Handled = true; OpenEditor(cell.Date); } };
+        // hover state layer: shows which day a double-click will open
+        var restBg = border.Background;
+        var restColor = (restBg as SolidColorBrush)?.Color ?? Colors.Transparent;
+        var hoverBg = new SolidColorBrush(restColor.A < 0x14
+            ? WithAlpha(((SolidColorBrush)text).Color, 0x14)
+            : WithAlpha(restColor, (byte)Math.Min(0xFF, restColor.A + 0x1C)));
+        border.MouseEnter += (_, _) => { if (!_editMode) border.Background = hoverBg; };
+        border.MouseLeave += (_, _) => border.Background = restBg;
         _cells[cell.Date] = border;
         return border;
     }
@@ -1353,22 +1407,40 @@ public partial class MainWindow : Window
 
     private static readonly SolidColorBrush DefaultEventBrush = Brush("#9CC9FF", Colors.LightSkyBlue);
 
+    /// <summary>The "reminder set" mark at the end of a line: a vector bell glyph in the line's colour (not an emoji, which
+    /// renders in its own palette and size on every Windows build).</summary>
+    private static TextBlock ReminderMark(WpfBrush fg, double size) => new()
+    {
+        Text = "", FontFamily = IconFont, Foreground = fg, FontSize = Math.Max(8.0, size - 2.0),
+        VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0), Opacity = 0.8, ToolTip = "알림 설정됨",
+    };
+
     /// <summary>An event inside a day cell: coloured left bar, time (first day only), title, done/repeat/D-day/reminder marks.</summary>
     private UIElement MakeEventLine(EventOccurrence occ, DateOnly day, WpfBrush text, FontFamily font, double size)
     {
         var color = occ.Event.Color is { } hex ? Brush(hex, Colors.LightSkyBlue) : DefaultEventBrush;
         bool done = occ.Event.Done;
         string donePrefix = done ? "✓ " : "";
-        string prefix = donePrefix + (day > occ.Date ? "↳ " : occ.StartTime is { } t ? $"{t:HH:mm} " : "");
+        string lead = day > occ.Date ? "↳ " : "";
+        string? time = day > occ.Date ? null : occ.StartTime is { } t ? $"{t:HH:mm}" : null;
         bool repeating = RecurrenceRule.From(occ.Event).IsRepeating;
 
         var tb = new TextBlock
         {
-            Text = prefix + occ.Event.Title, Foreground = text, FontFamily = font, FontSize = size,
+            Foreground = text, FontFamily = font, FontSize = size,
             TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap,
             TextDecorations = done ? TextDecorations.Strikethrough : null,
             Opacity = done ? 0.55 : 1.0,
         };
+        tb.Inlines.Add(new Run(donePrefix + lead));
+        if (time is not null)
+        {
+            // the start time is the scan key of a day: semibold and tabular so times line up across cells
+            var tr = new Run(time + " ") { FontWeight = FontWeights.SemiBold };
+            Typography.SetNumeralAlignment(tr, FontNumeralAlignment.Tabular);
+            tb.Inlines.Add(tr);
+        }
+        tb.Inlines.Add(new Run(occ.Event.Title));
 
         UIElement mainCol;
         if (repeating)
@@ -1391,7 +1463,7 @@ public partial class MainWindow : Window
         if (occ.Event.CountdownId is { } cdId && _countdownLabels.TryGetValue(cdId, out var dday))
             marks.Children.Add(new TextBlock { Text = dday, Foreground = text, FontFamily = font, FontSize = size - 1, FontWeight = FontWeights.SemiBold, Margin = new Thickness(4, 0, 0, 0), ToolTip = "기념일까지 카운트다운" });
         if (_settings.ShowReminderMark && _eventsWithReminder.Contains(occ.Event.Id))
-            marks.Children.Add(new TextBlock { Text = "⏰", FontSize = size - 1, Margin = new Thickness(3, 0, 0, 0), Opacity = 0.85, ToolTip = "알림 설정됨" });
+            marks.Children.Add(ReminderMark(text, size));
 
         UIElement child;
         if (marks.Children.Count > 0)
@@ -1410,10 +1482,12 @@ public partial class MainWindow : Window
             child = mainCol;
         }
 
+        // a soft chip in the event's own colour (left bar + faint tint); a done event drops the tint
+        var tint = done ? Brushes.Transparent : new SolidColorBrush(WithAlpha(color.Color, 0x24));
         var row = new Border
         {
-            Margin = new Thickness(4, _settings.LineGap, 2, 0), Padding = new Thickness(4, 0, 2, 0), CornerRadius = new CornerRadius(2),
-            BorderBrush = color, BorderThickness = new Thickness(2.5, 0, 0, 0), Background = Brushes.Transparent,
+            Margin = new Thickness(4, _settings.LineGap, 3, 0), Padding = new Thickness(4, 0, 3, 0), CornerRadius = new CornerRadius(3),
+            BorderBrush = color, BorderThickness = new Thickness(2.5, 0, 0, 0), Background = tint,
             Cursor = System.Windows.Input.Cursors.Hand,
             Child = child,
         };
@@ -1555,12 +1629,12 @@ public partial class MainWindow : Window
         Grid.SetColumn(textCol, 1);
         row.Children.Add(textCol);
 
-        // small marks at the right end of the line: D-day label, reminder (⏰)
+        // small marks at the right end of the line: D-day label, reminder bell
         var marks = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         if (item.CountdownId is { } cdId && _countdownLabels.TryGetValue(cdId, out var dday))
             marks.Children.Add(new TextBlock { Text = dday, Foreground = fg, FontFamily = font, FontSize = size - 1, FontWeight = FontWeights.SemiBold, Margin = new Thickness(4, 0, 0, 0), ToolTip = "기념일까지 카운트다운" });
         if (s.ShowReminderMark && _itemsWithReminder.Contains(item.Id))
-            marks.Children.Add(new TextBlock { Text = "⏰", FontSize = size - 1, Margin = new Thickness(3, 0, 0, 0), Opacity = 0.85, ToolTip = "알림 설정됨" });
+            marks.Children.Add(ReminderMark(fg, size));
         if (marks.Children.Count > 0)
         {
             Grid.SetColumn(marks, 2);
